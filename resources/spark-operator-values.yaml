@@ -1,0 +1,17 @@
+controllerThreads: 30
+nodeSelector:
+  operational: "true"
+  monitor: "false"
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+    - labelSelector:
+        matchExpressions:
+        - key: app.kubernetes.io/name
+          operator: Exists
+      topologyKey: "kubernetes.io/hostname"
+webhook:
+  enable: true
+  nodeSelector:
+    operational: "true"
+    monitor: "false"
