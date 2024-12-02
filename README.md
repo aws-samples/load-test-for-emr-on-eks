@@ -116,6 +116,7 @@ export USE_AMG="true"  # Enable Amazon Managed Grafana
 ```
 
 </details>
+
 [^ back to top](#table-of-contents)
 
 
@@ -464,12 +465,13 @@ kubelet:
 ```
 
 </details>
+
 [^ back to top](#table-of-contents)
 
 
 ### 2. Metrics & Evaluation
 
-Please refer to the `./grafana/README.md` document for detailed explanation, how to monitor and evaluate your performance in Locust, Spark Operator, EKS cluster, IP utilization, etc.
+Please refer to the [Grafana README](./grafana/README.md) document for detailed explanation, how to monitor and evaluate your performance in Locust, Spark Operator, EKS cluster, IP utilization, etc.
 
 ## Clean up
 ```bash
