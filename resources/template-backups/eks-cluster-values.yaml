@@ -1,0 +1,65 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+metadata:
+  name: ${CLUSTER_NAME}
+  region: ${AWS_REGION}
+  version: "${EKS_VERSION}"
+vpc:
+  cidr: "${EKS_VPC_CIDR}"
+  clusterEndpoints:
+    publicAccess: true
+    privateAccess: true
+availabilityZones: ["${AWS_REGION}a","${AWS_REGION}b"]   
+iam:
+  withOIDC: true
+  serviceAccounts:
+  - metadata:
+      name: cluster-autoscaler
+      namespace: kube-system
+      labels: {aws-usage: "cluster-ops"}
+    wellKnownPolicies:
+      autoScaler: true
+    roleName: eksctl-cluster-autoscaler-role
+addons:
+  - name: aws-ebs-csi-driver
+    version: latest
+managedNodeGroups:
+  - name: ${LOAD_TEST_PREFIX}-operational-ng
+    instanceType: r5.4xlarge
+    desiredCapacity: 1
+    minSize: 1
+    maxSize: 1
+    privateNetworking: true
+    labels:
+      operational: "true"
+      monitor: "true"
+  - name: ${LOAD_TEST_PREFIX}-sparkoperator-ng
+    instanceType: r5.2xlarge
+    desiredCapacity: 1
+    minSize: 1
+    maxSize: 20
+    privateNetworking: true
+    labels:
+      operational: "true"
+      monitor: "false"
+  - name: ${LOAD_TEST_PREFIX}-m5-x-worker-ng-2a
+    instanceType: m5.xlarge
+    desiredCapacity: 1
+    minSize: 1
+    maxSize: 350
+    privateNetworking: true
+    labels:
+      operational: "false"
+      monitor: "false"
+    availabilityZones: ["${AWS_REGION}a"]
+  # us-west-2b worker nodegroup
+  - name: ${LOAD_TEST_PREFIX}-m5-x-worker-ng-2b
+    instanceType: m5.xlarge
+    desiredCapacity: 1
+    minSize: 1
+    maxSize: 350
+    privateNetworking: true
+    labels:
+      operational: "false"
+      monitor: "false"
+    availabilityZones: ["${AWS_REGION}b"]

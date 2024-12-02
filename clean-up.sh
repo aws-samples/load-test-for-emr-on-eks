@@ -111,34 +111,29 @@ aws s3api delete-bucket --bucket ${BUCKET_NAME} --region ${AWS_REGION}
 
 # Restore backup files
 echo "Restoring backup files..."
-if [ -f "./resources/autoscaler-values.yaml.bak" ]; then
-    mv ./resources/autoscaler-values.yaml.bak ./resources/autoscaler-values.yaml
+if [ -f "./resources/template-backups/autoscaler-values.yaml" ]; then
+    cp -f ./resources/template-backups/autoscaler-values.yaml ./resources/autoscaler-values.yaml
+fi
+if [ -f "./resources/template-backups/prometheus-values.yaml" ]; then
+    cp -f ./resources/template-backups/prometheus-values.yaml ./resources/prometheus-values.yaml
+fi
+if [ -f "./resources/template-backups/karpenter-nodepool.yaml" ]; then
+    cp -f ./resources/template-backups/karpenter-nodepool.yaml ./resources/karpenter-nodepool.yaml
+fi
+if [ -f "./resources/template-backups/karpenter-controller-policy.json" ]; then
+    cp -f ./resources/template-backups/karpenter-controller-policy.json ./resources/karpenter-controller-policy.json
+fi
+if [ -f "./resources/template-backups/karpenter-0.37.0.yaml" ]; then
+    cp -f ./resources/template-backups/karpenter-0.37.0.yaml ./resources/karpenter-0.37.0.yaml
 fi
 
-if [ -f "./resources/prometheus-values.yaml.bak" ]; then
-    mv ./resources/prometheus-values.yaml.bak ./resources/prometheus-values.yaml
+if [ -f "./resources/template-backups/spark-pi.yaml" ]; then
+    cp -f ./resources/template-backups/spark-pi.yaml ./locust/resources/spark-pi.yaml
 fi
 
-if [ -f "./resources/karpenter-nodepool.yaml.bak" ]; then
-    mv ./resources/karpenter-nodepool.yaml.bak ./resources/karpenter-nodepool.yaml
+if [ -f "./resources/template-backups/grafana-service-role-assume-policy.json" ]; then
+    cp -f ./resources/template-backups/grafana-service-role-assume-policy.json ./grafana/grafana-service-role-assume-policy.json
 fi
-
-if [ -f "./resources/karpenter-controller-policy.json.bak" ]; then
-    mv ./resources/karpenter-controller-policy.json.bak ./resources/karpenter-controller-policy.json
-fi
-
-if [ -f "./resources/karpenter-0.37.0.yaml.bak" ]; then
-    mv ./resources/karpenter-0.37.0.yaml.bak ./resources/karpenter-0.37.0.yaml
-fi
-
-if [ -f "./locust/resources/spark-pi.yaml.bak" ]; then
-    mv ./locust/resources/spark-pi.yaml.bak ./locust/resources/spark-pi.yaml
-fi
-
-if [ -f "./grafana/grafana-service-role-assume-policy.json.bak" ]; then
-    mv ./grafana/grafana-service-role-assume-policy.json.bak ./grafana/grafana-service-role-assume-policy.json
-fi
-
 # Delete EKS cluster
 echo "Deleting EKS cluster..."
 eksctl delete cluster --name ${CLUSTER_NAME} --region ${AWS_REGION}

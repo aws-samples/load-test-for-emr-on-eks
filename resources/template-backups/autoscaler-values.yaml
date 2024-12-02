@@ -1,0 +1,20 @@
+autoDiscovery:
+  clusterName: eks-operator-test-eks-cluster
+awsRegion: us-west-2
+image:
+  tag: v1.30.0
+nodeSelector:
+  operational: "true"
+  monitor: "true"
+podAnnotations:
+  cluster-autoscaler.kubernetes.io/safe-to-evict: 'false'
+extraArgs:
+  skip-nodes-with-system-pods: false
+  scale-down-unneeded-time: 30s
+  scale-down-unready-time: 1m
+  kube-client-qps: 300
+  kube-client-burst: 400
+rbac:
+  serviceAccount:
+    create: false
+    name: cluster-autoscaler

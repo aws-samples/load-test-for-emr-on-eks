@@ -1,0 +1,31 @@
+# Submit CAS jobs to a single AZ, please align with your NodeGroup config. eg: you have created nodegroup in us-west-2a.
+locust -f locustfile.py -u 3 -t 200m --headless --skip-log-setup \
+--job-azs '["us-west-2a"]' \
+--kube-labels '[{"operational":"false"}]' \
+--job-name cas-basic \
+--job-ns-count 1
+
+# Submit CAS jobs randomly to multiple AZs, please align with your NodGroup config. eg: you have created nodegroup in us-west-2a and us-west-2b.
+locust -f locustfile.py -u 3 -t 200m --headless --skip-log-setup \
+--job-azs '["us-west-2a", "us-west-2b"]' \
+--kube-labels '[{"operational":"false"}]' \
+--job-name cas-multiaz \
+--job-ns-count 2
+
+
+# --binpacking is enabled by default.
+# Submit CAS jobs with binpacking disabled:
+locust -f locustfile.py -u 3 -t 200m --headless --skip-log-setup \
+--job-azs '["us-west-2a", "us-west-2b"]' \
+--kube-labels '[{"operational":"false"}]' \
+--job-name cas-nobinpack \
+--job-ns-count 1 \
+--binpacking false
+
+
+# Submit CAS jobs with multiple kubernets lables:
+locust -f locustfile.py -u 3 -t 200m --headless --skip-log-setup \
+--job-azs '["us-west-2a", "us-west-2b"]' \
+--kube-labels '[{"operational":"false"},{"monitor":"false"}]' \
+--job-name cas-multi-label\
+--job-ns-count 1

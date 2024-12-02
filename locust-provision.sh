@@ -636,7 +636,9 @@ EOF
         echo "Instance ID: ${INSTANCE_ID}"
         echo "Public IP: ${PUBLIC_IP}"
         echo "Public IP: ${PRIVATE_IP}"
+        echo "==============================================="
         echo "To connect to the instance use: ssh -i ${KEY_NAME}.pem ec2-user@${PUBLIC_IP}"
+        echo "==============================================="
     else
         INSTANCE_ID=$(check_ec2_instance "$INSTANCE_NAME")
         PUBLIC_IP=$(aws ec2 describe-instances \
@@ -647,7 +649,9 @@ EOF
         echo "EC2 instance ${INSTANCE_NAME} already exists"
         echo "Instance ID: ${INSTANCE_ID}"
         echo "Public IP: ${PUBLIC_IP}"
+        echo "==============================================="
         echo "To connect to the instance use: ssh -i ${KEY_NAME}.pem ec2-user@${PUBLIC_IP}"
+        echo "==============================================="
     fi
 
 elif [ "$ACTION" == "delete" ]; then

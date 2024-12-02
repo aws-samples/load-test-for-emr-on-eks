@@ -99,15 +99,18 @@ export USE_AMG="true"  # Enable Amazon Managed Grafana
 
 </details>
 
+#### 1.2 To modify the EKS cluster yaml file for Cluster / NodeGroups:
+- For eks cluster & NodeGroups, please update `./resources/eks-cluster-values.yaml`
+- For Karpenter NodePools, please update `./resources/karpenter-nodepool.yaml`
+- If you wants to modify the default of the templates, please update `./resources/template-backups/` accordingly, these templates/yaml files will be restoring during `./clean-up.sh` execution.
 
 
-
-#### 1.2 To build the infrastructure, please execute the below cmd:
+#### 1.3 To build the infrastructure, please execute the below cmd:
 ```bash
 bash ./infra-provision.sh
 ```
 
-#### 1.3 Infrastructure Inclusions:
+#### 1.4 Infrastructure Inclusions:
 
 <details>
 <summary>Here are the inclusions of the <b>infra-provision.sh</b> script </summary>
@@ -354,18 +357,63 @@ With large volume of workload, if the IP addresses of the eks cluster resided su
 https://docs.aws.amazon.com/eks/latest/best-practices/networking.html
 
 
-## Clean up
-```bash
-# To remove the Locust EC2 from infrastructure. You can ignore if you did not execute bash ./locust-provision.sh before.
-bash ./locust-provision.sh -action delete
-
-# To remove the resources that created by ./infra-provision.sh.
-bash ./clean-up.sh 
-```
-
 ## Monitoring:
 
 We have built monitoring solution for this architecture, with [Amazon Managed Prometheus](https://aws.amazon.com/prometheus/) and [Amazon Managed Grafana](https://aws.amazon.com/grafana/) included by default.
+
+<table align="center">
+  <tr>
+    <td>
+      <img src="grafana/images/spark-operator-dashboard.png" width="600"/>
+      <p align="center">Spark Operator Dashboard</p>
+    </td>
+    <td>
+      <img src="grafana/images/emr-on-eks-dashboard.png" width="600"/>
+      <p align="center">EMR on EKS Dashboard</p>
+    </td>
+  </tr>
+  <tr>
+    <td>
+      <img src="grafana/images/eks-control-plane.png" width="600"/>
+      <p align="center">EKS Control Plane</p>
+    </td>
+    <td>
+      <img src="grafana/images/aws-cni-metrics.png" width="600"/>
+      <p align="center">AWS CNI Metrics</p>
+    </td>
+  </tr>
+</table>
+
+### 1. To use Amazon Managed Prometheus and Amazon Managed Grafana, please follow the below links:
+Please aware, `./infra-provision.sh` has involved prometheus on eks and also Amazon Managed Prometheus by default. Thus, please just follow the below guidence to set up Amazon Managed Grafana:
+<details>
+<summary>Here are the steps to use Amazon Managed Grafana </summary>
+
+- From `./env.sh`, keep default value as below, then the script will create AMG workspace automatically:
+```bash
+export USE_AMG="true"
+```
+If you do not have the IAM Identity Center / useage account enabled, then please follow: https://docs.aws.amazon.com/databrew/latest/dg/sso-setup.html
+
+- Set up the access for Amazon Grafana:
+    - Access to aws console -> search "Amazon Grafana" -> click the three lines icon at top left of the page -> click "All workspaces";
+    - click the workspace name, which is the same value of the `LOAD_TEST_PREFIX` value;
+    - From Authentication tab -> click "Assign new user or group";
+    - Select your account -> click "Assign Users and groups";
+    - Select your account again -> click "Action" -> "Make admin";
+    - To find the "Grafana workspace URL" from the workspace detail page -> access to the URL.
+
+- Sign in via IAM Identity Center access;
+- Set up Amazon Managed Prometheus Datasource via:
+    - Click Apps -> AWS Data Source -> Click `Amazon Managed Service for Prometheus`;
+    - Select `region` align with your eks cluster, eg: `us-west-2`;
+    - Select the Region and Click Add data source.
+    - Click `Go to Settings`, scroll down to the bottom and click `Save & test` to verify the connection.
+
+- Set up Grafana Dashboard:
+    - Client the "+" icon from top right of the page after signed in -> click "Import dashboard";
+    - You can either use `Upload` or `Copy & Paste` the value of `./grafana/grafana-dashboard-template.json` and then click "Load";
+    - Select the data source, which align with the AMP connection that sets up above, eg: `Prometheus ws-xxxx.....`
 
 Please aware if the below charts are not working, which is expected, due to the kubelet will generate the large volume of metrics and it will boot prometheus memory usage.
 - Prometheus Kubelet Metrics Series Count
@@ -377,9 +425,99 @@ kubelet:
   enabled: true
 ```
 
+</details>
+
+### 2. To use our pre-defined Grafana Temaplate
+
+
+We have set up a comprehensive dashboard to monitor how is the load testing running, and here are the major metrics we are using to monitor the load testing.
 
 
 
+<details>
+<summary> Partial explanation for `grafana-dashboard-template.json` </summary>
+
+- CNI(1 panel)
+
+    To monitor the IP address usage.
+    - If the `Not assigned IP` is large, which mean the eks has large number of wasted IP addresses.
+ 
+- Prometheus Stats(6 panels)
+
+    To monitor promtheus itself, ensuring promtheus on eks is running well. 
+ 
+- Spark Job Status on EKS(6 panels)
+    
+    The overall spark job running statistics on the eks cluster. 
+    - `Total Running Spark Pods & Driver Exec Ratio`: For a spark job eg, with 1 driver & 10 executors, to ensure overall jobs are running in a healthy status, can monitor this ratio. Due to spark has default `0.8` of `spark.scheduler.minRegisteredResourcesRatio`, so the graph should over `8`.
+ 
+- Spark Operator Workqueue(7 panels)
+
+    - `spark_application_controller_adds enqueue`, which counts one minute rate (per second) of number items added to workqueuec (each spark operator is in a dedicated namespace).
+    - `spark_application_controller_work_duration_count dequeue`, which calculates one minute rate (per second) of number items removed from workqueue grouped by namespace.
+    - `Spark Application Controller Latency`, which calculates average time from an item is added to the workqueue to the time when the item is fetched from workqueue by spark operator worker, which means it measures how much time an item has to stay on the queue before it is fetched.
+    - `Spark Application Controller Task Process Time`, when a worker fetch an item from the workqueue, it will spend sometime processing the item then import workqueue the process is finished. This metrics measures the average time taken from the item is feched from the queue to the time when the item finished processing.  
+    - `Spark Application Controller Queue Depth`, which is monitoring the spark operator workqueue depth.
+
+- Spark Application apiserver(2 panels)
+
+    - `apiserver_request_total`, which measures rate of apiserver request on resource sparkapplication. Since spark operator responsible for updating sparkapplication CRD status. This metrics can also tell us how fast or how senstive spark operator reacts to workqueue input. 
+ 
+- Spark Application Status at Locust Client(5 panels)
+
+    Spark Application Status at Locust Client, the load test uses a locust client running on an ec2 instance to create sparkapplication to EKS. From the same locust client, a seperated thread runs every 30 seconds to get a list of all sparkapplication and count their status at the given point of time.
+    - `New(not yet submitted)`, which metrics counts number of sparkapplications that are created by not yet submitted at the given point of time.
+    - `SUBMITTED`, which counts number of submitted sparkapplication but not running yet at the given point of time.
+    - `Running`, which counts the number of sparkappication in RUNNING state at the given point of time.
+    - `SUCCEEDING`, which counts the number of sparkapplication in SUCCEEDING state.
+    - `COMPLETED`, which counts number of spark application in COMPLETED state at the given point of time.
+ 
+- Locust metrics - Client(6 panels)
+    These metrics generated from locust client. It counts number of successful submitted jobs, failed submitted job, average job submit time, measured from client side. This tells job submission stats from user perspective.
+    ```python
+    try:
+            submit_job()
+            success_counter.inc()
+            execution_time_gauge.set(time.time() - start_time)
+        except client.exceptions.ApiException as e:
+            failed_counter.inc()
+    ```
+    - `Locust Submit (success) rate 1m`, which counts number of success job submits for 1 minute.
+    - `Locust Submit Job Total`, which counts total successfull submitted job.
+    - `Locust Submit (fail) Rate`, which counts number of failed job submits for 1 minute.
+    - `Locust Submit Job Fail Total`, which counts number of failed job submits in total.
+    - `Locust Submit Job Time`, which measures time used to submit a sparkapplication job.
+    - `Locust User Count`, which counts number of locust users.
+
+ 
+- Spark Operator Metrics - Server(15 panels)
+    This group of metrics shows spark operator internal metrics provided from https://github.com/kubeflow/spark-operator/blob/v1beta2-1.3.8-3.1.1/pkg/controller/sparkapplication/sparkapp_metrics.go.
+    - `Failed Spark Job Per minutes`: This metric meassures number of failed spark application increased per minutes.
+    - `Failed Spark Job Total`: This metric measture total number of failed spark job deteced by spark operator.
+    - `Average Job Failure Runtime`: This metric measures how long a failed sparkappliction runs.
+    - `Success Spark Application Per Minute`: This metrics meastures average number of success spark application per minute, grouped by namespace, and sum.
+    - `Success Spark Application Total`: This metric meastures total number of success spark application.
+    - `Average Sucess Job Run Time`: This metric measures average run time of success spark application
+    - `Spark Application Count Incrase Per minute`: This metric number of newly created spark application detected by spark operator, grouped by namespace and sum
+    - `Spark Application Count Total`: This metrics total created spark application detected by spark operator, grouped by namespace and sum.
+    - `Submitted Spark Application Per Minutes`: This metric counts number of submitted spark application per minutes, grouped by namespace and sum. This is a counter and increased when spark application enters Submitted state https://github.com/kubeflow/spark-operator/blob/c261df66a00635509f7d8cb2a7fba4c602c9228e/pkg/controller/sparkapplication/sparkapp_metrics.go#L204
+    - `Submitted Spark Application Total`: This metric counts total number of submitted spark application, grouped by namespace and sum.
+    - `Running Spark Application Count`: Metrics is based on spark_app_running_count. spark_app_running_count is a counter, this counter is increased by 1 when a spark job enters Running state https://github.com/kubeflow/spark-operator/blob/c261df66a00635509f7d8cb2a7fba4c602c9228e/pkg/controller/sparkapplication/sparkapp_metrics.go#L210, and decrease when a spark application enters Succeeding state https://github.com/kubeflow/spark-operator/blob/c261df66a00635509f7d8cb2a7fba4c602c9228e/pkg/controller/sparkapplication/sparkapp_metrics.go#L222. So it means (TotalNumberOfSparkApplicationEnteredRunningState - TotalNumberOfSparkApplicationEnteredSucceedingState)
+    - `Start Application Start Latency`: This metric measures the duration from the application is created (New State) to the time when the application entered Running state. In other words, it includes two time cost on two phase. 
+    Phase1, from the time user creates spark application to the time spark operator run spark-submit. Phase2, from spark operator runs spark-submit to the time when application starts running. https://github.com/kubeflow/spark-operator/blob/c261df66a00635509f7d8cb2a7fba4c602c9228e/pkg/controller/sparkapplication/sparkapp_metrics.go#L300 https://github.com/kubeflow/spark-operator/blob/c261df66a00635509f7d8cb2a7fba4c602c9228e/pkg/controller/sparkapplication/sparkapp_metrics.go#L212
+
+
+
+</details>
+
+## Clean up
+```bash
+# To remove the Locust EC2 from infrastructure. You can ignore if you did not execute bash ./locust-provision.sh before.
+bash ./locust-provision.sh -action delete
+
+# To remove the resources that created by ./infra-provision.sh.
+bash ./clean-up.sh 
+```
 
 ## Security
 

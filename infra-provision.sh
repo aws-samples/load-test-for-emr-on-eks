@@ -24,7 +24,6 @@ aws s3api create-bucket \
 aws s3 cp ./locust/resources/custom-spark-pi.py "s3://${BUCKET_NAME}/testing-code/custom-spark-pi.py"
 
 # Update the testing spark job yaml config
-cp ./locust/resources/spark-pi.yaml ./locust/resources/spark-pi.yaml.bak
 sed -i '' 's/{BUCKET_NAME}/'$BUCKET_NAME'/g' ./locust/resources/spark-pi.yaml
 
 echo "==============================================="
@@ -32,75 +31,15 @@ echo "  Create EKS Cluster ......"
 echo "==============================================="
 
 if ! aws eks describe-cluster --name ${CLUSTER_NAME} --region ${AWS_REGION} >/dev/null 2>&1; then
-    cat << EOF > /tmp/cluster.yaml
-apiVersion: eksctl.io/v1alpha5
-kind: ClusterConfig
-metadata:
-  name: ${CLUSTER_NAME}
-  region: ${AWS_REGION}
-  version: "1.30"
-vpc:
-  cidr: "${EKS_VPC_CIDR}"
-  clusterEndpoints:
-    publicAccess: true
-    privateAccess: true
-availabilityZones: ["${AWS_REGION}a","${AWS_REGION}b"]   
-iam:
-  withOIDC: true
-  serviceAccounts:
-  - metadata:
-      name: cluster-autoscaler
-      namespace: kube-system
-      labels: {aws-usage: "cluster-ops"}
-    wellKnownPolicies:
-      autoScaler: true
-    roleName: eksctl-cluster-autoscaler-role
-addons:
-  - name: aws-ebs-csi-driver
-    version: latest
-managedNodeGroups:
-  - name: ${LOAD_TEST_PREFIX}-operational-ng
-    instanceType: r5.4xlarge
-    desiredCapacity: 1
-    minSize: 1
-    maxSize: 1
-    privateNetworking: true
-    labels:
-      operational: "true"
-      monitor: "true"
-  - name: ${LOAD_TEST_PREFIX}-sparkoperator-ng
-    instanceType: r5.2xlarge
-    desiredCapacity: 1
-    minSize: 1
-    maxSize: 20
-    privateNetworking: true
-    labels:
-      operational: "true"
-      monitor: "false"
-  - name: ${LOAD_TEST_PREFIX}-m5-x-worker-ng-2a
-    instanceType: m5.xlarge
-    desiredCapacity: 1
-    minSize: 1
-    maxSize: 350
-    privateNetworking: true
-    labels:
-      operational: "false"
-      monitor: "false"
-    availabilityZones: ["${AWS_REGION}a"]
-  # us-west-2b worker nodegroup
-  - name: ${LOAD_TEST_PREFIX}-m5-x-worker-ng-2b
-    instanceType: m5.xlarge
-    desiredCapacity: 1
-    minSize: 1
-    maxSize: 350
-    privateNetworking: true
-    labels:
-      operational: "false"
-      monitor: "false"
-    availabilityZones: ["${AWS_REGION}b"]
-EOF
 
-    eksctl create cluster -f /tmp/cluster.yaml
+    sed -i '' 's|${AWS_REGION}|'$AWS_REGION'|g' ./resources/eks-cluster-values.yaml
+    sed -i '' 's|${CLUSTER_NAME}|'$CLUSTER_NAME'|g' ./resources/eks-cluster-values.yaml
+    sed -i '' 's|${EKS_VERSION}|'$EKS_VERSION'|g' ./resources/eks-cluster-values.yaml
+    sed -i '' 's|${EKS_VPC_CIDR}|'$EKS_VPC_CIDR'|g' ./resources/eks-cluster-values.yaml
+    sed -i '' 's|${LOAD_TEST_PREFIX}|'$LOAD_TEST_PREFIX'|g' ./resources/eks-cluster-values.yaml
+    
+    eksctl create cluster -f ./resources/eks-cluster-values.yaml
+
 fi
 
 
@@ -115,8 +54,6 @@ echo $OIDC_PROVIDER
 echo "==============================================="
 echo "  Setup Cluster Autoscaler ......"
 echo "==============================================="
-
-cp ./resources/autoscaler-values.yaml ./resources/autoscaler-values.yaml.bak
 
 sed -i '' 's/${CLUSTER_NAME}/'$CLUSTER_NAME'/g' ./resources/autoscaler-values.yaml
 sed -i '' 's/${AWS_REGION}/'$AWS_REGION'/g' ./resources/autoscaler-values.yaml
@@ -405,8 +342,6 @@ else
     export WORKSPACE_ID=$amp
 fi
 
-cp ./resources/prometheus-values.yaml ./resources/prometheus-values.yaml.bak
-
 sed -i '' 's/{AWS_REGION}/'$AWS_REGION'/g' ./resources/prometheus-values.yaml
 sed -i '' 's/{ACCOUNTID}/'$ACCOUNT_ID'/g' ./resources/prometheus-values.yaml
 sed -i '' 's/{WORKSPACE_ID}/'$WORKSPACE_ID'/g' ./resources/prometheus-values.yaml
@@ -429,8 +364,6 @@ echo "Check and create Karpenter controller policy"
 if aws iam get-policy --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${KARPENTER_CONTROLLER_POLICY}" 2>/dev/null; then
     echo "Policy ${KARPENTER_CONTROLLER_POLICY} already exists"
 else
-    cp ./resources/karpenter-controller-policy.json ./resources/karpenter-controller-policy.json.bak
-
     sed -i '' 's/${ACCOUNT_ID}/'$ACCOUNT_ID'/g' ./resources/karpenter-controller-policy.json
     sed -i '' 's/${NODE_ROLE_NAME}/'$KARPENTER_NODE_ROLE'/g' ./resources/karpenter-controller-policy.json
     sed -i '' 's/${AWS_REGION}/'$AWS_REGION'/g' ./resources/karpenter-controller-policy.json
@@ -547,9 +480,6 @@ data:
       username: system:node:{{EC2PrivateDNSName}}
 EOF
 
-
-cp ./resources/karpenter-0.37.0.yaml ./resources/karpenter-0.37.0.yaml.bak
-
 sed -i '' 's|KarpenterControllerRole_ARN|arn:aws:iam::'$ACCOUNT_ID':role/'$KARPENTER_CONTROLLER_ROLE'|g' ./resources/karpenter-0.37.0.yaml
 sed -i '' 's|CLUSTER_NAME_VALUE|'$CLUSTER_NAME'|g' ./resources/karpenter-0.37.0.yaml
 
@@ -564,8 +494,6 @@ echo "  Set up Karpenter Nodepools ......"
 echo "==============================================="
 
 # Create NodePools for Karpenter:
-cp ./resources/karpenter-nodepool.yaml ./resources/karpenter-nodepool.yaml.bak
-
 sed -i '' 's/${AWS_REGION}/'$AWS_REGION'/g' ./resources/karpenter-nodepool.yaml
 sed -i '' 's/${NODE_ROLE_NAME}/'$KARPENTER_NODE_ROLE'/g' ./resources/karpenter-nodepool.yaml
 sed -i '' 's/${CLUSTER_NAME}/'$CLUSTER_NAME'/g' ./resources/karpenter-nodepool.yaml
@@ -638,7 +566,6 @@ then
     fi 
 
     # create grafana service role
-    cp ./grafana/grafana-service-role-assume-policy.json ./grafana/grafana-service-role-assume-policy.json.bak
     sed -i '' "s/\${ACCOUNT_ID}/$ACCOUNT_ID/g" ./grafana/grafana-service-role-assume-policy.json
     sed -i '' "s/\${AWS_REGION}/$AWS_REGION/g" ./grafana/grafana-service-role-assume-policy.json
 

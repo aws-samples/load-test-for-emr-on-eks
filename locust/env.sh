@@ -2,6 +2,7 @@ export LOAD_TEST_PREFIX=eks-operator-test
 export AWS_REGION=us-west-2
 export ECR_REGISTRY_ACCOUNT=895885662937
 export EKS_VPC_CIDR=172.16.0.0/16
+export EKS_VERSION=1.30
 
 # Please check below for the ECR_REGISTRY_ACCOUNT if you are using other regions
 # https://docs.aws.amazon.com/emr/latest/EMR-on-EKS-DevelopmentGuide/docker-custom-images-tag.html
