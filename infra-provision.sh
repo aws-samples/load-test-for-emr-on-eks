@@ -101,7 +101,6 @@ managedNodeGroups:
 EOF
 
     eksctl create cluster -f /tmp/cluster.yaml
-    kubectl set env daemonset aws-node -n kube-system MAX_ENI=2
 fi
 
 

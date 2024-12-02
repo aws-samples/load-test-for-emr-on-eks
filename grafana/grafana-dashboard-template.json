@@ -490,7 +490,7 @@
                 "refId": "A"
               }
             ],
-            "title": "Prometheus Kublet Metrics Series Count",
+            "title": "Prometheus Kubelet Metrics Series Count",
             "type": "timeseries"
           },
           {

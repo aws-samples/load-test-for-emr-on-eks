@@ -204,7 +204,7 @@ cd load-test/locust
 #     The default wait interval for each user to submit jobs is between 20 - 30s in this testing tool.
 # -t, the time of submitting jobs.
 # --job-azs, customized api, let jobs to be submitted into 2 AZs randomly.
-# --kube-labels, kubernates labls, matching node groups.
+# --kube-labels, kubernetes labls, matching node groups.
 # --job-name, spark job prefix. 
 # --job-ns-count, the testing jobs will be submitting to 2 Namespaces, `spark-job0`, `spark-job1`.
 
@@ -220,19 +220,138 @@ locust -f ./locustfile.py -u 2 -t 10m --headless --skip-log-setup \
 
 ```bash
 # --karpenter, to enable karpenter, instead of CAS.
-# --kube-labels, in Karpenter test case, the labels should match with Noodpool labels.
+# --kube-labels, in Karpenter test case, the labels should match with NodePool labels.
 # --binpacking true, enable binpacking pod scheduler.
 # --karpenter_driver_not_evict, enable driver pod not be evicting in Karpenter test case.
 
 locust -f ./locustfile.py -u 2 -t 10m --headless --skip-log-setup \
 --job-azs '["us-west-2a", "us-west-2b"]' \
 --kube-labels '[{"cluster-worker": "true"}]' \
---job-name karpnter-job \
+--job-name karpenter-job \
 --job-ns-count 2 \
 --karpenter \
 --binpacking true \
 --karpenter_driver_not_evict true
 ```
+
+## Best Practice Guide
+
+### 1. Spark Operator
+
+#### 1.1 Spark Operator Numbers
+For the single spark operator, the max performance for submission rate would be around 30 jobs per min (`SparkOperator version: emr-6.11.0 (v1beta2-1.3.8-3.1.1)`), and the performance tune on a single operator is very limited in the current version. 
+- To handle the large volume of workload, to horizontally scale up by using multiple Spark Operator would be the recommended solution. 
+- The operators will be not impacted from each other on eks cluster side, but higher number of operators will increase the overhead on apiserver/etcd side.
+
+#### 1.2 Isolation of Spark Operators
+For Spark Operator(s), to minimise the performance impacts caused by other services, eg.: spark job pods, prometheus pods, etc, it is recommended to allocate the Spark Operator(s), Prometheus operators in the dedicated operational node groups accordingly.
+<details>
+<summary> Spark Operator Best Practice </summary>
+
+- To use `podAntiAffinity` to ensure ***One-Node-One-Operator*** pattern
+```yaml
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+    - labelSelector:
+        matchExpressions:
+        - key: app.kubernetes.io/name
+          operator: Exists
+      topologyKey: "kubernetes.io/hostname"
+```
+- Increase `controllerThreads`
+The default number of spark operator workers(controllerThreads) is `10`, to increase it to get a better performance for job submission. 
+    - However, as the qps and bucket size is hardcoded in SparkOperator V1, thus, increase this to very large number, eg: 100, may `NOT` benefit from it as expected.
+    - In addition, it would be vary in the different spark job submission object size. As large object size of each job will take more space in the bucket of operator internally.
+
+</details>
+
+### 2. Spark Job Configuration
+#### 2.1 Allocate the Spark Job Pods (Driver & Executors) into the Node
+To minimise the cross node overhead for a single spark job, it is recommended trying to allocate the spark job pods into the same node as much as possible.
+
+- Similar as operational pods, when using CAS as node scaler solution:
+    - utilizing `nodeSelector` with `kubernetes label` feature on the spark job yaml file, to ensure the spark job pods will be allocated to the same worker NodeGroup:
+    - As an alternative, to utilize the `topology.kubernetes.io/zone` tag, to ensure all pods of a single job will be allocated into the same AZ, it depends on your NodeGroup Settings.
+```yaml
+# nodeSelector sample as below:
+    driver:
+      nodeSelector:
+      cluster-worker: "true" 
+# This label needs to match with EKS nodegroup kubernetes label or kapenter nodepool
+
+    executor:
+      nodeSelector:
+      cluster-worker: "true" 
+# This label needs to match with EKS nodegroup kubernetes label or kapenter nodepool
+```
+
+
+- To utilize `Binpacking` while submitting a Spark Job, please see details at below - `3. Binpacking`
+
+- Try to NOT use `initContainers`.
+we have found, with `initContainers` enabled, the events of a single spark job increased significantly. As a result, the eks api server and etcd DB size will be filling up faster than disabling the `initContainers`. Thus, try to avoid to use with large scale workload in a single EKS cluster, or split the jobs into multiple eks cluster.
+
+### 3. Binpacking
+
+Binpacking could efficiently allocate pods to available nodes within a Kubernetes cluster. Its primary goal is to optimize resource utilization by packing pods as tightly as possible onto nodes, while still meeting resource requirements and constraints. 
+- This approach aims to maximize cluster efficiency, reduce costs, and improve overall performance by minimizing the number of active nodes required to run the workload. 
+- With Binpacking enabled, the overall workload can minimise the resources used on network traffic between physical nodes, as most of pods will be allocated in a single node at its launch time. 
+- However, we use Karpenter's consolidation feature to maximize pods density when node's utilization starts to drop.
+- Please learn more about Binpacking via link: https://awslabs.github.io/data-on-eks/docs/resources/binpacking-custom-scheduler-eks
+
+
+
+### 4. Cluster Scalability
+#### 4.1 EKS Cluster Autoscaler (CAS)
+- To utilize the Kubernetes Labels for operational services with CAS:
+    -  With `podAntiAffinity` enabled followed by `2.1 Allocate the Spark Job Pods (Driver & Executors) into the Node` above, and enable CAS for Operational service, eg: Spark Operators, to scale up and down the Spark Operator Node by CAS automatically.
+- To schedule the large volume of pods, need to increase the qps and burst for `NodeScaler`, to avoid CAS self throttling issue:
+```yaml
+nodeSelector:
+ ## Kubernetes label for pod allocation.
+podAnnotations:
+  cluster-autoscaler.kubernetes.io/safe-to-evict: 'false'
+...
+extraArgs:
+...
+  kube-client-qps: 300
+  kube-client-burst: 400
+```
+
+#### 4.2 Karpenter Scaler:
+
+- To allocate the operational pods, e.g.: Spark Operator, Prometheus, Karpenter, Binpacking, etc in the Operational EKS NodeGroup, which are NOT controlled by Karpenter via setting up nodeSelector on the operational pods, please see details explained in `4.1 EKS Cluster Autoscaler (CAS)`
+- Karpenter Nodepool configs:
+    - Utilize the provisioner label to separate the spark driver pods and spark executor pods. As the driver pods will be creating earlier than executor pods, and then each driver pod will create 10 executors, which can improve the pending pods in short period of time.
+    - To align with NodeGroup on CAS, and also minimise the networking level noise, to utilize the `topology.kubernetes.io/zone` when submitting karpenter spark jobs, to ensure all pods of a single job will be allocated into the same AZ.
+```yaml
+apiVersion: karpenter.sh/v1beta1
+kind: NodePool
+metadata:
+  name: spark-driver-provisioner
+spec:
+  template:
+    metadata:
+      labels:
+        cluster-worker: "true"
+        provisioner: "spark-driver-provisioner"
+    spec:
+      requirements:
+...
+        - key: "topology.kubernetes.io/zone"
+          operator: In
+          values: ["${AWS_REGION}a", "${AWS_REGION}b"]
+```
+
+### 5 Best Practices for Networking
+With large volume of workload, if the IP addresses of the eks cluster resided subnets may be exhausted. To solve this here are tips to address this issue:
+- To use AWS VPC CNI, to set up the 2nd or more CIDRs for your eks cluster, instead of utilizing the primary subnet. Please learn more about this via: https://aws.github.io/aws-eks-best-practices/networking/custom-networking/
+- To minimise IP wastage on the existing subnets, you may try to fine tune the below set up: 
+    - `WARM_ENI_TARGET`, `MAX_ENI`
+    - `WARM_IP_TARGET`, `MINIMUM_IP_TARGET`
+    - Please learn more details from here: https://aws.github.io/aws-eks-best-practices/networking/vpc-cni/
+https://docs.aws.amazon.com/eks/latest/best-practices/networking.html
 
 
 ## Clean up
@@ -246,9 +365,17 @@ bash ./clean-up.sh
 
 ## Monitoring:
 
+We have built monitoring solution for this architecture, with [Amazon Managed Prometheus](https://aws.amazon.com/prometheus/) and [Amazon Managed Grafana](https://aws.amazon.com/grafana/) included by default.
+
 Please aware if the below charts are not working, which is expected, due to the kubelet will generate the large volume of metrics and it will boot prometheus memory usage.
-- Prometheus Kublet Metrics Series Count
+- Prometheus Kubelet Metrics Series Count
 - Spark Operator Pod CPU Core Usage
+
+If you want to enable them, then please update `./resources/prometheus-values.yaml` as below:
+```yaml
+kubelet:
+  enabled: true
+```
 
 
 
