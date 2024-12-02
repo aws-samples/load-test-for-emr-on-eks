@@ -3,6 +3,23 @@
 This repository provides a general tool to benchmark EMR Spark Operator & EKS performance. This is an out-of-the-box tool, with both EKS cluster and load testing job generator (Locust). You will have zero or minimal setup overhead for the EKS cluster.
 
 Enjoy! ^.^
+
+# Table of Contents
+- [EMR Spark Operator on EKS Benchmark Utility](#emr-spark-operator-on-eks-benchmark-utility)
+- [Prerequisite](#prerequisite)
+- [Set up Test Environment](#set-up-test-environment)
+  - [Create the EKS Cluster with Necessary Services](#1-create-the-eks-cluster-with-necessary-services)
+  - [Using Locust to Submit Testing Jobs (Optional)](#2-using-locust-to-submit-testing-jobs-optional)
+- [Run Load Testing with Locust](#run-load-testing-with-locust)
+- [Best Practice Guide](#best-practice-guide)
+  - [Spark Operator](#1-spark-operator)
+  - [Spark Job Configuration](#2-spark-job-configuration)
+  - [Binpacking](#3-binpacking)
+  - [Cluster Scalability](#4-cluster-scalability)
+  - [Best Practices for Networking](#5-best-practices-for-networking)
+- [Monitoring](#monitoring)
+- [Clean up](#clean-up)
+
 ## Prerequisite
 
 - eksctl is installed in latest version ( >= 0.194.)
@@ -30,6 +47,7 @@ curl -sSL https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 
 helm version --short
 ```
 
+[^ back to top](#table-of-contents)
 
 ## Set up Test Environment
 ### 1. Create the EKS Cluster with Necessary Services 
@@ -98,6 +116,8 @@ export USE_AMG="true"  # Enable Amazon Managed Grafana
 ```
 
 </details>
+[^ back to top](#table-of-contents)
+
 
 #### 1.2 To modify the EKS cluster yaml file for Cluster / NodeGroups:
 - For eks cluster & NodeGroups, please update `./resources/eks-cluster-values.yaml`
@@ -121,13 +141,13 @@ bash ./infra-provision.sh
     - EBS CSI Addon
     - Binpacking Pod Scheduler
     - EKS Cluster Autoscaler
-        - Node Group for Operational & Monitoring Purposes
+        - NodeGroup for Operational & Monitoring Purposes
             - labels: 
             - `operational=true`, `monitor=true`
-        - Node Group for Spark Operators.
+        - NodeGroup for Spark Operators.
             - labels: 
             - `operational=true`, `monitor=false`
-        - Node Groups for Spark Jobs Execution in 2 AZs accordingly:
+        - NodeGroups for Spark Jobs Execution in 2 AZs accordingly:
             - labels: 
             - `operational=false`, `monitor=false`
             - eg: `us-west-2a`, `us-west-2b`
@@ -146,7 +166,7 @@ bash ./infra-provision.sh
     - Prometheus on EKS
         - @XI TO DO.
     - Spark Operators & Job Namespaces
-        - Number of Spark Operators will be created in `-n spark-operator` by default, eg: `spark-operatpr0`, `spark-operatpr1`, etc.
+        - Number of Spark Operators will be created in `-n spark-operator` by default, eg: `spark-operator0`, `spark-operator1`, etc.
         - Number of Job Namespaces will be created, eg: `-n spark-job0`, `-n sparkjob1`, etc.
         - Please update the `./env.sh` to configure Spark Operator & job namespace numbers.
 - Amazon Managed Prometheus Workspace
@@ -156,7 +176,7 @@ bash ./infra-provision.sh
 </details>
 
 
-### 2. To use [Locust](https://github.com/locustio/locust) as the testing job producer (Optional)
+### 2. Using [Locust](https://github.com/locustio/locust) to Submit Testing Jobs (Optional)
 Locust is a Open source load testing tool based on the Python.
 
 This script creates an EC2 as the load testing client which is using Locust to submit spark testing jobs to EKS cluster. 
@@ -167,7 +187,7 @@ This script creates an EC2 as the load testing client which is using Locust to s
 ```bash
 bash ./locust-provision.sh
 
-## You have to ensure there is EKS cluster created by script above `./infra-provision.sh`and ready to use or modify the script with your own EKS cluster.
+# You have to ensure that an EKS cluster is created by the script above (`./infra-provision.sh`) and is ready to use, or modify the script with your own EKS cluster.
 ```
 
 With this script implementation, you don't need to have extra settings to play around the load testing, but just choose the volume of workload to mimick your real production.
@@ -193,6 +213,7 @@ With this script implementation, you don't need to have extra settings to play a
 
 </details>
 
+[^ back to top](#table-of-contents)
 
 
 ## Run Load Testing with Locust
@@ -203,11 +224,11 @@ With this script implementation, you don't need to have extra settings to play a
 ssh -i eks-operator-test-locust-key.pem ec2-user@xxx.xxx.xxx.xxx
 cd load-test/locust
 
-# -u, how many users are going to submit the testing jobs to eks cluster via spark operator.
+# -u, how many users are going to submit the testing jobs to eks cluster via Spark Operator.
 #     The default wait interval for each user to submit jobs is between 20 - 30s in this testing tool.
 # -t, the time of submitting jobs.
 # --job-azs, customized api, let jobs to be submitted into 2 AZs randomly.
-# --kube-labels, kubernetes labls, matching node groups.
+# --kube-labels, kubernetes labls, matching NodeGroups.
 # --job-name, spark job prefix. 
 # --job-ns-count, the testing jobs will be submitting to 2 Namespaces, `spark-job0`, `spark-job1`.
 
@@ -218,6 +239,7 @@ locust -f ./locustfile.py -u 2 -t 10m --headless --skip-log-setup \
 --job-ns-count 2
 
 ```
+[^ back to top](#table-of-contents)
 
 ### 2. Submit Jobs to Karpenter
 
@@ -236,18 +258,19 @@ locust -f ./locustfile.py -u 2 -t 10m --headless --skip-log-setup \
 --binpacking true \
 --karpenter_driver_not_evict true
 ```
+[^ back to top](#table-of-contents)
 
 ## Best Practice Guide
 
 ### 1. Spark Operator
 
 #### 1.1 Spark Operator Numbers
-For the single spark operator, the max performance for submission rate would be around 30 jobs per min (`SparkOperator version: emr-6.11.0 (v1beta2-1.3.8-3.1.1)`), and the performance tune on a single operator is very limited in the current version. 
+For the single Spark Operator, the max performance for submission rate would be around 30 jobs per min (`SparkOperator version: emr-6.11.0 (v1beta2-1.3.8-3.1.1)`), and the performance tune on a single operator is very limited in the current version. 
 - To handle the large volume of workload, to horizontally scale up by using multiple Spark Operator would be the recommended solution. 
 - The operators will be not impacted from each other on eks cluster side, but higher number of operators will increase the overhead on apiserver/etcd side.
 
 #### 1.2 Isolation of Spark Operators
-For Spark Operator(s), to minimise the performance impacts caused by other services, eg.: spark job pods, prometheus pods, etc, it is recommended to allocate the Spark Operator(s), Prometheus operators in the dedicated operational node groups accordingly.
+For Spark Operator(s), to minimise the performance impacts caused by other services, eg.: spark job pods, prometheus pods, etc, it is recommended to allocate the Spark Operator(s), Prometheus operators in the dedicated operational NodeGroups accordingly.
 <details>
 <summary> Spark Operator Best Practice </summary>
 
@@ -263,11 +286,14 @@ affinity:
       topologyKey: "kubernetes.io/hostname"
 ```
 - Increase `controllerThreads`
-The default number of spark operator workers(controllerThreads) is `10`, to increase it to get a better performance for job submission. 
+The default number of Spark Operator workers(controllerThreads) is `10`, to increase it to get a better performance for job submission. 
     - However, as the qps and bucket size is hardcoded in SparkOperator V1, thus, increase this to very large number, eg: 100, may `NOT` benefit from it as expected.
     - In addition, it would be vary in the different spark job submission object size. As large object size of each job will take more space in the bucket of operator internally.
 
 </details>
+
+[^ back to top](#table-of-contents)
+
 
 ### 2. Spark Job Configuration
 #### 2.1 Allocate the Spark Job Pods (Driver & Executors) into the Node
@@ -295,6 +321,9 @@ To minimise the cross node overhead for a single spark job, it is recommended tr
 - Try to NOT use `initContainers`.
 we have found, with `initContainers` enabled, the events of a single spark job increased significantly. As a result, the eks api server and etcd DB size will be filling up faster than disabling the `initContainers`. Thus, try to avoid to use with large scale workload in a single EKS cluster, or split the jobs into multiple eks cluster.
 
+[^ back to top](#table-of-contents)
+
+
 ### 3. Binpacking
 
 Binpacking could efficiently allocate pods to available nodes within a Kubernetes cluster. Its primary goal is to optimize resource utilization by packing pods as tightly as possible onto nodes, while still meeting resource requirements and constraints. 
@@ -303,6 +332,7 @@ Binpacking could efficiently allocate pods to available nodes within a Kubernete
 - However, we use Karpenter's consolidation feature to maximize pods density when node's utilization starts to drop.
 - Please learn more about Binpacking via link: https://awslabs.github.io/data-on-eks/docs/resources/binpacking-custom-scheduler-eks
 
+[^ back to top](#table-of-contents)
 
 
 ### 4. Cluster Scalability
@@ -321,10 +351,11 @@ extraArgs:
   kube-client-qps: 300
   kube-client-burst: 400
 ```
+[^ back to top](#table-of-contents)
 
 #### 4.2 Karpenter Scaler:
 
-- To allocate the operational pods, e.g.: Spark Operator, Prometheus, Karpenter, Binpacking, etc in the Operational EKS NodeGroup, which are NOT controlled by Karpenter via setting up nodeSelector on the operational pods, please see details explained in `4.1 EKS Cluster Autoscaler (CAS)`
+- To allocate the operational pods, eg: Spark Operator, Prometheus, Karpenter, Binpacking, etc in the Operational EKS NodeGroup, which are NOT controlled by Karpenter via setting up nodeSelector on the operational pods, please see details explained in `4.1 EKS Cluster Autoscaler (CAS)`
 - Karpenter Nodepool configs:
     - Utilize the provisioner label to separate the spark driver pods and spark executor pods. As the driver pods will be creating earlier than executor pods, and then each driver pod will create 10 executors, which can improve the pending pods in short period of time.
     - To align with NodeGroup on CAS, and also minimise the networking level noise, to utilize the `topology.kubernetes.io/zone` when submitting karpenter spark jobs, to ensure all pods of a single job will be allocated into the same AZ.
@@ -346,6 +377,9 @@ spec:
           operator: In
           values: ["${AWS_REGION}a", "${AWS_REGION}b"]
 ```
+
+[^ back to top](#table-of-contents)
+
 
 ### 5 Best Practices for Networking
 With large volume of workload, if the IP addresses of the eks cluster resided subnets may be exhausted. To solve this here are tips to address this issue:
@@ -384,8 +418,10 @@ We have built monitoring solution for this architecture, with [Amazon Managed Pr
   </tr>
 </table>
 
-### 1. To use Amazon Managed Prometheus and Amazon Managed Grafana, please follow the below links:
-Please aware, `./infra-provision.sh` has involved prometheus on eks and also Amazon Managed Prometheus by default. Thus, please just follow the below guidence to set up Amazon Managed Grafana:
+### 1. Monitor Load Testing with Amazon Managed Prometheus and Amazon Managed Grafana
+
+#### 1.1 Set up AMP & AMG follow based on this git repo
+Please aware, `./infra-provision.sh` has included prometheus on eks and also Amazon Managed Prometheus by default. Thus, please just follow the below guidence to set up Amazon Managed Grafana:
 <details>
 <summary>Here are the steps to use Amazon Managed Grafana </summary>
 
@@ -412,10 +448,12 @@ If you do not have the IAM Identity Center / useage account enabled, then please
 
 - Set up Grafana Dashboard:
     - Client the "+" icon from top right of the page after signed in -> click "Import dashboard";
-    - You can either use `Upload` or `Copy & Paste` the value of `./grafana/grafana-dashboard-template.json` and then click "Load";
+    - You can either use `Upload` or `Copy & Paste` the value of `./grafana/dashboard-template/spark-operator-dashbord.json` and then click "Load";
     - Select the data source, which align with the AMP connection that sets up above, eg: `Prometheus ws-xxxx.....`
+    - You may repeat above step to import more templates from `./grafana/dashboard-template/`;
 
-Please aware if the below charts are not working, which is expected, due to the kubelet will generate the large volume of metrics and it will boot prometheus memory usage.
+
+Please aware if the below charts are not working, which is expected due to the `kubelet` will generate the large volume of metrics and it will boost prometheus memory usage.
 - Prometheus Kubelet Metrics Series Count
 - Spark Operator Pod CPU Core Usage
 
@@ -426,89 +464,12 @@ kubelet:
 ```
 
 </details>
-
-### 2. To use our pre-defined Grafana Temaplate
-
-
-We have set up a comprehensive dashboard to monitor how is the load testing running, and here are the major metrics we are using to monitor the load testing.
+[^ back to top](#table-of-contents)
 
 
+### 2. Metrics & Evaluation
 
-<details>
-<summary> Partial explanation for `grafana-dashboard-template.json` </summary>
-
-- CNI(1 panel)
-
-    To monitor the IP address usage.
-    - If the `Not assigned IP` is large, which mean the eks has large number of wasted IP addresses.
- 
-- Prometheus Stats(6 panels)
-
-    To monitor promtheus itself, ensuring promtheus on eks is running well. 
- 
-- Spark Job Status on EKS(6 panels)
-    
-    The overall spark job running statistics on the eks cluster. 
-    - `Total Running Spark Pods & Driver Exec Ratio`: For a spark job eg, with 1 driver & 10 executors, to ensure overall jobs are running in a healthy status, can monitor this ratio. Due to spark has default `0.8` of `spark.scheduler.minRegisteredResourcesRatio`, so the graph should over `8`.
- 
-- Spark Operator Workqueue(7 panels)
-
-    - `spark_application_controller_adds enqueue`, which counts one minute rate (per second) of number items added to workqueuec (each spark operator is in a dedicated namespace).
-    - `spark_application_controller_work_duration_count dequeue`, which calculates one minute rate (per second) of number items removed from workqueue grouped by namespace.
-    - `Spark Application Controller Latency`, which calculates average time from an item is added to the workqueue to the time when the item is fetched from workqueue by spark operator worker, which means it measures how much time an item has to stay on the queue before it is fetched.
-    - `Spark Application Controller Task Process Time`, when a worker fetch an item from the workqueue, it will spend sometime processing the item then import workqueue the process is finished. This metrics measures the average time taken from the item is feched from the queue to the time when the item finished processing.  
-    - `Spark Application Controller Queue Depth`, which is monitoring the spark operator workqueue depth.
-
-- Spark Application apiserver(2 panels)
-
-    - `apiserver_request_total`, which measures rate of apiserver request on resource sparkapplication. Since spark operator responsible for updating sparkapplication CRD status. This metrics can also tell us how fast or how senstive spark operator reacts to workqueue input. 
- 
-- Spark Application Status at Locust Client(5 panels)
-
-    Spark Application Status at Locust Client, the load test uses a locust client running on an ec2 instance to create sparkapplication to EKS. From the same locust client, a seperated thread runs every 30 seconds to get a list of all sparkapplication and count their status at the given point of time.
-    - `New(not yet submitted)`, which metrics counts number of sparkapplications that are created by not yet submitted at the given point of time.
-    - `SUBMITTED`, which counts number of submitted sparkapplication but not running yet at the given point of time.
-    - `Running`, which counts the number of sparkappication in RUNNING state at the given point of time.
-    - `SUCCEEDING`, which counts the number of sparkapplication in SUCCEEDING state.
-    - `COMPLETED`, which counts number of spark application in COMPLETED state at the given point of time.
- 
-- Locust metrics - Client(6 panels)
-    These metrics generated from locust client. It counts number of successful submitted jobs, failed submitted job, average job submit time, measured from client side. This tells job submission stats from user perspective.
-    ```python
-    try:
-            submit_job()
-            success_counter.inc()
-            execution_time_gauge.set(time.time() - start_time)
-        except client.exceptions.ApiException as e:
-            failed_counter.inc()
-    ```
-    - `Locust Submit (success) rate 1m`, which counts number of success job submits for 1 minute.
-    - `Locust Submit Job Total`, which counts total successfull submitted job.
-    - `Locust Submit (fail) Rate`, which counts number of failed job submits for 1 minute.
-    - `Locust Submit Job Fail Total`, which counts number of failed job submits in total.
-    - `Locust Submit Job Time`, which measures time used to submit a sparkapplication job.
-    - `Locust User Count`, which counts number of locust users.
-
- 
-- Spark Operator Metrics - Server(15 panels)
-    This group of metrics shows spark operator internal metrics provided from https://github.com/kubeflow/spark-operator/blob/v1beta2-1.3.8-3.1.1/pkg/controller/sparkapplication/sparkapp_metrics.go.
-    - `Failed Spark Job Per minutes`: This metric meassures number of failed spark application increased per minutes.
-    - `Failed Spark Job Total`: This metric measture total number of failed spark job deteced by spark operator.
-    - `Average Job Failure Runtime`: This metric measures how long a failed sparkappliction runs.
-    - `Success Spark Application Per Minute`: This metrics meastures average number of success spark application per minute, grouped by namespace, and sum.
-    - `Success Spark Application Total`: This metric meastures total number of success spark application.
-    - `Average Sucess Job Run Time`: This metric measures average run time of success spark application
-    - `Spark Application Count Incrase Per minute`: This metric number of newly created spark application detected by spark operator, grouped by namespace and sum
-    - `Spark Application Count Total`: This metrics total created spark application detected by spark operator, grouped by namespace and sum.
-    - `Submitted Spark Application Per Minutes`: This metric counts number of submitted spark application per minutes, grouped by namespace and sum. This is a counter and increased when spark application enters Submitted state https://github.com/kubeflow/spark-operator/blob/c261df66a00635509f7d8cb2a7fba4c602c9228e/pkg/controller/sparkapplication/sparkapp_metrics.go#L204
-    - `Submitted Spark Application Total`: This metric counts total number of submitted spark application, grouped by namespace and sum.
-    - `Running Spark Application Count`: Metrics is based on spark_app_running_count. spark_app_running_count is a counter, this counter is increased by 1 when a spark job enters Running state https://github.com/kubeflow/spark-operator/blob/c261df66a00635509f7d8cb2a7fba4c602c9228e/pkg/controller/sparkapplication/sparkapp_metrics.go#L210, and decrease when a spark application enters Succeeding state https://github.com/kubeflow/spark-operator/blob/c261df66a00635509f7d8cb2a7fba4c602c9228e/pkg/controller/sparkapplication/sparkapp_metrics.go#L222. So it means (TotalNumberOfSparkApplicationEnteredRunningState - TotalNumberOfSparkApplicationEnteredSucceedingState)
-    - `Start Application Start Latency`: This metric measures the duration from the application is created (New State) to the time when the application entered Running state. In other words, it includes two time cost on two phase. 
-    Phase1, from the time user creates spark application to the time spark operator run spark-submit. Phase2, from spark operator runs spark-submit to the time when application starts running. https://github.com/kubeflow/spark-operator/blob/c261df66a00635509f7d8cb2a7fba4c602c9228e/pkg/controller/sparkapplication/sparkapp_metrics.go#L300 https://github.com/kubeflow/spark-operator/blob/c261df66a00635509f7d8cb2a7fba4c602c9228e/pkg/controller/sparkapplication/sparkapp_metrics.go#L212
-
-
-
-</details>
+Please refer to the `./grafana/README.md` document for detailed explanation, how to monitor and evaluate your performance in Locust, Spark Operator, EKS cluster, IP utilization, etc.
 
 ## Clean up
 ```bash
@@ -518,6 +479,9 @@ bash ./locust-provision.sh -action delete
 # To remove the resources that created by ./infra-provision.sh.
 bash ./clean-up.sh 
 ```
+
+[^ back to top](#table-of-contents)
+
 
 ## Security
 
