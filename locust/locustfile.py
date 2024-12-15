@@ -180,7 +180,7 @@ class KubernetesClientUser(User):
                     
                     # Node group logic for multiple labels
                     if self.kube_labels:
-                        # 直接合并所有标签字典
+                        # merge all label dicts
                         merged_labels = {}
                         for label_dict in self.kube_labels:
                             merged_labels.update(label_dict)
