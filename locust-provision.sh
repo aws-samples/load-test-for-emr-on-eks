@@ -551,7 +551,7 @@ cd ~/load-test
 
 # Download assets from S3
 echo "Downloading assets from S3..."
-aws s3 cp "s3://${BUCKET_NAME}/locust-asset/locust.zip" ./locust.zip
+aws s3 cp "s3://eks-operator-test-bucket-03/locust-asset/locust.zip" ./locust.zip
 unzip locust.zip
 rm locust.zip
 
