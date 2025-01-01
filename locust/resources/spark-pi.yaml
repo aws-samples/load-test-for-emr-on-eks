@@ -9,7 +9,7 @@ spec:
   image: "895885662937.dkr.ecr.us-west-2.amazonaws.com/spark/emr-6.11.0:latest"
   imagePullPolicy: "IfNotPresent"
   mainClass: org.apache.spark.examples.SparkPi
-  mainApplicationFile: "s3://eks-operator-test-bucket-01/testing-code/custom-spark-pi.py"
+  mainApplicationFile: "s3://{BUCKET_NAME}/testing-code/custom-spark-pi.py"
   sparkVersion: "3.3.2"
   timeToLiveSeconds: 30
   arguments:
