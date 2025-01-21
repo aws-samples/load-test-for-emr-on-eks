@@ -5,7 +5,7 @@
         "builtIn": 1,
         "datasource": {
           "type": "prometheus",
-          "uid": "edyus7qp883k0c"
+          "uid": "${PrometheusDataSource}"
         },
         "enable": true,
         "hide": true,
@@ -34,7 +34,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "description": "Count of series in kube_prod.* metrics. We only need kube_prod_container_status_running. Other kube_prod metrics should be dropped",
           "fieldConfig": {
@@ -114,7 +114,7 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "edyus7qp883k0c"
+                "uid": "${PrometheusDataSource}"
               },
               "editorMode": "code",
               "expr": "topK(20, count({__name__=~\"kube_.*\"}) by (__name__))",
@@ -130,7 +130,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "description": "Count of series in node_.* metrics. We only need node_cpu_seconds_total in mode idle. Other metrics should be dropped",
           "fieldConfig": {
@@ -210,7 +210,7 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "edyus7qp883k0c"
+                "uid": "${PrometheusDataSource}"
               },
               "editorMode": "code",
               "expr": "topK(10, count({__name__=~\"node_.*\"}) by (__name__))",
@@ -226,7 +226,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "description": "Count of series in prometheus kubelet metrics. This should be 0 as we do not want to scrape any kubelet metrics",
           "fieldConfig": {
@@ -306,7 +306,7 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "edyus7qp883k0c"
+                "uid": "${PrometheusDataSource}"
               },
               "editorMode": "code",
               "expr": "count({__name__=~\"kubelet_.*\"}) by (__name__)",
@@ -322,7 +322,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "fieldConfig": {
             "defaults": {
@@ -401,7 +401,7 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "edyus7qp883k0c"
+                "uid": "${PrometheusDataSource}"
               },
               "editorMode": "code",
               "expr": "topK(10, count({__name__=~\"apiserver_.*\"}) by (__name__))",
@@ -432,7 +432,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "fieldConfig": {
             "defaults": {
@@ -512,7 +512,7 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "edyus7qp883k0c"
+                "uid": "${PrometheusDataSource}"
               },
               "editorMode": "code",
               "expr": "go_memstats_alloc_bytes{job=\"prometheus-kube-prometheus-prometheus\"} / 1024 ^ 3",
@@ -524,7 +524,7 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "edyus7qp883k0c"
+                "uid": "${PrometheusDataSource}"
               },
               "expr": "",
               "hide": false,
@@ -539,7 +539,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "fieldConfig": {
             "defaults": {
@@ -619,7 +619,7 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "edyus7qp883k0c"
+                "uid": "${PrometheusDataSource}"
               },
               "editorMode": "code",
               "expr": "go_memstats_heap_alloc_bytes{job=\"prometheus-kube-prometheus-prometheus\"} / 1024 ^ 3",
@@ -631,7 +631,7 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "edyus7qp883k0c"
+                "uid": "${PrometheusDataSource}"
               },
               "expr": "",
               "hide": false,
@@ -646,7 +646,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "fieldConfig": {
             "defaults": {
@@ -726,7 +726,7 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "edyus7qp883k0c"
+                "uid": "${PrometheusDataSource}"
               },
               "editorMode": "code",
               "expr": "process_resident_memory_bytes{job=\"prometheus-kube-prometheus-prometheus\"} / 1024 ^ 3",
@@ -742,7 +742,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "description": "One minutes rate of prometheus_remote_storage_bytes_total",
           "fieldConfig": {
@@ -823,7 +823,7 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "edyus7qp883k0c"
+                "uid": "${PrometheusDataSource}"
               },
               "editorMode": "code",
               "expr": "rate(prometheus_remote_storage_bytes_total [1m]) / 1024 ^ 2",
@@ -839,7 +839,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "fieldConfig": {
             "defaults": {
@@ -918,7 +918,7 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "edyus7qp883k0c"
+                "uid": "${PrometheusDataSource}"
               },
               "editorMode": "code",
               "expr": "prometheus_tsdb_head_chunks",
@@ -934,7 +934,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "fieldConfig": {
             "defaults": {
@@ -1013,7 +1013,7 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "edyus7qp883k0c"
+                "uid": "${PrometheusDataSource}"
               },
               "editorMode": "code",
               "expr": "prometheus_tsdb_head_series",
@@ -1046,7 +1046,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1125,7 +1125,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "sum by (namespace)(kube_pod_container_status_running{container=\"spark-kubernetes-driver\"})",
@@ -1137,7 +1137,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "sum (kube_pod_container_status_running{container=\"spark-kubernetes-driver\"})",
@@ -1154,7 +1154,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1201,7 +1201,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "sum  by (namespace) (kube_pod_container_status_running{container=\"spark-kubernetes-driver\"})",
@@ -1213,7 +1213,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "sum (kube_pod_container_status_running{container=\"spark-kubernetes-driver\"})",
@@ -1230,7 +1230,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1309,7 +1309,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "sum by (namespace)(kube_pod_container_status_running{container=\"spark-kubernetes-executor\"})",
@@ -1321,7 +1321,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "sum (kube_pod_container_status_running{container=\"spark-kubernetes-executor\"})",
@@ -1338,7 +1338,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1385,7 +1385,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "sum  by (namespace) (kube_pod_container_status_running{container=\"spark-kubernetes-executor\"})",
@@ -1397,7 +1397,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "sum  (kube_pod_container_status_running{container=\"spark-kubernetes-executor\"})",
@@ -1414,7 +1414,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1492,7 +1492,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "sum (kube_pod_container_status_running{container=\"spark-kubernetes-driver\"}) + sum (kube_pod_container_status_running{container=\"spark-kubernetes-executor\"})",
@@ -1509,7 +1509,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1555,7 +1555,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "sum (kube_pod_container_status_running{container=\"spark-kubernetes-driver\"}) + sum (kube_pod_container_status_running{container=\"spark-kubernetes-executor\"})",
@@ -1584,7 +1584,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1662,7 +1662,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "rate(spark_application_controller_adds[1m])",
@@ -1675,7 +1675,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "avg(rate(spark_application_controller_adds[1m]))",
@@ -1692,7 +1692,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1742,7 +1742,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "rate(spark_application_controller_adds[1m])",
@@ -1758,7 +1758,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1836,7 +1836,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "rate(spark_application_controller_work_duration_count [1m])",
@@ -1848,7 +1848,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "avg(rate(spark_application_controller_work_duration_count [1m]))",
@@ -1865,7 +1865,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1915,7 +1915,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "rate(spark_application_controller_work_duration_count [1m])",
@@ -1931,7 +1931,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "description": "Average time a task has to stay in workqueue before being processed",
       "fieldConfig": {
@@ -2011,7 +2011,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "disableTextWrap": false,
           "editorMode": "code",
@@ -2027,7 +2027,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "avg(rate(spark_application_controller_latency_sum[1m])/rate(spark_application_controller_latency_count[1m]))",
@@ -2044,7 +2044,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "description": "Average time is taken to process an item that is fetched from workqueue",
       "fieldConfig": {
@@ -2124,7 +2124,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "disableTextWrap": false,
           "editorMode": "code",
@@ -2141,7 +2141,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "avg(rate(spark_application_controller_work_duration_sum [1m])/rate(spark_application_controller_work_duration_count [1m]))",
@@ -2158,7 +2158,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -2236,7 +2236,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "spark_application_controller_depth",
@@ -2248,7 +2248,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "avg(spark_application_controller_depth)",
@@ -2278,7 +2278,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -2356,7 +2356,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "sum by(verb) (rate(apiserver_request_total{resource=\"sparkapplications\"}[1m]))",
@@ -2372,7 +2372,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -2425,7 +2425,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "sum by(verb, code, resource) (rate(apiserver_request_total{resource=\"sparkapplications\"}[1m]))",
@@ -2454,7 +2454,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -2532,7 +2532,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "disableTextWrap": false,
           "editorMode": "code",
@@ -2552,7 +2552,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -2630,7 +2630,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "disableTextWrap": false,
           "editorMode": "builder",
@@ -2650,7 +2650,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -2728,7 +2728,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "disableTextWrap": false,
           "editorMode": "code",
@@ -2749,7 +2749,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -2827,7 +2827,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "disableTextWrap": false,
           "editorMode": "code",
@@ -2847,7 +2847,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -2925,7 +2925,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "locust_completed_spark_application_gauge",
@@ -2954,7 +2954,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -3032,7 +3032,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "sum(rate(container_cpu_usage_seconds_total[$__rate_interval])) by (node)",
@@ -3048,7 +3048,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -3126,7 +3126,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode='idle'}[1m]))*100)",
@@ -3142,7 +3142,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -3220,7 +3220,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "max(apiserver_storage_objects{resource=\"nodes\"})",
@@ -3249,7 +3249,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -3327,7 +3327,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "disableTextWrap": false,
           "editorMode": "code",
@@ -3343,7 +3343,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "sum(count(kube_configmap_info{namespace=~\"spark-job.*\"}) by (namespace))",
@@ -3370,7 +3370,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "fieldConfig": {
             "defaults": {
@@ -3451,7 +3451,7 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "edyus7qp883k0c"
+                "uid": "${PrometheusDataSource}"
               },
               "disableTextWrap": false,
               "editorMode": "code",
@@ -3472,7 +3472,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "fieldConfig": {
             "defaults": {
@@ -3550,7 +3550,7 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "edyus7qp883k0c"
+                "uid": "${PrometheusDataSource}"
               },
               "disableTextWrap": false,
               "editorMode": "code",
@@ -3571,7 +3571,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "fieldConfig": {
             "defaults": {
@@ -3649,7 +3649,7 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "edyus7qp883k0c"
+                "uid": "${PrometheusDataSource}"
               },
               "disableTextWrap": false,
               "editorMode": "code",
@@ -3670,7 +3670,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "fieldConfig": {
             "defaults": {
@@ -3748,7 +3748,7 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "edyus7qp883k0c"
+                "uid": "${PrometheusDataSource}"
               },
               "disableTextWrap": false,
               "editorMode": "code",
@@ -3770,7 +3770,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "fieldConfig": {
             "defaults": {
@@ -3848,7 +3848,7 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "edyus7qp883k0c"
+                "uid": "${PrometheusDataSource}"
               },
               "disableTextWrap": false,
               "editorMode": "code",
@@ -3868,7 +3868,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "fieldConfig": {
             "defaults": {
@@ -3946,7 +3946,7 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "edyus7qp883k0c"
+                "uid": "${PrometheusDataSource}"
               },
               "disableTextWrap": false,
               "editorMode": "code",
@@ -3984,7 +3984,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -4062,7 +4062,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "disableTextWrap": false,
           "editorMode": "code",
@@ -4083,7 +4083,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -4161,7 +4161,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "spark_app_failure_count",
@@ -4174,7 +4174,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "sum(spark_app_failure_count)",
@@ -4191,7 +4191,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -4270,7 +4270,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "rate(spark_app_failure_execution_time_microseconds_sum [1m]) / rate(spark_app_failure_execution_time_microseconds_count [1m]) ",
@@ -4286,7 +4286,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "description": "Number of spark application change to SUCCEEDING state",
       "fieldConfig": {
@@ -4365,7 +4365,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "\nrate(spark_app_success_count[1m])*60",
@@ -4377,7 +4377,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "sum(rate(spark_app_success_count[1m])*60)",
@@ -4394,7 +4394,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -4472,7 +4472,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "disableTextWrap": false,
           "editorMode": "code",
@@ -4489,7 +4489,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "sum(spark_app_success_count)",
@@ -4507,7 +4507,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -4586,7 +4586,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "disableTextWrap": false,
           "editorMode": "code",
@@ -4606,7 +4606,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "description": "Number of newly added spark application",
       "fieldConfig": {
@@ -4685,7 +4685,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "disableTextWrap": false,
           "editorMode": "code",
@@ -4702,7 +4702,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "sum(rate(spark_app_count[1m])*60)",
@@ -4719,7 +4719,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -4797,7 +4797,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "disableTextWrap": false,
           "editorMode": "code",
@@ -4814,7 +4814,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "sum(spark_app_count)",
@@ -4832,7 +4832,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "description": "Number of spark application chnaged to SUBMITTED state",
       "fieldConfig": {
@@ -4911,7 +4911,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "increase(spark_app_submit_count[1m])",
@@ -4924,7 +4924,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "sum(increase(spark_app_submit_count[1m]))",
@@ -4941,7 +4941,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -5019,7 +5019,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "disableTextWrap": false,
           "editorMode": "code",
@@ -5036,7 +5036,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "sum(spark_app_submit_count)",
@@ -5054,7 +5054,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "description": "Number of spark application changed to RUNNING state",
       "fieldConfig": {
@@ -5133,7 +5133,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "spark_app_running_count",
@@ -5146,7 +5146,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "sum(spark_app_running_count)",
@@ -5163,7 +5163,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "description": "spark operator pod RSS memory",
       "fieldConfig": {
@@ -5243,7 +5243,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "disableTextWrap": false,
           "editorMode": "builder",
@@ -5263,7 +5263,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -5341,7 +5341,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "disableTextWrap": false,
           "editorMode": "code",
@@ -5361,7 +5361,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "fieldConfig": {
         "defaults": {
@@ -5440,7 +5440,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "rate(spark_app_start_latency_microseconds_sum[60m])/rate(spark_app_start_latency_microseconds_count[60m])",
@@ -5457,7 +5457,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "edyus7qp883k0c"
+        "uid": "${PrometheusDataSource}"
       },
       "description": "",
       "fieldConfig": {
@@ -5537,7 +5537,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "edyus7qp883k0c"
+            "uid": "${PrometheusDataSource}"
           },
           "editorMode": "code",
           "expr": "rate(spark_app_start_latency_microseconds_sum[5m])/rate(spark_app_start_latency_microseconds_count[5m])",
@@ -5564,7 +5564,16 @@
   "timepicker": {},
   "timezone": "browser",
   "title": "spark-operator",
-  "uid": "bdymi0l7062v4e",
+  "__inputs": [
+    {
+      "name": "PrometheusDataSource",
+      "label": "Your Data Source",
+      "description": "",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ],
   "version": 107,
   "weekStart": ""
 }
