@@ -2,6 +2,16 @@
 
 set -e 
 
+replace_in_file() {
+    local search=\$1
+    local replace=\$2
+    local file=\$3
+    local temp_file=\$(mktemp)
+    
+    cat "\$file" | sed "s|\$search|\$replace|g" > "\$temp_file"
+    mv "\$temp_file" "\$file"
+}
+
 # Source environment variables
 if [ ! -f "env.sh" ]; then
     echo "Error: env.sh file not found"
@@ -626,7 +636,8 @@ EOF
         
         # Replace the IP to Prometheus on eks
         echo "Update the Locust Private IP to Prometheus on EKS, re-installing Prometheus"
-        sed -i '' 's/{LOCUST_IP_PRIV}/'$PRIVATE_IP'/g' ./resources/prometheus-values.yaml
+        replace_in_file "{LOCUST_IP_PRIV}" "\$PRIVATE_IP" "./resources/prometheus-values.yaml"
+
 
         helm uninstall prometheus -n prometheus 
         helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n prometheus -f ./resources/prometheus-values.yaml
