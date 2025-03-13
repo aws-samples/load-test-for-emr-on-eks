@@ -1,15 +1,15 @@
 apiVersion: eksctl.io/v1alpha5
 kind: ClusterConfig
 metadata:
-  name: eks-operator-test-eks-cluster
-  region: us-west-2
-  version: "1.30"
+  name: ${CLUSTER_NAME}
+  region: ${AWS_REGION}
+  version: "${EKS_VERSION}"
 vpc:
-  cidr: "172.16.0.0/16"
+  cidr: "${EKS_VPC_CIDR}"
   clusterEndpoints:
     publicAccess: true
     privateAccess: true
-availabilityZones: ["us-west-2a","us-west-2b"]   
+availabilityZones: ["${AWS_REGION}a","${AWS_REGION}b"]   
 iam:
   withOIDC: true
   serviceAccounts:
@@ -24,7 +24,7 @@ addons:
   - name: aws-ebs-csi-driver
     version: latest
 managedNodeGroups:
-  - name: eks-operator-test-operational-ng
+  - name: ${LOAD_TEST_PREFIX}-operational-ng
     instanceType: r5.4xlarge
     desiredCapacity: 1
     minSize: 1
@@ -33,7 +33,7 @@ managedNodeGroups:
     labels:
       operational: "true"
       monitor: "true"
-  - name: eks-operator-test-sparkoperator-ng
+  - name: ${LOAD_TEST_PREFIX}-sparkoperator-ng
     instanceType: r5.2xlarge
     desiredCapacity: 1
     minSize: 1
@@ -42,7 +42,7 @@ managedNodeGroups:
     labels:
       operational: "true"
       monitor: "false"
-  - name: eks-operator-test-m5-x-worker-ng-2a
+  - name: ${LOAD_TEST_PREFIX}-m5-x-worker-ng-2a
     instanceType: m5.xlarge
     desiredCapacity: 1
     minSize: 1
@@ -51,9 +51,9 @@ managedNodeGroups:
     labels:
       operational: "false"
       monitor: "false"
-    availabilityZones: ["us-west-2a"]
+    availabilityZones: ["${AWS_REGION}a"]
   # us-west-2b worker nodegroup
-  - name: eks-operator-test-m5-x-worker-ng-2b
+  - name: ${LOAD_TEST_PREFIX}-m5-x-worker-ng-2b
     instanceType: m5.xlarge
     desiredCapacity: 1
     minSize: 1
@@ -62,4 +62,4 @@ managedNodeGroups:
     labels:
       operational: "false"
       monitor: "false"
-    availabilityZones: ["us-west-2b"]
+    availabilityZones: ["${AWS_REGION}b"]

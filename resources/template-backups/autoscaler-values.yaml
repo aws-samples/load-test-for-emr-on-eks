@@ -1,5 +1,5 @@
 autoDiscovery:
-  clusterName: eks-operator-test-eks-cluster
+  clusterName: ${CLUSTER_NAME}-eks-cluster
 awsRegion: us-west-2
 image:
   tag: v1.30.0
