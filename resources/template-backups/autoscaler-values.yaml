@@ -1,6 +1,6 @@
 autoDiscovery:
   clusterName: ${CLUSTER_NAME}-eks-cluster
-awsRegion: us-west-2
+awsRegion: ${AWS_REGION}
 image:
   tag: v1.30.0
 nodeSelector:

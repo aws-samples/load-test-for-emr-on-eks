@@ -7,6 +7,15 @@
 
 source env.sh
 
+
+echo "Checking required environment variables..."
+echo "CLUSTER_NAME: ${CLUSTER_NAME}"
+echo "AWS_REGION: ${AWS_REGION}"
+echo "EKS_VERSION: ${EKS_VERSION}"
+echo "EKS_VPC_CIDR: ${EKS_VPC_CIDR}"
+echo "LOAD_TEST_PREFIX: ${LOAD_TEST_PREFIX}"
+
+
 replace_in_file() {
     local search=$1
     local replace=$2
@@ -23,13 +32,25 @@ echo "==============================================="
 
 # Create S3 bucket for testing
 echo "Creating S3 bucket: $BUCKET_NAME"
-aws s3api create-bucket \
-    --bucket $BUCKET_NAME \
-    --region $AWS_REGION \
-    --create-bucket-configuration LocationConstraint=$AWS_REGION || {
-    echo "Error: Failed to create S3 bucket $BUCKET_NAME"
-    exit 1
-}
+
+if [ "$AWS_REGION" = "us-east-1" ]; then
+    # For us-east-1, don't specify LocationConstraint
+    aws s3api create-bucket \
+        --bucket $BUCKET_NAME \
+        --region $AWS_REGION || {
+        echo "Error: Failed to create S3 bucket \$BUCKET_NAME"
+        exit 1
+    }
+else
+    # For other regions, specify LocationConstraint
+    aws s3api create-bucket \
+        --bucket $BUCKET_NAME \
+        --region $AWS_REGION \
+        --create-bucket-configuration LocationConstraint=$AWS_REGION || {
+        echo "Error: Failed to create S3 bucket $BUCKET_NAME"
+        exit 1
+    }
+fi
 
 # Upload the testing pyspark code
 aws s3 cp ./locust/resources/custom-spark-pi.py "s3://${BUCKET_NAME}/testing-code/custom-spark-pi.py" || {
@@ -38,7 +59,13 @@ aws s3 cp ./locust/resources/custom-spark-pi.py "s3://${BUCKET_NAME}/testing-cod
 }
 
 # Update the testing spark job yaml config
+replace_in_file "{ECR_REGISTRY_ACCOUNT}" "$ECR_REGISTRY_ACCOUNT" "./locust/resources/spark-pi.yaml"
+replace_in_file "{AWS_REGION}" "$AWS_REGION" "./locust/resources/spark-pi.yaml"
 replace_in_file "{BUCKET_NAME}" "$BUCKET_NAME" "./locust/resources/spark-pi.yaml"
+
+replace_in_file "{ECR_REGISTRY_ACCOUNT}" "$ECR_REGISTRY_ACCOUNT" "./locust/locustfile.py" 
+replace_in_file "{AWS_REGION}" "$AWS_REGION" "./locust/locustfile.py"
+
 
 echo "==============================================="
 echo "  Create EKS Cluster ......"
@@ -78,11 +105,11 @@ helm upgrade --install nodescaler autoscaler/cluster-autoscaler -n kube-system -
 
 
 
-echo "==============================================="
-echo "  Setup BinPacking ......"
-echo "==============================================="
+# echo "==============================================="
+# echo "  Setup BinPacking ......"
+# echo "==============================================="
 
-kubectl apply -f ./resources/binpacking-values.yaml
+# kubectl apply -f ./resources/binpacking-values.yaml
 
 
 

@@ -131,6 +131,10 @@ if [ -f "./resources/template-backups/spark-pi.yaml" ]; then
     cp -f ./resources/template-backups/spark-pi.yaml ./locust/resources/spark-pi.yaml
 fi
 
+if [ -f "./resources/template-backups/locustfile.py" ]; then
+    cp -f ./resources/template-backups/locustfile.py ./locust/locustfile.py
+fi
+
 if [ -f "./resources/template-backups/grafana-service-role-assume-policy.json" ]; then
     cp -f ./resources/template-backups/grafana-service-role-assume-policy.json ./grafana/grafana-service-role-assume-policy.json
 fi

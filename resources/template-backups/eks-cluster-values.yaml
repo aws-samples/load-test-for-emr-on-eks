@@ -52,7 +52,6 @@ managedNodeGroups:
       operational: "false"
       monitor: "false"
     availabilityZones: ["${AWS_REGION}a"]
-  # us-west-2b worker nodegroup
   - name: ${LOAD_TEST_PREFIX}-m5-x-worker-ng-2b
     instanceType: m5.xlarge
     desiredCapacity: 1
