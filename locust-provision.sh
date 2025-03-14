@@ -3,14 +3,15 @@
 set -e 
 
 replace_in_file() {
-    local search=\$1
-    local replace=\$2
-    local file=\$3
-    local temp_file=\$(mktemp)
+    local search=$1
+    local replace=$2
+    local file=$3
+    local temp_file=$(mktemp)
     
-    cat "\$file" | sed "s|\$search|\$replace|g" > "\$temp_file"
-    mv "\$temp_file" "\$file"
+    cat "$file" | sed "s|$search|$replace|g" > "$temp_file"
+    mv "$temp_file" "$file"
 }
+
 
 # Source environment variables
 if [ ! -f "env.sh" ]; then
@@ -48,43 +49,6 @@ if [ -z "$vpc_id" ] || [ "$vpc_id" == "None" ]; then
 fi
 
 echo "Using VPC ID: ${vpc_id}"
-
-# Function to package and upload locust assets
-upload_locust_assets() {
-    echo "Packaging and uploading locust assets..."
-    
-    # Check if locust directory exists
-    if [ ! -d "./locust" ]; then
-        echo "Error: locust directory not found"
-        return 1
-    fi
-
-    # Copy the current env.sh to locust
-    cp ./env.sh ./locust/env.sh
-
-    # Create temporary zip file
-    local temp_zip="locust.zip"
-
-    
-    # Create zip file
-    if ! zip -r "${temp_zip}" ./locust; then
-        echo "Error: Failed to create zip file"
-        return 1
-    fi
-
-    # Upload to S3
-    if ! aws s3 cp "${temp_zip}" "s3://${BUCKET_NAME}/locust-asset/locust.zip"; then
-        echo "Error: Failed to upload to S3"
-        rm -f "${temp_zip}"
-        return 1
-    fi
-
-    # Clean up
-    rm -f "${temp_zip}"
-
-    echo "Successfully uploaded locust assets to S3"
-    return 0
-}
 
 # Function to check if IAM role exists
 check_role() {
@@ -317,13 +281,6 @@ delete_iam_resources() {
     fi
 }
 
-
-# Function to check if a key pair exists
-check_key_pair() {
-    aws ec2 describe-key-pairs --key-names "$1" 2>/dev/null
-    return $?
-}
-
 # Function to get security group ID if exists
 get_security_group_id() {
     local sg_name=$1
@@ -382,7 +339,6 @@ if [ ! -z "$1" ] && [ "$1" == "-action" ]; then
 fi
 
 # Resource names
-KEY_NAME="${LOAD_TEST_PREFIX}-locust-key"
 SECURITY_GROUP_NAME="${LOAD_TEST_PREFIX}-locust-sg"
 INSTANCE_NAME="${LOAD_TEST_PREFIX}-eks-locust-client"
 ROLE_NAME="${LOAD_TEST_PREFIX}-Locust-EC2-Role"
@@ -401,74 +357,16 @@ if [ "$ACTION" == "apply" ]; then
     # Get public subnet
     get_public_subnet
 
-    # Create key pair if it doesn't exist
-    if ! check_key_pair "$KEY_NAME"; then
-        echo "Creating new key pair: ${KEY_NAME}"
-        # Create a temporary directory with proper permissions
-        TEMP_DIR=$(mktemp -d)
-        KEYPAIR_FILE="${TEMP_DIR}/${KEY_NAME}.pem"
-        
-        # Create the key pair
-        if aws ec2 create-key-pair \
-            --key-name ${KEY_NAME} \
-            --query 'KeyMaterial' \
-            --output text > "${KEYPAIR_FILE}"; then
-            
-            # Set correct permissions before moving to final location
-            chmod 400 "${KEYPAIR_FILE}"
-            
-            # Move to final location
-            mv "${KEYPAIR_FILE}" "./${KEY_NAME}.pem"
-            
-            echo "Key pair created successfully: ${KEY_NAME}.pem"
-        else
-            echo "Error creating key pair"
-            exit 1
-        fi
-        
-        # Clean up temp directory
-        rm -rf "${TEMP_DIR}"
-    else
-        echo "Key pair ${KEY_NAME} already exists"
-    fi
-
     # Create or get security group
     echo "Checking security group: ${SECURITY_GROUP_NAME}"
     if SECURITY_GROUP_ID=$(get_security_group_id "${SECURITY_GROUP_NAME}"); then
         echo "Security group ${SECURITY_GROUP_NAME} already exists with ID: ${SECURITY_GROUP_ID}"
-        
-        # Check if the SSH rule already exists
-        EXISTING_RULE=$(aws ec2 describe-security-group-rules \
-            --filters "Name=group-id,Values=${SECURITY_GROUP_ID}" \
-            --query "SecurityGroupRules[?IpProtocol=='tcp' && FromPort=='22' && ToPort=='22']" \
-            --output text)
-        
-        if [ -z "$EXISTING_RULE" ]; then
-            echo "Adding SSH ingress rule to existing security group"
-            MY_IP=$(curl -s http://checkip.amazonaws.com)
-            aws ec2 authorize-security-group-ingress \
-                --group-id ${SECURITY_GROUP_ID} \
-                --protocol tcp \
-                --port 22 \
-                --cidr ${MY_IP}/32
-        else
-            echo "SSH ingress rule already exists"
-        fi
     else
         echo "Creating new security group: ${SECURITY_GROUP_NAME}"
         SECURITY_GROUP_ID=$(aws ec2 create-security-group \
             --group-name ${SECURITY_GROUP_NAME} \
             --description "Security group for EKS client EC2" \
-            --vpc-id ${vpc_id} \
-            --output text)
-        
-        echo "Adding SSH ingress rule to new security group"
-        MY_IP=$(curl -s http://checkip.amazonaws.com)
-        aws ec2 authorize-security-group-ingress \
-            --group-id ${SECURITY_GROUP_ID} \
-            --protocol tcp \
-            --port 22 \
-            --cidr ${MY_IP}/32
+            --vpc-id ${vpc_id}  | jq .GroupId | sed 's/\"//g')
     fi
 
     # Add EKS cluster security group rules
@@ -542,74 +440,82 @@ if [ "$ACTION" == "apply" ]; then
             --query 'sort_by(Images, &CreationDate)[-1].ImageId' \
             --output text)
 
-
-        # Before creating EC2 instance
-        # First upload locust assets
-        upload_locust_assets
-
         # Create user data script
         cat << EOF > /tmp/user-data.sh
 #!/bin/bash
 set -e
-exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+
+# Configure simple logging - only errors and important messages
+exec > >(tee /var/log/user-data.log) 2>&1
+echo "[$(date)] Starting user-data script execution"
+
+# Install required packages
+echo "[$(date)] Installing required packages"
+sudo yum install -y unzip git
 
 # Switch to ec2-user for all operations
 sudo -i -u ec2-user bash << 'EEOF'
+echo "[$(date)] Setting up environment as ec2-user"
+
 # Create working directory
 mkdir -p ~/load-test
 cd ~/load-test
 
 # Download assets from S3
-echo "Downloading assets from S3..."
-aws s3 cp "s3://${BUCKET_NAME}/locust-asset/locust.zip" ./locust.zip
-unzip locust.zip
-rm locust.zip
+echo "[$(date)] Downloading assets from S3"
+aws s3 cp "s3://${BUCKET_NAME}/locust-asset/load-test-for-emr-on-eks.zip" ./load-test-for-emr-on-eks.zip || { echo "[ERROR] Failed to download from S3"; exit 1; }
+unzip load-test-for-emr-on-eks.zip || { echo "[ERROR] Failed to unzip assets"; exit 1; }
+rm load-test-for-emr-on-eks.zip
 
 # Load environment variables
-source ./locust/env.sh
+source ./load-test-for-emr-on-eks/locust/env.sh || { echo "[ERROR] Failed to source env.sh"; exit 1; }
 
 # Install kubectl
-curl -LO "https://dl.k8s.io/release/\$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+echo "[$(date)] Installing kubectl"
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" || { echo "[ERROR] Failed to download kubectl"; exit 1; }
+sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl || { echo "[ERROR] Failed to install kubectl"; exit 1; }
 
 # Install helm
-curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3
+echo "[$(date)] Installing helm"
+curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 || { echo "[ERROR] Failed to download helm script"; exit 1; }
 chmod 700 get_helm.sh
-./get_helm.sh
+./get_helm.sh || { echo "[ERROR] Failed to install helm"; exit 1; }
 rm -f get_helm.sh
 
 # Install eksctl
-curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_\$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
-sudo mv /tmp/eksctl /usr/local/bin
+echo "[$(date)] Installing eksctl"
+curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp || { echo "[ERROR] Failed to download eksctl"; exit 1; }
+sudo mv /tmp/eksctl /usr/local/bin || { echo "[ERROR] Failed to install eksctl"; exit 1; }
 
 # Setup kubeconfig
+echo "[$(date)] Setting up kubeconfig"
 mkdir -p ~/.kube
-aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}
+aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME} || { echo "[ERROR] Failed to update kubeconfig"; exit 1; }
 
 # Install pip and packages
-curl -O https://bootstrap.pypa.io/get-pip.py
-python3 get-pip.py --user
+echo "[$(date)] Installing pip and required packages"
+curl -O https://bootstrap.pypa.io/get-pip.py || { echo "[ERROR] Failed to download pip"; exit 1; }
+python3 get-pip.py --user || { echo "[ERROR] Failed to install pip"; exit 1; }
 export PATH=$PATH:~/.local/bin
 echo 'export PATH=$PATH:~/.local/bin' >> ~/.bashrc
 echo 'export PATH=$PATH:~/.local/bin' >> ~/.profile
 
-cd ~/load-test/locust
-pip3 install --user -r requirements.txt
+cd ~/load-test/load-test-for-emr-on-eks/locust
+pip3 install --user -r requirements.txt || { echo "[ERROR] Failed to install Python requirements"; exit 1; }
 
 # Verify installations
-echo "Verifying installations..."
-which pip3
-which locust
-pip3 list | grep locust
+echo "[$(date)] Verifying installations"
+which pip3 || echo "[WARNING] pip3 not found in PATH"
+which locust || echo "[WARNING] locust not found in PATH"
+pip3 list | grep locust || echo "[WARNING] locust package not installed"
 EEOF
 
-echo "Init Locust EC2 Completed"
+echo "[$(date)] Locust EC2 setup completed"
 EOF
 
         INSTANCE_ID=$(aws ec2 run-instances \
             --image-id ${AMI_ID} \
             --instance-type m5.2xlarge \
-            --key-name ${KEY_NAME} \
             --subnet-id ${PUBLIC_SUBNET_ID} \
             --security-group-ids ${SECURITY_GROUP_ID} \
             --iam-instance-profile Arn=${INSTANCE_PROFILE_ARN} \
@@ -622,12 +528,6 @@ EOF
         echo "Waiting for instance to be running..."
         aws ec2 wait instance-running --instance-ids ${INSTANCE_ID}
 
-        # Get public IP
-        PUBLIC_IP=$(aws ec2 describe-instances \
-            --instance-ids ${INSTANCE_ID} \
-            --query 'Reservations[0].Instances[0].PublicIpAddress' \
-            --output text)
-        
         # Get Private IP for Prometheus 
         PRIVATE_IP=$(aws ec2 describe-instances \
             --instance-ids ${INSTANCE_ID} \
@@ -636,8 +536,7 @@ EOF
         
         # Replace the IP to Prometheus on eks
         echo "Update the Locust Private IP to Prometheus on EKS, re-installing Prometheus"
-        replace_in_file "{LOCUST_IP_PRIV}" "\$PRIVATE_IP" "./resources/prometheus-values.yaml"
-
+        replace_in_file "{LOCUST_IP_PRIV}" "$PRIVATE_IP" "./resources/prometheus-values.yaml"
 
         helm uninstall prometheus -n prometheus 
         helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n prometheus -f ./resources/prometheus-values.yaml
@@ -645,23 +544,22 @@ EOF
 
         echo "EC2 instance created successfully!"
         echo "Instance ID: ${INSTANCE_ID}"
-        echo "Public IP: ${PUBLIC_IP}"
-        echo "Public IP: ${PRIVATE_IP}"
+        echo "Private IP: ${PRIVATE_IP}"
         echo "==============================================="
-        echo "To connect to the instance use: ssh -i ${KEY_NAME}.pem ec2-user@${PUBLIC_IP}"
+        echo "To connect to the instance use AWS Systems Manager (SSM)"
         echo "==============================================="
     else
         INSTANCE_ID=$(check_ec2_instance "$INSTANCE_NAME")
-        PUBLIC_IP=$(aws ec2 describe-instances \
+        PRIVATE_IP=$(aws ec2 describe-instances \
             --instance-ids ${INSTANCE_ID} \
-            --query 'Reservations[0].Instances[0].PublicIpAddress' \
+            --query 'Reservations[0].Instances[0].PrivateIpAddress' \
             --output text)
 
         echo "EC2 instance ${INSTANCE_NAME} already exists"
         echo "Instance ID: ${INSTANCE_ID}"
-        echo "Public IP: ${PUBLIC_IP}"
+        echo "Private IP: ${PRIVATE_IP}"
         echo "==============================================="
-        echo "To connect to the instance use: ssh -i ${KEY_NAME}.pem ec2-user@${PUBLIC_IP}"
+        echo "To connect to the instance use AWS Systems Manager (SSM)"
         echo "==============================================="
     fi
 
@@ -732,15 +630,6 @@ elif [ "$ACTION" == "delete" ]; then
         fi
     else
         echo "No security group found with name: ${SECURITY_GROUP_NAME}"
-    fi
-
-    # Delete key pair if exists
-    if check_key_pair "$KEY_NAME"; then
-        echo "Deleting key pair: ${KEY_NAME}"
-        aws ec2 delete-key-pair --key-name ${KEY_NAME}
-        rm -f ${KEY_NAME}.pem
-    else
-        echo "No key pair found with name: ${KEY_NAME}"
     fi
 
     # Delete IAM resources

@@ -83,6 +83,38 @@ if ! aws eks describe-cluster --name ${CLUSTER_NAME} --region ${AWS_REGION} >/de
 
 fi
 
+echo "==============================================="
+echo "  Adding WSParticipantRole to EKS cluster as admin..."
+echo "==============================================="
+
+
+WS_PARTICIPANT_ROLE_ARN=$(aws iam get-role --role-name WSParticipantRole --query Role.Arn --output text)
+
+
+if [[ -z "\$WS_PARTICIPANT_ROLE_ARN" ]]; then
+
+  WS_PARTICIPANT_ROLE_ARN=$(aws iam list-roles --path-prefix /WSParticipantRole/ --query 'Roles[0].Arn' --output text)
+fi
+
+echo "Role ARN to add: $WS_PARTICIPANT_ROLE_ARN"
+
+eksctl create iamidentitymapping \
+  --cluster $CLUSTER_NAME \
+  --region $AWS_REGION \
+  --arn $WS_PARTICIPANT_ROLE_ARN \
+  --username admin \
+  --group system:masters
+
+echo "WSParticipantRole has been added as admin to the EKS cluster"
+
+
+echo "Verifying aws-auth ConfigMap:"
+kubectl get configmap aws-auth -n kube-system -o yaml
+
+
+
+
+
 
 echo "==============================================="
 echo "  Get OIDC ......"
@@ -591,7 +623,6 @@ spec:
 EOF
 
 
-
 if [[ $USE_AMG == "true" ]]
 then 
     # Create AMG
@@ -631,3 +662,44 @@ then
         echo "Created AWS Manged Grafana workspace $grafana_workspace_id"
     fi
 fi
+
+echo "==============================================="
+echo "  Packaging and uploading all files to s3 as locust assets..."
+echo "==============================================="
+
+# Function to package and upload locust assets
+upload_locust_assets() {
+    echo "Packaging and uploading all files to s3 as locust assets..."
+    
+    # Copy the current env.sh to locust
+    cp ./env.sh ./locust/env.sh && cd ..
+    
+    # Create temporary zip file
+    local temp_zip="load-test-for-emr-on-eks.zip"
+
+    # Create zip file
+    if ! zip -r "${temp_zip}" ./load-test-for-emr-on-eks; then
+        echo "Error: Failed to create zip file"
+        return 1
+    fi
+
+    # Upload to S3
+    if ! aws s3 cp "${temp_zip}" "s3://${BUCKET_NAME}/locust-asset/${temp_zip}"; then
+        echo "Error: Failed to upload to S3"
+        rm -f "${temp_zip}"
+        return 1
+    fi
+
+    # Clean up
+    rm -f "${temp_zip}"
+
+    echo "Successfully uploaded locust assets to S3"
+    return 0
+}
+
+upload_locust_assets
+
+echo "==============================================="
+echo " Completed Infrastructure Deployment .."
+echo "==============================================="
+

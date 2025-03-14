@@ -52,4 +52,4 @@ export KARPENTER_CONTROLLER_POLICY="KarpenterControllerPolicy-${LOAD_TEST_PREFIX
 export KARPENTER_NODE_ROLE="KarpenterNodeRole-${LOAD_TEST_PREFIX}"
 
 # To use Amazon Managed Grafana
-export USE_AMG="true"
+export USE_AMG="false"
