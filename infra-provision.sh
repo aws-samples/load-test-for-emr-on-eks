@@ -537,21 +537,13 @@ subnet_1_priv=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=${VPC_ID}
 subnet_2_priv=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=${VPC_ID}" "Name=map-public-ip-on-launch,Values=false" --query 'Subnets[*].SubnetId' --output text | awk '{print $2}')
 
 
-# Update aws-auth ConfigMap
-cat <<EOF | kubectl apply -f -
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: aws-auth
-  namespace: kube-system
-data:
-  mapRoles: |
-    - groups:
-      - system:bootstrappers
-      - system:nodes
-      rolearn: arn:aws:iam::${ACCOUNT_ID}:role/${KARPENTER_NODE_ROLE}
-      username: system:node:{{EC2PrivateDNSName}}
-EOF
+# Add Karpenter node role to aws-auth ConfigMap (without overwriting existing roles)
+eksctl create iamidentitymapping \
+  --cluster $CLUSTER_NAME \
+  --region $AWS_REGION \
+  --arn "arn:aws:iam::${ACCOUNT_ID}:role/${KARPENTER_NODE_ROLE}" \
+  --username system:node:{{EC2PrivateDNSName}} \
+  --groups system:bootstrappers,system:nodes
 
 replace_in_file "KarpenterControllerRole_ARN" "arn:aws:iam::$ACCOUNT_ID:role/$KARPENTER_CONTROLLER_ROLE" "./resources/karpenter-0.37.0.yaml"
 replace_in_file "CLUSTER_NAME_VALUE" "$CLUSTER_NAME" "./resources/karpenter-0.37.0.yaml"
