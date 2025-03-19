@@ -543,7 +543,8 @@ eksctl create iamidentitymapping \
   --region $AWS_REGION \
   --arn "arn:aws:iam::${ACCOUNT_ID}:role/${KARPENTER_NODE_ROLE}" \
   --username system:node:{{EC2PrivateDNSName}} \
-  --groups system:bootstrappers,system:nodes
+  --group system:bootstrappers \
+  --group system:nodes
 
 replace_in_file "KarpenterControllerRole_ARN" "arn:aws:iam::$ACCOUNT_ID:role/$KARPENTER_CONTROLLER_ROLE" "./resources/karpenter-0.37.0.yaml"
 replace_in_file "CLUSTER_NAME_VALUE" "$CLUSTER_NAME" "./resources/karpenter-0.37.0.yaml"
