@@ -1,18 +1,21 @@
-export LOAD_TEST_PREFIX=eks-operator-test
+export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+ACCOUNT_HASH=$(echo -n "$ACCOUNT_ID" | md5sum | cut -c1-4)
+
+
+export LOAD_TEST_PREFIX=eks-load-test-${ACCOUNT_HASH}
 export AWS_REGION=us-west-2
 export ECR_REGISTRY_ACCOUNT=895885662937
 export EKS_VPC_CIDR=172.16.0.0/16
-export EKS_VERSION=1.30
+export EKS_VERSION=1.32
 
 # Please check below for the ECR_REGISTRY_ACCOUNT if you are using other regions
 # https://docs.aws.amazon.com/emr/latest/EMR-on-EKS-DevelopmentGuide/docker-custom-images-tag.html
 
 
 # Utility
-export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-export CLUSTER_NAME=${LOAD_TEST_PREFIX}-eks-cluster
-export BUCKET_NAME=${LOAD_TEST_PREFIX}-bucket-01
 
+export CLUSTER_NAME=${LOAD_TEST_PREFIX}
+export BUCKET_NAME=${LOAD_TEST_PREFIX}-bucket
 
 # Spark Operator
 # OPERATOR_TEST_MODE, either using "multiple" or "single"
@@ -33,8 +36,8 @@ export BUCKET_NAME=${LOAD_TEST_PREFIX}-bucket-01
 
 export OPERATOR_TEST_MODE="multiple"
 export SPARK_JOB_NS_NUM=2
-export SPARK_OPERATOR_VERSION=6.11.0
-export EMR_IMAGE_VERSION=6.11.0
+export SPARK_OPERATOR_VERSION=7.7.0
+export EMR_IMAGE_VERSION=7.7.0
 export EMR_IMAGE_URL="${ECR_REGISTRY_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/spark/emr-${EMR_IMAGE_VERSION}:latest"
 
 export SPARK_OPERATOR_ROLE=${LOAD_TEST_PREFIX}-SparkJobS3AccessRole

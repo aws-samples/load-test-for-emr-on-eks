@@ -39,7 +39,7 @@ if ! aws eks describe-cluster --name ${CLUSTER_NAME} --region ${AWS_REGION} >/de
     sed -i '' 's|${LOAD_TEST_PREFIX}|'$LOAD_TEST_PREFIX'|g' ./resources/eks-cluster-values.yaml
     
     eksctl create cluster -f ./resources/eks-cluster-values.yaml
-
+    
 fi
 
 
@@ -182,13 +182,41 @@ if [ "$OPERATOR_TEST_MODE" = "multiple" ]; then
     # For multiple Operators
     echo "Installing multiple operators..."
     
-    # Install operators (Helm will create the necessary roles)
+    # Install operators (Helm will create the necessary roles), comments as current limitation. Bug fix with TT: https://t.corp.amazon.com/P239850734/overview
+    # for i in $(seq 0 $((SPARK_JOB_NS_NUM-1)))
+    # do
+    #     echo "Installing spark-operator$i..."
+    #     helm install spark-operator$i \
+    #         oci://${ECR_REGISTRY_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/spark-operator \
+    #         --version ${SPARK_OPERATOR_VERSION} \
+    #         --namespace spark-operator \
+    #         --set sparkJobNamespace=spark-job$i \
+    #         --set rbac.create=true \
+    #         --set serviceAccounts.sparkoperator.create=true \
+    #         --set serviceAccounts.sparkoperator.name=spark-operator-sa$i \
+    #         --set serviceAccounts.spark.create=false \
+    #         --set nameOverride=spark-operator$i \
+    #         --set fullnameOverride=spark-operator$i \
+    #         --set emrContainers.awsRegion=${AWS_REGION} \
+    #         -f ./resources/spark-operator-values.yaml
+    # done
+
+    mkdir -p custom-spark-operator
+    helm pull oci://895885662937.dkr.ecr.us-west-2.amazonaws.com/spark-operator --version 7.7.0 --untar -d custom-spark-operator
+    cd custom-spark-operator/spark-operator
+    perl -i -pe 's/name: emr-eks-region-to-account-lookup/name: {{ include "spark-operator.fullname" . }}-region-lookup/g' templates/deployment.yaml
+    perl -i -pe 's/configMap:\n\s+name: emr-eks-region-to-account-lookup/configMap:\n      name: {{ include "spark-operator.fullname" . }}-region-lookup/g' templates/deployment.yaml
+    helm template test-operator . --namespace spark-operator > rendered.yaml
+    cd ../../
+    helm package ./custom-spark-operator/spark-operator -d .
+
+
+    # Install multiple instances
     for i in $(seq 0 $((SPARK_JOB_NS_NUM-1)))
     do
         echo "Installing spark-operator$i..."
         helm install spark-operator$i \
-            oci://${ECR_REGISTRY_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/spark-operator \
-            --version 6.11.0 \
+            ./spark-operator-7.7.0.tgz \
             --namespace spark-operator \
             --set sparkJobNamespace=spark-job$i \
             --set rbac.create=true \
@@ -255,7 +283,7 @@ EOF
 
     helm install spark-operator0 \
         oci://${ECR_REGISTRY_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/spark-operator \
-        --version 6.11.0 \
+        --version ${SPARK_OPERATOR_VERSION} \
         --namespace spark-operator \
         --set rbac.create=true \
         --set serviceAccounts.sparkoperator.create=true \

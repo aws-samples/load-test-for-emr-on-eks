@@ -451,7 +451,9 @@ if [ "$ACTION" == "apply" ]; then
             --description "Security group for EKS client EC2" \
             --vpc-id ${vpc_id} \
             --output text)
-        
+            
+        sleep 5
+
         echo "Adding SSH ingress rule to new security group"
         MY_IP=$(curl -s http://checkip.amazonaws.com)
         aws ec2 authorize-security-group-ingress \
