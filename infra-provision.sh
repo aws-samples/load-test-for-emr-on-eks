@@ -24,7 +24,11 @@ aws s3api create-bucket \
 aws s3 cp ./locust/resources/custom-spark-pi.py "s3://${BUCKET_NAME}/testing-code/custom-spark-pi.py"
 
 # Update the testing spark job yaml config
-sed -i '' 's/{BUCKET_NAME}/'$BUCKET_NAME'/g' ./locust/resources/spark-pi.yaml
+sed -i '' 's|${BUCKET_NAME}|'$BUCKET_NAME'|g' ./resources/spark-pi.yaml
+sed -i '' 's|${SPARK_VERSION}|'$SPARK_VERSION'|g' ./resources/spark-pi.yaml
+sed -i '' 's|${EMR_IMAGE_URL}|'$EMR_IMAGE_URL'|g' ./resources/spark-pi.yaml
+
+
 
 echo "==============================================="
 echo "  Create EKS Cluster ......"
@@ -57,6 +61,8 @@ echo "==============================================="
 
 sed -i '' 's/${CLUSTER_NAME}/'$CLUSTER_NAME'/g' ./resources/autoscaler-values.yaml
 sed -i '' 's/${AWS_REGION}/'$AWS_REGION'/g' ./resources/autoscaler-values.yaml
+sed -i '' 's/${EKS_VERSION}/'$EKS_VERSION'/g' ./resources/autoscaler-values.yaml
+
 
 helm repo update
 helm repo add autoscaler https://kubernetes.github.io/autoscaler
@@ -298,6 +304,76 @@ fi
 
 echo "Spark operator installation completed"
 
+
+echo "==============================================="
+echo "  Setup Locust for Spark Operator Testing ......"
+echo "==============================================="
+
+
+# Create the Required Namespace and Service Account
+kubectl create namespace locust --dry-run=client -o yaml | kubectl apply -f -
+
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: locust-spark-submitter
+  namespace: locust
+EOF
+
+# Create roles and rolebindings for each Spark namespace
+for i in $(seq 0 $((SPARK_JOB_NS_NUM-1)))
+do
+    cat <<EOF | kubectl apply -f -
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spark-submitter-role
+  namespace: spark-job$i
+rules:
+- apiGroups: ["sparkoperator.k8s.io"]
+  resources: ["sparkapplications"]
+  verbs: ["get", "list", "create", "delete", "watch"]
+- apiGroups: [""]
+  resources: ["pods", "pods/log", "services"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: locust-spark-submitter-binding
+  namespace: spark-job$i
+subjects:
+- kind: ServiceAccount
+  name: locust-spark-submitter
+  namespace: locust
+roleRef:
+  kind: Role
+  name: spark-submitter-role
+  apiGroup: rbac.authorization.k8s.io
+EOF
+done
+
+
+sed -i '' 's|SPARK_JOB_NS_NUM|'$SPARK_JOB_NS_NUM'|g' ./resources/locust-spark-submit.py
+
+# Create ConfigMap with the test script and Spark job template
+kubectl delete configmap spark-locust-scripts -n locust --ignore-not-found
+kubectl create configmap spark-locust-scripts \
+  --from-file=locust-spark-submit.py=./resources/locust-spark-submit.py \
+  --from-file=spark-pi.yaml=./resources/spark-pi.yaml \
+  -n locust
+
+
+# Apply deployment
+kubectl apply -f ./resources/locust-deployment.yaml
+
+echo "==============================================="
+echo "  Locust setup completed ......"
+echo "==============================================="
 
 
 echo "==============================================="
@@ -578,6 +654,28 @@ spec:
 EOF
 
 
+cat <<EOF | kubectl apply -f -
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: locust-exporter-monitor
+  namespace: prometheus
+  labels:
+    release: prometheus
+spec:
+  namespaceSelector:
+    matchNames:
+    - locust
+  selector:
+    matchLabels:
+      app: locust-exporter
+  endpoints:
+    - port: metrics
+      interval: 15s
+EOF
+
+
+kubectl apply -f ./resources/locust-exporter-deployment.yaml
 
 if [[ $USE_AMG == "true" ]]
 then 
@@ -618,3 +716,11 @@ then
         echo "Created AWS Manged Grafana workspace $grafana_workspace_id"
     fi
 fi
+
+echo "==============================================="
+echo "  Setup completed successfully ......"
+echo "  Access the Locust UI by port-forwarding:"
+echo "  kubectl port-forward svc/locust-master 8089:8089 -n locust"
+echo "  Access the Prometheus UI by port-forwarding:"
+echo "  kubectl port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 -n prometheus"
+echo "==============================================="

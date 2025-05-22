@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: locust-exporter
+  namespace: locust
+  labels:
+    app: locust-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: locust-exporter
+  template:
+    metadata:
+      labels:
+        app: locust-exporter
+    spec:
+      containers:
+      - name: locust-exporter
+        image: containersol/locust_exporter:latest
+        ports:
+        - containerPort: 9646
+          name: metrics
+        env:
+        - name: LOCUST_EXPORTER_URI
+          value: "http://locust-master:8089"
+        resources:
+          limits:
+            cpu: "200m"
+            memory: "256Mi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: locust-exporter
+  namespace: locust
+  labels:
+    app: locust-exporter
+spec:
+  ports:
+  - port: 9646
+    targetPort: metrics
+    name: metrics
+  selector:
+    app: locust-exporter

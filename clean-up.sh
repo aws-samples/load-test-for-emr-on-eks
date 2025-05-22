@@ -126,9 +126,16 @@ fi
 if [ -f "./resources/template-backups/karpenter-0.37.0.yaml" ]; then
     cp -f ./resources/template-backups/karpenter-0.37.0.yaml ./resources/karpenter-0.37.0.yaml
 fi
+if [ -f "./resources/template-backups/eks-cluster-values.yaml" ]; then
+    cp -f ./resources/template-backups/eks-cluster-values.yaml ./resources/eks-cluster-values.yaml
+fi
+
+if [ -f "./resources/template-backups/locust-spark-submit.py" ]; then
+    cp -f ./resources/template-backups/locust-spark-submit.py ./resources/locust-spark-submit.py
+fi
 
 if [ -f "./resources/template-backups/spark-pi.yaml" ]; then
-    cp -f ./resources/template-backups/spark-pi.yaml ./locust/resources/spark-pi.yaml
+    cp -f ./resources/template-backups/spark-pi.yaml ./resources/spark-pi.yaml
 fi
 
 if [ -f "./resources/template-backups/grafana-service-role-assume-policy.json" ]; then
@@ -137,5 +144,8 @@ fi
 # Delete EKS cluster
 echo "Deleting EKS cluster..."
 eksctl delete cluster --name ${CLUSTER_NAME} --region ${AWS_REGION}
+
+echo "Deleting tmp files...."
+rm -rf /tmp/load_test/*
 
 echo "Cleanup completed!"

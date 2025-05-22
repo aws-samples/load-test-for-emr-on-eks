@@ -1,8 +1,20 @@
-export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-ACCOUNT_HASH=$(echo -n "$ACCOUNT_ID" | md5sum | cut -c1-4)
+mkdir -p /tmp/load_test/
+LOAD_TEST_PREFIX_FILE=/tmp/load_test/eks_load_test_prefix
+
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+if [ -f "$LOAD_TEST_PREFIX_FILE" ]; then
+  export LOAD_TEST_PREFIX=$(cat "$LOAD_TEST_PREFIX_FILE")
+  echo "Using existing LOAD_TEST_PREFIX: $LOAD_TEST_PREFIX"
+else
+  ACCOUNT_HASH=$(echo -n "$ACCOUNT_ID" | md5sum | cut -c1-4)
+  export LOAD_TEST_PREFIX=eks-load-test-${ACCOUNT_HASH}
+  
+  echo "$LOAD_TEST_PREFIX" > "$LOAD_TEST_PREFIX_FILE"
+  echo "Created new LOAD_TEST_PREFIX: $LOAD_TEST_PREFIX"
+fi
 
 
-export LOAD_TEST_PREFIX=eks-load-test-${ACCOUNT_HASH}
 export AWS_REGION=us-west-2
 export ECR_REGISTRY_ACCOUNT=895885662937
 export EKS_VPC_CIDR=172.16.0.0/16
@@ -38,6 +50,7 @@ export OPERATOR_TEST_MODE="multiple"
 export SPARK_JOB_NS_NUM=2
 export SPARK_OPERATOR_VERSION=7.7.0
 export EMR_IMAGE_VERSION=7.7.0
+export SPARK_VERSION=3.5.3
 export EMR_IMAGE_URL="${ECR_REGISTRY_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/spark/emr-${EMR_IMAGE_VERSION}:latest"
 
 export SPARK_OPERATOR_ROLE=${LOAD_TEST_PREFIX}-SparkJobS3AccessRole

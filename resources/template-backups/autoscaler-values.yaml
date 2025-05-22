@@ -1,8 +1,8 @@
 autoDiscovery:
-  clusterName: ${CLUSTER_NAME}-eks-cluster
-awsRegion: us-west-2
+  clusterName: ${CLUSTER_NAME}
+awsRegion: ${AWS_REGION}
 image:
-  tag: v1.30.0
+  tag: v${EKS_VERSION}.0
 nodeSelector:
   operational: "true"
   monitor: "true"
