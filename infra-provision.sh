@@ -10,7 +10,6 @@ echo "==============================================="
 echo "  Setup Bucket ......"
 echo "==============================================="
 
-# Create S3 bucket for testing
 echo "Creating S3 bucket: $BUCKET_NAME"
 aws s3api create-bucket \
     --bucket $BUCKET_NAME \
@@ -34,41 +33,306 @@ echo "==============================================="
 echo "  Create EKS Cluster ......"
 echo "==============================================="
 
-if ! aws eks describe-cluster --name ${CLUSTER_NAME} --region ${AWS_REGION} >/dev/null 2>&1; then
+# Create CloudFormation stack for Karpenter resources
+echo "Creating CloudFormation stack for Karpenter resources..."
+curl -fsSL https://raw.githubusercontent.com/aws/karpenter-provider-aws/v"${KARPENTER_VERSION}"/website/content/en/preview/getting-started/getting-started-with-karpenter/cloudformation.yaml > /tmp/karpenter-cf.yaml
 
+aws cloudformation deploy \
+  --stack-name "Karpenter-${CLUSTER_NAME}" \
+  --template-file /tmp/karpenter-cf.yaml \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --parameter-overrides "ClusterName=${CLUSTER_NAME}"
+
+
+
+if ! aws eks describe-cluster --name ${CLUSTER_NAME} --region ${AWS_REGION} >/dev/null 2>&1; then
     sed -i '' 's|${AWS_REGION}|'$AWS_REGION'|g' ./resources/eks-cluster-values.yaml
     sed -i '' 's|${CLUSTER_NAME}|'$CLUSTER_NAME'|g' ./resources/eks-cluster-values.yaml
     sed -i '' 's|${EKS_VERSION}|'$EKS_VERSION'|g' ./resources/eks-cluster-values.yaml
     sed -i '' 's|${EKS_VPC_CIDR}|'$EKS_VPC_CIDR'|g' ./resources/eks-cluster-values.yaml
     sed -i '' 's|${LOAD_TEST_PREFIX}|'$LOAD_TEST_PREFIX'|g' ./resources/eks-cluster-values.yaml
-    
+    sed -i '' 's|${ACCOUNT_ID}|'$ACCOUNT_ID'|g' ./resources/eks-cluster-values.yaml
     eksctl create cluster -f ./resources/eks-cluster-values.yaml
-    
 fi
 
 
-echo "==============================================="
-echo "  Get OIDC ......"
-echo "==============================================="
+# Create service linked role for EC2 Spot if it doesn't exist
+aws iam create-service-linked-role --aws-service-name spot.amazonaws.com || true
 
-OIDC_PROVIDER=$(aws eks describe-cluster --name $CLUSTER_NAME --query "cluster.identity.oidc.issuer" --output text | sed -e "s/^https:\/\///")
+
+export OIDC_PROVIDER=$(aws eks describe-cluster --name $CLUSTER_NAME --query "cluster.identity.oidc.issuer" --output text | sed -e "s/^https:\/\///")
 echo $OIDC_PROVIDER
 
 
+# Get VPC ID and subnets
+VPC_ID=$(aws eks describe-cluster --name ${CLUSTER_NAME} --query "cluster.resourcesVpcConfig.vpcId" --output text)
+
+aws ec2 associate-vpc-cidr-block --vpc-id $VPC_ID --cidr-block $EKS_VPC_CIDR_SECONDARY
+
+BASE_PREFIX=$(echo $EKS_VPC_CIDR_SECONDARY | cut -d/ -f1 | cut -d. -f1-2)
+
+SUBNET_A="${BASE_PREFIX}.0.0/17"
+SUBNET_B="${BASE_PREFIX}.128.0/17"
+
+# Create subnet in zone a
+NEW_SUBNET_a=$(
+aws ec2 create-subnet \
+  --vpc-id $VPC_ID \
+  --cidr-block $SUBNET_A \
+  --availability-zone ${AWS_REGION}a \
+  --tag-specifications "ResourceType=subnet,Tags=[{Key=Name,Value=\"$CLUSTER_NAME-cluster/private-secondary-a\"},{Key=Type,Value=private},{Key=\"eksctl.cluster.k8s.io/v1alpha1/cluster-name\",Value=\"$CLUSTER_NAME\"}]" \
+  --query Subnet.SubnetId --output text)
+
+# Create subnet in zone b
+NEW_SUBNET_b=$(
+aws ec2 create-subnet \
+  --vpc-id $VPC_ID \
+  --cidr-block $SUBNET_B \
+  --availability-zone ${AWS_REGION}b \
+  --tag-specifications "ResourceType=subnet,Tags=[{Key=Name,Value=\"$CLUSTER_NAME-cluster/private-secondary-b\"},{Key=Type,Value=private},{Key=\"eksctl.cluster.k8s.io/v1alpha1/cluster-name\",Value=\"$CLUSTER_NAME\"}]" \
+  --query Subnet.SubnetId --output text)
+
+
+ROUTE_TABLE_ID=$(aws ec2 create-route-table \
+  --vpc-id $VPC_ID \
+  --tag-specifications "ResourceType=route-table,Tags=[{Key=Name,Value=\"$CLUSTER_NAME-cluster/private-rt-secondary\"},{Key=\"eksctl.cluster.k8s.io/v1alpha1/cluster-name\",Value=\"$CLUSTER_NAME\"}]" \
+  --query 'RouteTable.RouteTableId' --output text)
+
+
+aws ec2 associate-route-table --route-table-id $ROUTE_TABLE_ID --subnet-id $NEW_SUBNET_a
+aws ec2 associate-route-table --route-table-id $ROUTE_TABLE_ID --subnet-id $NEW_SUBNET_b
+
+
+kubectl set env daemonset aws-node -n kube-system AWS_VPC_K8S_CNI_CUSTOM_NETWORK_CFG=true
+kubectl set env daemonset aws-node -n kube-system ENI_CONFIG_LABEL_DEF=topology.kubernetes.io/zone
+
+cluster_security_group_id=$(aws eks describe-cluster --name $CLUSTER_NAME --query cluster.resourcesVpcConfig.clusterSecurityGroupId --output text)
+
+kubectl apply -f - <<EOF
+apiVersion: crd.k8s.amazonaws.com/v1alpha1
+kind: ENIConfig
+metadata:
+  name: "${AWS_REGION}a"
+spec:
+  securityGroups:
+    - "$cluster_security_group_id"
+  subnet: "$NEW_SUBNET_a"
+EOF
+
+# Create ENIConfig for zone b
+kubectl apply -f - <<EOF
+apiVersion: crd.k8s.amazonaws.com/v1alpha1
+kind: ENIConfig
+metadata:
+  name: "${AWS_REGION}b"
+spec:
+  securityGroups:
+    - "$cluster_security_group_id"
+  subnet: "$NEW_SUBNET_b"
+EOF
+
+
+kubectl get ENIConfigs
+
+
+NAT_GATEWAY_ID=$(aws ec2 describe-nat-gateways \
+  --filter "Name=vpc-id,Values=$VPC_ID" "Name=state,Values=available" \
+  --query "NatGateways[0].NatGatewayId" \
+  --output text)
+
+if [ -n "$NAT_GATEWAY_ID" ]; then
+  aws ec2 create-route \
+    --route-table-id $ROUTE_TABLE_ID \
+    --destination-cidr-block 0.0.0.0/0 \
+    --nat-gateway-id $NAT_GATEWAY_ID
+else
+  echo "Unable to find NAT Gateway, please check VPC Configs"
+fi
+
+
+# Tag security groups and subnets for Karpenter discovery
+echo "Tagging resources for Karpenter discovery..."
+SECURITY_GROUPS=$(aws eks describe-cluster \
+    --name ${CLUSTER_NAME} \
+    --query 'cluster.resourcesVpcConfig.securityGroupIds[*]' \
+    --output text)
+
+CLUSTER_SG=$(aws eks describe-cluster \
+    --name ${CLUSTER_NAME} \
+    --query 'cluster.resourcesVpcConfig.clusterSecurityGroupId' \
+    --output text)
+
+# Tag each security group
+for SG in ${SECURITY_GROUPS} ${CLUSTER_SG}; do
+    echo "Tagging security group: $SG"
+    aws ec2 create-tags \
+        --resources "$SG" \
+        --tags "Key=karpenter.sh/discovery,Value=${CLUSTER_NAME}" || true
+done
+
+# Get subnets and tag each one individually
+for SUBNET_ID in $(aws ec2 describe-subnets \
+    --filters "Name=vpc-id,Values=${VPC_ID}" \
+    --query "Subnets[*].SubnetId" \
+    --output text); do
+    echo "Tagging subnet: $SUBNET_ID"
+    aws ec2 create-tags \
+        --resources "$SUBNET_ID" \
+        --tags "Key=karpenter.sh/discovery,Value=${CLUSTER_NAME}" || true
+done
+
+# Install Karpenter CRDs
+echo "Installing Karpenter CRDs..."
+kubectl apply -f https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.k8s.aws_ec2nodeclasses.yaml
+kubectl apply -f https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.sh_nodeclaims.yaml
+kubectl apply -f https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.sh_nodepools.yaml
+
+# Install Karpenter controller via Helm
+echo "Installing Karpenter controller..."
+helm registry logout public.ecr.aws || true
+
+helm upgrade --install karpenter oci://public.ecr.aws/karpenter/karpenter --version ${KARPENTER_VERSION} \
+  --namespace ${KARPENTER_NAMESPACE} \
+  --create-namespace \
+  --set "settings.clusterName=${CLUSTER_NAME}" \
+  --set "settings.interruptionQueue=${CLUSTER_NAME}" \
+  --set controller.resources.requests.cpu=1 \
+  --set controller.resources.requests.memory=1Gi \
+  --set controller.resources.limits.cpu=1 \
+  --set controller.resources.limits.memory=1Gi \
+  --set "controller.nodeSelector.operational=true" \
+  --wait
+
+subnet_1_priv=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=${VPC_ID}" "Name=map-public-ip-on-launch,Values=false" --query 'Subnets[*].SubnetId' --output text | awk '{print $1}')
+subnet_2_priv=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=${VPC_ID}" "Name=map-public-ip-on-launch,Values=false" --query 'Subnets[*].SubnetId' --output text | awk '{print $2}')
+
+# Create NodePools for Karpenter:
+export ALIAS_VERSION="$(aws ssm get-parameter --name "/aws/service/eks/optimized-ami/${EKS_VERSION}/amazon-linux-2023/x86_64/standard/recommended/image_id" --query Parameter.Value | xargs aws ec2 describe-images --query 'Images[0].Name' --image-ids | sed -r 's/^.*(v[[:digit:]]+).*$/\1/')"
+
+sed -i '' 's/${AWS_REGION}/'$AWS_REGION'/g' ./resources/karpenter-nodepool.yaml
+sed -i '' 's/${CLUSTER_NAME}/'$CLUSTER_NAME'/g' ./resources/karpenter-nodepool.yaml
+sed -i '' 's/${ALIAS_VERSION}/'$ALIAS_VERSION'/g' ./resources/karpenter-nodepool.yaml
+sed -i '' 's/${private_subnet_1}/'$subnet_1_priv'/g' ./resources/karpenter-nodepool.yaml
+sed -i '' 's/${private_subnet_2}/'$subnet_2_priv'/g' ./resources/karpenter-nodepool.yaml
+sed -i '' 's/${new_private_subnet_1}/'$NEW_SUBNET_a'/g' ./resources/karpenter-nodepool.yaml
+sed -i '' 's/${new_private_subnet_2}/'$NEW_SUBNET_b'/g' ./resources/karpenter-nodepool.yaml
+
+
+kubectl apply -f ./resources/karpenter-nodepool.yaml
+
+echo "Karpenter installation complete!"
+
+
+
 echo "==============================================="
-echo "  Setup Cluster Autoscaler ......"
+echo "  Setup Prometheus ......"
 echo "==============================================="
 
-sed -i '' 's/${CLUSTER_NAME}/'$CLUSTER_NAME'/g' ./resources/autoscaler-values.yaml
-sed -i '' 's/${AWS_REGION}/'$AWS_REGION'/g' ./resources/autoscaler-values.yaml
-sed -i '' 's/${EKS_VERSION}/'$EKS_VERSION'/g' ./resources/autoscaler-values.yaml
+# Check and create IAM Policy
+if aws iam get-policy --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY}" 2>/dev/null; then
+    echo "Policy ${AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY} already exists"
+else
+    echo "Creating policy ${AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY}..."
+    cat <<EOF > /tmp/PermissionPolicyIngest.json
+{
+  "Version": "2012-10-17",
+   "Statement": [
+       {"Effect": "Allow",
+        "Action": [
+           "aps:RemoteWrite", 
+           "aps:GetSeries", 
+           "aps:GetLabels",
+           "aps:GetMetricMetadata"
+        ], 
+        "Resource": "*"
+      }
+   ]
+}
+EOF
+    aws iam create-policy --policy-name ${AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY} --policy-document file:///tmp/PermissionPolicyIngest.json
+fi
+
+sleep 5
+# Check and create IAM Role
+if aws iam get-role --role-name "${AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE}" >/dev/null 2>&1; then
+    echo "Role ${AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE} already exists"
+else
+    echo "Creating role ${AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE}..."
+    cat <<EOF > /tmp/TrustPolicyIngest.json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::${ACCOUNT_ID}:oidc-provider/${OIDC_PROVIDER}"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "${OIDC_PROVIDER}:sub": "system:serviceaccount:prometheus:amp-iamproxy-ingest-service-account"
+        }
+      }
+    }
+  ]
+}
+EOF
+    aws iam create-role --role-name ${AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE} --assume-role-policy-document file:///tmp/TrustPolicyIngest.json
+    aws iam attach-role-policy --role-name ${AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE} --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY}"
+fi
 
 
+
+kubectl create namespace prometheus --dry-run=client -o yaml | kubectl apply -f -
+
+amp=$(aws amp list-workspaces --query "workspaces[?alias=='${CLUSTER_NAME}'].workspaceId" --output text)
+if [ -z "$amp" ]; then
+    echo "Creating a new prometheus workspace..."
+    export WORKSPACE_ID=$(aws amp create-workspace --alias ${CLUSTER_NAME} --query workspaceId --output text)
+else
+    echo "A prometheus workspace already exists"
+    export WORKSPACE_ID=$amp
+fi
+
+sed -i '' 's/{AWS_REGION}/'$AWS_REGION'/g' ./resources/prometheus-values.yaml
+sed -i '' 's/{ACCOUNTID}/'$ACCOUNT_ID'/g' ./resources/prometheus-values.yaml
+sed -i '' 's/{WORKSPACE_ID}/'$WORKSPACE_ID'/g' ./resources/prometheus-values.yaml
+sed -i '' 's/{LOAD_TEST_PREFIX}/'$LOAD_TEST_PREFIX'/g' ./resources/prometheus-values.yaml
+
+
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm repo update
-helm repo add autoscaler https://kubernetes.github.io/autoscaler
-helm upgrade --install nodescaler autoscaler/cluster-autoscaler -n kube-system --values ./resources/autoscaler-values.yaml
+helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n prometheus -f ./resources/prometheus-values.yaml
 
 
+# # Setup Prometheus with Karpenter dashboards
+# echo "Setting up Prometheus with Karpenter dashboards..."
+
+# # Create monitoring namespace if not exists
+# kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+
+# # Download Karpenter monitoring configurations
+# curl -fsSL https://raw.githubusercontent.com/aws/karpenter-provider-aws/v"${KARPENTER_VERSION}"/website/content/en/preview/getting-started/getting-started-with-karpenter/prometheus-values.yaml > ./resources/prometheus-values.yaml
+# curl -fsSL https://raw.githubusercontent.com/aws/karpenter-provider-aws/v"${KARPENTER_VERSION}"/website/content/en/preview/getting-started/getting-started-with-karpenter/grafana-values.yaml > ./resources/grafana-values.yaml
+
+# # Update Prometheus values
+# sed -i '' 's/{AWS_REGION}/'$AWS_REGION'/g' ./resources/prometheus-values.yaml
+# sed -i '' 's/{ACCOUNTID}/'$ACCOUNT_ID'/g' ./resources/prometheus-values.yaml
+# sed -i '' 's/{WORKSPACE_ID}/'$WORKSPACE_ID'/g' ./resources/prometheus-values.yaml
+# sed -i '' 's/{LOAD_TEST_PREFIX}/'$LOAD_TEST_PREFIX'/g' ./resources/prometheus-values.yaml
+
+# # Install Prometheus and Grafana with Karpenter dashboards
+# helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+# helm repo add grafana-charts https://grafana.github.io/helm-charts
+# helm repo update
+
+# helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
+#   -n monitoring \
+#   -f ./resources/prometheus-values.yaml
+
+# helm upgrade --install grafana grafana-charts/grafana \
+#   -n monitoring \
+#   -f ./resources/grafana-values.yaml
 
 echo "==============================================="
 echo "  Setup BinPacking ......"
@@ -374,238 +638,6 @@ kubectl apply -f ./resources/locust-deployment.yaml
 echo "==============================================="
 echo "  Locust setup completed ......"
 echo "==============================================="
-
-
-echo "==============================================="
-echo "  Setup Prometheus ......"
-echo "==============================================="
-
-# Check and create IAM Policy
-if aws iam get-policy --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY}" 2>/dev/null; then
-    echo "Policy ${AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY} already exists"
-else
-    echo "Creating policy ${AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY}..."
-    cat <<EOF > /tmp/PermissionPolicyIngest.json
-{
-  "Version": "2012-10-17",
-   "Statement": [
-       {"Effect": "Allow",
-        "Action": [
-           "aps:RemoteWrite", 
-           "aps:GetSeries", 
-           "aps:GetLabels",
-           "aps:GetMetricMetadata"
-        ], 
-        "Resource": "*"
-      }
-   ]
-}
-EOF
-    aws iam create-policy --policy-name ${AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY} --policy-document file:///tmp/PermissionPolicyIngest.json
-fi
-
-sleep 5
-# Check and create IAM Role
-if aws iam get-role --role-name "${AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE}" >/dev/null 2>&1; then
-    echo "Role ${AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE} already exists"
-else
-    echo "Creating role ${AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE}..."
-    cat <<EOF > /tmp/TrustPolicyIngest.json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "Federated": "arn:aws:iam::${ACCOUNT_ID}:oidc-provider/${OIDC_PROVIDER}"
-      },
-      "Action": "sts:AssumeRoleWithWebIdentity",
-      "Condition": {
-        "StringEquals": {
-          "${OIDC_PROVIDER}:sub": "system:serviceaccount:prometheus:amp-iamproxy-ingest-service-account"
-        }
-      }
-    }
-  ]
-}
-EOF
-    aws iam create-role --role-name ${AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE} --assume-role-policy-document file:///tmp/TrustPolicyIngest.json
-    aws iam attach-role-policy --role-name ${AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE} --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY}"
-fi
-
-eksctl utils associate-iam-oidc-provider --cluster $CLUSTER_NAME --approve
-
-kubectl create namespace prometheus --dry-run=client -o yaml | kubectl apply -f -
-
-amp=$(aws amp list-workspaces --query "workspaces[?alias=='${CLUSTER_NAME}'].workspaceId" --output text)
-if [ -z "$amp" ]; then
-    echo "Creating a new prometheus workspace..."
-    export WORKSPACE_ID=$(aws amp create-workspace --alias ${CLUSTER_NAME} --query workspaceId --output text)
-else
-    echo "A prometheus workspace already exists"
-    export WORKSPACE_ID=$amp
-fi
-
-sed -i '' 's/{AWS_REGION}/'$AWS_REGION'/g' ./resources/prometheus-values.yaml
-sed -i '' 's/{ACCOUNTID}/'$ACCOUNT_ID'/g' ./resources/prometheus-values.yaml
-sed -i '' 's/{WORKSPACE_ID}/'$WORKSPACE_ID'/g' ./resources/prometheus-values.yaml
-sed -i '' 's/{LOAD_TEST_PREFIX}/'$LOAD_TEST_PREFIX'/g' ./resources/prometheus-values.yaml
-
-
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm repo update
-helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n prometheus -f ./resources/prometheus-values.yaml
-
-
-
-
-echo "==============================================="
-echo "  Setup Karpenter ......"
-echo "==============================================="
-
-
-echo "Check and create Karpenter controller policy"
-if aws iam get-policy --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${KARPENTER_CONTROLLER_POLICY}" 2>/dev/null; then
-    echo "Policy ${KARPENTER_CONTROLLER_POLICY} already exists"
-else
-    sed -i '' 's/${ACCOUNT_ID}/'$ACCOUNT_ID'/g' ./resources/karpenter-controller-policy.json
-    sed -i '' 's/${NODE_ROLE_NAME}/'$KARPENTER_NODE_ROLE'/g' ./resources/karpenter-controller-policy.json
-    sed -i '' 's/${AWS_REGION}/'$AWS_REGION'/g' ./resources/karpenter-controller-policy.json
-    sed -i '' 's/${CLUSTER_NAME}/'$CLUSTER_NAME'/g' ./resources/karpenter-controller-policy.json
-
-    aws iam create-policy --policy-name "${KARPENTER_CONTROLLER_POLICY}" --policy-document file://resources/karpenter-controller-policy.json
-fi
-
-sleep 5
-
-echo "Check and create Karpenter controller role"
-if aws iam get-role --role-name "${KARPENTER_CONTROLLER_ROLE}" >/dev/null 2>&1; then
-    echo "Role ${KARPENTER_CONTROLLER_ROLE} already exists"
-else
-    cat <<EOF > /tmp/controller-trust.json
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Principal": {
-                "Federated": "arn:aws:iam::${ACCOUNT_ID}:oidc-provider/${OIDC_PROVIDER}"
-            },
-            "Action": "sts:AssumeRoleWithWebIdentity",
-            "Condition": {
-                "StringEquals": {
-                    "${OIDC_PROVIDER}:aud": "sts.amazonaws.com",
-                    "${OIDC_PROVIDER}:sub": "system:serviceaccount:kube-system:karpenter"
-                }
-            }
-        }
-    ]
-}
-EOF
-    aws iam create-role --role-name "${KARPENTER_CONTROLLER_ROLE}" --assume-role-policy-document file:///tmp/controller-trust.json
-    aws iam attach-role-policy --role-name "${KARPENTER_CONTROLLER_ROLE}" --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${KARPENTER_CONTROLLER_POLICY}"
-fi
-
-
-echo "Check and create Karpenter node role"
-if aws iam get-role --role-name "${KARPENTER_NODE_ROLE}" >/dev/null 2>&1; then
-    echo "Role ${KARPENTER_NODE_ROLE} already exists"
-else
-    echo "Creating role ${KARPENTER_NODE_ROLE}..."
-    cat <<EOF > /tmp/node-role-trust.json
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Principal": {
-                "Service": "ec2.amazonaws.com"
-            },
-            "Action": "sts:AssumeRole"
-        }
-    ]
-}
-EOF
-    aws iam create-role --role-name "${KARPENTER_NODE_ROLE}" --assume-role-policy-document file:///tmp/node-role-trust.json
-    aws iam attach-role-policy --role-name "${KARPENTER_NODE_ROLE}" --policy-arn arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
-    aws iam attach-role-policy --role-name "${KARPENTER_NODE_ROLE}" --policy-arn arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
-    aws iam attach-role-policy --role-name "${KARPENTER_NODE_ROLE}" --policy-arn arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
-fi
-
-
-echo "==============================================="
-echo "  Configure AWS Auth and Security Groups For Karpenter ......"
-echo "==============================================="
-
-# Tag security groups for Karpenter discovery
-SECURITY_GROUPS=$(aws eks describe-cluster \
-    --name ${CLUSTER_NAME} \
-    --query 'cluster.resourcesVpcConfig.securityGroupIds[*]' \
-    --output text)
-
-# Add additional security group from cluster control plane
-CLUSTER_SG=$(aws eks describe-cluster \
-    --name ${CLUSTER_NAME} \
-    --query 'cluster.resourcesVpcConfig.clusterSecurityGroupId' \
-    --output text)
-
-echo "Found security groups: $SECURITY_GROUPS $CLUSTER_SG"
-
-# Tag each security group
-for SG in ${SECURITY_GROUPS} ${CLUSTER_SG}; do
-    echo "Tagging security group: $SG"
-    aws ec2 create-tags \
-        --resources "$SG" \
-        --tags "Key=karpenter.sh/discovery,Value=${CLUSTER_NAME}" || true
-done
-
-
-# Get VPC ID
-VPC_ID=$(aws eks describe-cluster --name ${CLUSTER_NAME} --query "cluster.resourcesVpcConfig.vpcId" --output text)
-
-# Get subnets and clean output
-subnet_1_priv=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=${VPC_ID}" "Name=map-public-ip-on-launch,Values=false" --query 'Subnets[*].SubnetId' --output text | awk '{print $1}')
-subnet_2_priv=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=${VPC_ID}" "Name=map-public-ip-on-launch,Values=false" --query 'Subnets[*].SubnetId' --output text | awk '{print $2}')
-
-
-# Update aws-auth ConfigMap
-cat <<EOF | kubectl apply -f -
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: aws-auth
-  namespace: kube-system
-data:
-  mapRoles: |
-    - groups:
-      - system:bootstrappers
-      - system:nodes
-      rolearn: arn:aws:iam::${ACCOUNT_ID}:role/${KARPENTER_NODE_ROLE}
-      username: system:node:{{EC2PrivateDNSName}}
-EOF
-
-sed -i '' 's|KarpenterControllerRole_ARN|arn:aws:iam::'$ACCOUNT_ID':role/'$KARPENTER_CONTROLLER_ROLE'|g' ./resources/karpenter-0.37.0.yaml
-sed -i '' 's|CLUSTER_NAME_VALUE|'$CLUSTER_NAME'|g' ./resources/karpenter-0.37.0.yaml
-
-kubectl apply -f https://raw.githubusercontent.com/aws/karpenter-provider-aws/refs/tags/v0.37.0/pkg/apis/crds/karpenter.k8s.aws_ec2nodeclasses.yaml
-kubectl apply -f https://raw.githubusercontent.com/aws/karpenter-provider-aws/refs/tags/v0.37.0/pkg/apis/crds/karpenter.sh_nodeclaims.yaml
-kubectl apply -f https://raw.githubusercontent.com/aws/karpenter-provider-aws/refs/tags/v0.37.0/pkg/apis/crds/karpenter.sh_nodepools.yaml
-kubectl apply -f ./resources/karpenter-0.37.0.yaml
-
-
-echo "==============================================="
-echo "  Set up Karpenter Nodepools ......"
-echo "==============================================="
-
-# Create NodePools for Karpenter:
-sed -i '' 's/${AWS_REGION}/'$AWS_REGION'/g' ./resources/karpenter-nodepool.yaml
-sed -i '' 's/${NODE_ROLE_NAME}/'$KARPENTER_NODE_ROLE'/g' ./resources/karpenter-nodepool.yaml
-sed -i '' 's/${CLUSTER_NAME}/'$CLUSTER_NAME'/g' ./resources/karpenter-nodepool.yaml
-sed -i '' 's/${private_subnet_1}/'$subnet_1_priv'/g' ./resources/karpenter-nodepool.yaml
-sed -i '' 's/${private_subnet_2}/'$subnet_2_priv'/g' ./resources/karpenter-nodepool.yaml
-
-kubectl apply -f ./resources/karpenter-nodepool.yaml
-
 
 
 echo "==============================================="

@@ -1,4 +1,55 @@
-apiVersion: karpenter.sh/v1beta1
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: cluster-operational-provisioner
+spec:
+  template:
+    metadata:
+      labels:
+        operational: "true"
+        provisioner: "cluster-operational-provisioner"
+    spec:
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+        - key: karpenter.k8s.aws/instance-family
+          operator: In
+          values: ["m5", "m6i", "m6a"]
+        - key: karpenter.k8s.aws/instance-size
+          operator: In
+          values: ["2xlarge", "4xlarge"]
+        - key: "topology.kubernetes.io/zone"
+          operator: In
+          values: ["${AWS_REGION}a", "${AWS_REGION}b"]
+        - key: "karpenter.k8s.aws/instance-hypervisor"
+          operator: In
+          values: ["nitro"]
+        - key: "karpenter.k8s.aws/instance-generation"
+          operator: Gt
+          values: ["4"]
+      taints:
+        - key: "dedicated"
+          value: "operational"
+          effect: "NoSchedule" 
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: operational-nc
+      expireAfter: 720h 
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 120m
+    budgets:
+      - nodes: "1"
+---
+apiVersion: karpenter.sh/v1
 kind: NodePool
 metadata:
   name: spark-driver-provisioner
@@ -35,15 +86,15 @@ spec:
           operator: Gt
           values: ["4"]
       nodeClassRef:
-        apiVersion: karpenter.k8s.aws/v1beta1
+        group: karpenter.k8s.aws
         kind: EC2NodeClass
         name: spark-worker-nc
+      expireAfter: Never
   disruption:
     consolidationPolicy: WhenEmpty
     consolidateAfter: 10s
-    expireAfter: Never
 ---
-apiVersion: karpenter.sh/v1beta1
+apiVersion: karpenter.sh/v1
 kind: NodePool
 metadata:
   name: spark-executor-provisioner
@@ -80,24 +131,27 @@ spec:
           operator: Gt
           values: ["4"]
       nodeClassRef:
-        apiVersion: karpenter.k8s.aws/v1beta1
+        group: karpenter.k8s.aws
         kind: EC2NodeClass
         name: spark-worker-nc
+      expireAfter: Never
   disruption:
     consolidationPolicy: WhenEmpty
     consolidateAfter: 10s
-    expireAfter: Never
 ---
-apiVersion: karpenter.k8s.aws/v1beta1
+apiVersion: karpenter.k8s.aws/v1
 kind: EC2NodeClass
 metadata:
   name: spark-worker-nc
 spec:
-  amiFamily: AL2023
-  role: "${NODE_ROLE_NAME}"
+  amiSelectorTerms:
+    - alias: "al2023@${ALIAS_VERSION}"
+  role: "KarpenterNodeRole-${CLUSTER_NAME}"
   subnetSelectorTerms:
     - id: "${private_subnet_1}"
     - id: "${private_subnet_2}"
+    - id: "${new_private_subnet_1}"
+    - id: "${new_private_subnet_2}"
   securityGroupSelectorTerms:
     - tags:
         karpenter.sh/discovery: "${CLUSTER_NAME}"
@@ -106,7 +160,33 @@ spec:
   blockDeviceMappings:
     - deviceName: /dev/xvda
       ebs:
-        volumeSize: 100Gi
+        volumeSize: 50Gi
+        volumeType: gp3
+        encrypted: true
+  instanceStorePolicy: RAID0
+---
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: operational-nc
+spec:
+  amiSelectorTerms:
+    - alias: "al2023@${ALIAS_VERSION}"
+  role: "KarpenterNodeRole-${CLUSTER_NAME}"
+  subnetSelectorTerms:
+    - id: "${private_subnet_1}"
+    - id: "${private_subnet_2}"
+    - id: "${new_private_subnet_1}"
+    - id: "${new_private_subnet_2}"
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "${CLUSTER_NAME}"
+  tags:
+    karpenter.sh/discovery: "${CLUSTER_NAME}"
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      ebs:
+        volumeSize: 50Gi
         volumeType: gp3
         encrypted: true
   instanceStorePolicy: RAID0

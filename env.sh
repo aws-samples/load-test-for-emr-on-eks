@@ -1,5 +1,6 @@
 mkdir -p /tmp/load_test/
 LOAD_TEST_PREFIX_FILE=/tmp/load_test/eks_load_test_prefix
+CLUSTER_NAME_FILE=/tmp/load_test/eks_cluster_name
 
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 
@@ -14,19 +15,47 @@ else
   echo "Created new LOAD_TEST_PREFIX: $LOAD_TEST_PREFIX"
 fi
 
-
 export AWS_REGION=us-west-2
 export ECR_REGISTRY_ACCOUNT=895885662937
-export EKS_VPC_CIDR=172.16.0.0/16
+export EKS_VPC_CIDR=10.0.0.0/16
+export EKS_VPC_CIDR_SECONDARY=10.1.0.0/16
 export EKS_VERSION=1.32
 
-# Please check below for the ECR_REGISTRY_ACCOUNT if you are using other regions
-# https://docs.aws.amazon.com/emr/latest/EMR-on-EKS-DevelopmentGuide/docker-custom-images-tag.html
+# Check if the cluster name file already exists
+if [ -f "$CLUSTER_NAME_FILE" ]; then
+  export CLUSTER_NAME=$(cat "$CLUSTER_NAME_FILE")
+  echo "Using existing CLUSTER_NAME: $CLUSTER_NAME"
+else
+  # Keep asking until we get a valid response
+  while true; do
+    # Ask the user if they want to use an existing cluster
+    echo "Do you want to use an existing cluster? If yes, enter the cluster name, otherwise enter 'n' or just press enter to use default name: "
+    read user_input
+    
+    if [ -z "$user_input" ] || [ "$user_input" = "n" ] || [ "$user_input" = "no" ]; then
+      # Use the original naming convention
+      export CLUSTER_NAME=${LOAD_TEST_PREFIX}
+      echo "Using new CLUSTER_NAME: $CLUSTER_NAME"
+      break  # Exit the loop
+    else
+      # Check if the cluster exists
+      if aws eks describe-cluster --name "$user_input" --region "$AWS_REGION" >/dev/null 2>&1; then
+        export CLUSTER_NAME=$user_input
+        echo "Using existing cluster: $CLUSTER_NAME"
+        break  # Exit the loop
+      else
+        echo "Cluster '$user_input' does not exist. Please try again."
+        # Loop continues, asking the question again
+      fi
+    fi
+  done
+  
+  # Store the cluster name for future use
+  echo "$CLUSTER_NAME" > "$CLUSTER_NAME_FILE"
+  echo "Stored CLUSTER_NAME for future use"
+fi
 
 
-# Utility
-
-export CLUSTER_NAME=${LOAD_TEST_PREFIX}
 export BUCKET_NAME=${LOAD_TEST_PREFIX}-bucket
 
 # Spark Operator
@@ -63,6 +92,10 @@ export AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE=${LOAD_TEST_PREFIX}-prometheus-ingest
 export AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY=${LOAD_TEST_PREFIX}-AMPIngestPolicy
 
 # Karpenter
+
+export KARPENTER_NAMESPACE="kube-system"
+export KARPENTER_VERSION="1.5.0"
+
 export KARPENTER_CONTROLLER_ROLE="KarpenterControllerRole-${LOAD_TEST_PREFIX}"
 export KARPENTER_CONTROLLER_POLICY="KarpenterControllerPolicy-${LOAD_TEST_PREFIX}"
 export KARPENTER_NODE_ROLE="KarpenterNodeRole-${LOAD_TEST_PREFIX}"

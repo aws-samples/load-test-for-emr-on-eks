@@ -268,14 +268,20 @@ spec:
         version: second
     spec:
       nodeSelector: 
-        operational: "true"
+          operational: "true"
+      tolerations:
+        - key: "dedicated"
+          value: "operational"
+          effect: "NoSchedule"
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
             - matchExpressions:
               - key: karpenter.sh/nodepool
-                operator: DoesNotExist
+                operator: In
+                values: 
+                - "cluster-operational-provisioner"
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
           - labelSelector:

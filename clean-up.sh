@@ -5,12 +5,16 @@
 
 # Load environment variables
 source env.sh
+VPC_ID=$(aws eks describe-cluster --name ${CLUSTER_NAME} --query "cluster.resourcesVpcConfig.vpcId" --output text)
+
 
 
 echo "Starting cleanup process..."
 
 echo "deleting all spark jobs"
 kubectl delete sparkapplications --all --all-namespaces
+
+
 
 
 if [[ $USE_AMG == "true" ]]
@@ -44,39 +48,72 @@ then
 fi 
 
 
-# Delete Karpenter resources
-echo "Deleting Karpenter resources..."
+
+
+# 1. Delete Kubernetes resources first to stop new provisioning
 kubectl delete -f ./resources/karpenter-nodepool.yaml || true
 kubectl delete -f ./resources/karpenter-0.37.0.yaml || true
+helm uninstall karpenter --namespace "kube-system"
 
+# 2. Terminate EC2 instances and WAIT for them to terminate
+echo "Terminating Karpenter-managed EC2 instances..."
+INSTANCE_IDS=$(aws ec2 describe-instances \
+  --filters "Name=tag:karpenter.sh/discovery,Values=${CLUSTER_NAME}" "Name=instance-state-name,Values=pending,running" \
+  --query "Reservations[*].Instances[*].InstanceId" \
+  --output text)
 
-instance_profiles=$(aws iam list-instance-profiles-for-role --role-name $KARPENTER_NODE_ROLE --query 'InstanceProfiles[*].InstanceProfileName' --output text)
-for profile in $instance_profiles; do
-    echo "Removing role from instance profile: $profile"
-    aws iam remove-role-from-instance-profile \
-        --instance-profile-name $profile \
-        --role-name $KARPENTER_NODE_ROLE
+if [ -n "$INSTANCE_IDS" ]; then
+  echo "Terminating instances: $INSTANCE_IDS"
+  aws ec2 terminate-instances --instance-ids $(echo $INSTANCE_IDS | tr '\t' ' ')
+  echo "Waiting for instances to terminate..."
+  aws ec2 wait instance-terminated --instance-ids $(echo $INSTANCE_IDS | tr '\t' ' ')
+fi
 
-    echo "Deleting instance profile: $profile"
-    aws iam delete-instance-profile --instance-profile-name $profile
-done
+# 3. Delete launch templates
+echo "Deleting launch templates..."
+aws ec2 describe-launch-templates \
+  --filters "Name=tag:karpenter.k8s.aws/cluster,Values=${CLUSTER_NAME}" \
+  --query "LaunchTemplates[].LaunchTemplateName" \
+  --output text | tr '\t' '\n' | while read -r name; do
+    [ -n "$name" ] && aws ec2 delete-launch-template --launch-template-name "$name"
+  done
 
-echo "Detaching policies from ${KARPENTER_NODE_ROLE}..."
-# Get all attached policies and detach them
-POLICY_ARNS=$(aws iam list-attached-role-policies --role-name "$KARPENTER_NODE_ROLE" --query 'AttachedPolicies[*].PolicyArn' --output text)
+# 4. Try CloudFormation stack deletion FIRST
+echo "Deleting Karpenter CloudFormation stack..."
+aws cloudformation delete-stack --stack-name "Karpenter-${CLUSTER_NAME}"
 
-for POLICY_ARN in $POLICY_ARNS; do
-    echo "Detaching policy: $POLICY_ARN"
-    aws iam detach-role-policy \
-        --role-name "$KARPENTER_NODE_ROLE" \
-        --policy-arn "$POLICY_ARN" || true
-done
+# 5. Only manually clean up IAM resources if CloudFormation stack deletion fails
+echo "Waiting for stack deletion..."
+if ! aws cloudformation wait stack-delete-complete --stack-name "Karpenter-${CLUSTER_NAME}"; then
+  echo "CloudFormation stack deletion failed, cleaning up IAM resources manually..."
+  
+  # Clean up instance profiles
+  instance_profiles=$(aws iam list-instance-profiles-for-role --role-name "${KARPENTER_NODE_ROLE}" --query 'InstanceProfiles[*].InstanceProfileName' --output text)
+  for profile in $instance_profiles; do
+    [ -n "$profile" ] && aws iam remove-role-from-instance-profile \
+      --instance-profile-name "$profile" \
+      --role-name "${KARPENTER_NODE_ROLE}" && \
+    aws iam delete-instance-profile --instance-profile-name "$profile"
+  done
+  
+  # Clean up role policies
+  aws iam list-attached-role-policies --role-name "${KARPENTER_NODE_ROLE}" --query 'AttachedPolicies[*].PolicyArn' --output text | tr '\t' '\n' | while read -r arn; do
+    [ -n "$arn" ] && aws iam detach-role-policy --role-name "${KARPENTER_NODE_ROLE}" --policy-arn "$arn"
+  done
+  
+  # Delete roles and policies
+  aws iam delete-role --role-name "${KARPENTER_NODE_ROLE}" || true
+  aws iam detach-role-policy --role-name "${KARPENTER_CONTROLLER_ROLE}" --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${KARPENTER_CONTROLLER_POLICY}" || true
+  aws iam delete-role --role-name "${KARPENTER_CONTROLLER_ROLE}" || true
+  aws iam delete-policy --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${KARPENTER_CONTROLLER_POLICY}" || true
+  
+  # Try deleting CloudFormation stack again
+  aws cloudformation delete-stack --stack-name "Karpenter-${CLUSTER_NAME}"
+  aws cloudformation wait stack-delete-complete --stack-name "Karpenter-${CLUSTER_NAME}"
+fi
 
-aws iam delete-role --role-name "${KARPENTER_NODE_ROLE}" || true
+echo "Karpenter cleanup completed"
 
-aws iam detach-role-policy --role-name "${KARPENTER_CONTROLLER_ROLE}" --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${KARPENTER_CONTROLLER_POLICY}" || true
-aws iam delete-role --role-name "${KARPENTER_CONTROLLER_ROLE}" || true
-aws iam delete-policy --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${KARPENTER_CONTROLLER_POLICY}" || true
 
 # Delete Prometheus resources
 echo "Deleting Prometheus resources..."
@@ -111,9 +148,7 @@ aws s3api delete-bucket --bucket ${BUCKET_NAME} --region ${AWS_REGION}
 
 # Restore backup files
 echo "Restoring backup files..."
-if [ -f "./resources/template-backups/autoscaler-values.yaml" ]; then
-    cp -f ./resources/template-backups/autoscaler-values.yaml ./resources/autoscaler-values.yaml
-fi
+
 if [ -f "./resources/template-backups/prometheus-values.yaml" ]; then
     cp -f ./resources/template-backups/prometheus-values.yaml ./resources/prometheus-values.yaml
 fi
@@ -147,5 +182,7 @@ eksctl delete cluster --name ${CLUSTER_NAME} --region ${AWS_REGION}
 
 echo "Deleting tmp files...."
 rm -rf /tmp/load_test/*
+rm -rf custom-spark-operator/
+rm -rf spark-operator-7.7.0.tgz 
 
 echo "Cleanup completed!"

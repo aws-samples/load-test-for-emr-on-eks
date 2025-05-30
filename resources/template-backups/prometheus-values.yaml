@@ -8,9 +8,28 @@ kubelet:
   enabled: false
 
 prometheusOperator:
-  nodeSelector:
-    operational: "true"
-    monitor: "true"
+  nodeSelector: 
+      operational: "true"
+  tolerations:
+    - key: "dedicated"
+      value: "operational"
+      effect: "NoSchedule"
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: karpenter.sh/nodepool
+            operator: In
+            values: 
+            - "cluster-operational-provisioner"
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchLabels:
+            app: prometheus
+            component: server
+        topologyKey: kubernetes.io/hostname
   livenessProbe:
     initialDelaySeconds: 30
     timeoutSeconds: 30
@@ -92,11 +111,28 @@ prometheus:
           cpu: "1"
           memory: 15Gi
     replicas: 1
-    nodeSelector:
-      operational: "true"
-      monitor: "true"
-    # ensure one instance per node
-    podAntiAffinity: hard
+    nodeSelector: 
+        operational: "true"
+    tolerations:
+      - key: "dedicated"
+        value: "operational"
+        effect: "NoSchedule"
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: karpenter.sh/nodepool
+              operator: In
+              values: 
+              - "cluster-operational-provisioner"
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app: prometheus
+              component: server
+          topologyKey: kubernetes.io/hostname
     # add an EBS volume per instance 
     persistentVolumeClaimRetentionPolicy:
       whenDeleted: Delete    # PVC is deleted when the StatefulSet is deleted

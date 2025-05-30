@@ -18,6 +18,35 @@ spec:
         app: locust
         component: master
     spec:
+      nodeSelector: 
+        operational: "true"
+      tolerations:
+        - key: "dedicated"
+          value: "operational"
+          effect: "NoSchedule"
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: karpenter.sh/nodepool
+                operator: In
+                values: 
+                - "cluster-operational-provisioner"
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: emr-containers.amazonaws.com/component
+                operator: In
+                values: 
+                - "spark.operator"
+            topologyKey: kubernetes.io/hostname
+          - labelSelector:
+              matchLabels:
+                app: locust
+                component: worker
+            topologyKey: kubernetes.io/hostname
       serviceAccountName: locust-spark-submitter
       containers:
       - name: locust
@@ -29,9 +58,6 @@ spec:
           name: master-1
         - containerPort: 5558
           name: master-2
-        env:
-        - name: SPARK_JOB_NS_NUM
-          value: "${SPARK_JOB_NS_NUM:-1}"
         command:
         - /bin/sh
         - -c
@@ -71,7 +97,7 @@ metadata:
     app: locust
     component: worker
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: locust
@@ -82,13 +108,44 @@ spec:
         app: locust
         component: worker
     spec:
+      nodeSelector: 
+        operational: "true"
+      tolerations:
+        - key: "dedicated"
+          value: "operational"
+          effect: "NoSchedule"
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: karpenter.sh/nodepool
+                operator: In
+                values: 
+                - "cluster-operational-provisioner"
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: emr-containers.amazonaws.com/component
+                operator: In
+                values: 
+                - "spark.operator"
+            topologyKey: kubernetes.io/hostname
+          - labelSelector:
+              matchLabels:
+                app: locust
+                component: master
+            topologyKey: kubernetes.io/hostname
+          - labelSelector:
+              matchLabels:
+                app: locust
+                component: worker
+            topologyKey: kubernetes.io/hostname
       serviceAccountName: locust-spark-submitter
       containers:
       - name: locust
         image: locustio/locust:latest
-        env:
-        - name: SPARK_JOB_NS_NUM
-          value: "${SPARK_JOB_NS_NUM:-1}"
         command:
         - /bin/sh
         - -c

@@ -1,17 +1,51 @@
 controllerThreads: 30
-nodeSelector:
+nodeSelector: 
   operational: "true"
-  monitor: "false"
+tolerations:
+  - key: "dedicated"
+    value: "operational"
+    effect: "NoSchedule"
 affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: karpenter.sh/nodepool
+          operator: In
+          values: 
+          - "cluster-operational-provisioner"
   podAntiAffinity:
     requiredDuringSchedulingIgnoredDuringExecution:
     - labelSelector:
         matchExpressions:
-        - key: app.kubernetes.io/name
-          operator: Exists
-      topologyKey: "kubernetes.io/hostname"
+        - key: emr-containers.amazonaws.com/component
+          operator: In
+          values: 
+          - "spark.operator"
+      topologyKey: kubernetes.io/hostname
 webhook:
   enable: true
-  nodeSelector:
+  nodeSelector: 
     operational: "true"
-    monitor: "false"
+  tolerations:
+    - key: "dedicated"
+      value: "operational"
+      effect: "NoSchedule"
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: karpenter.sh/nodepool
+            operator: In
+            values: 
+            - "cluster-operational-provisioner"
+    podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchExpressions:
+            - key: emr-containers.amazonaws.com/component
+              operator: In
+              values: 
+              - "spark.operator"
+          topologyKey: kubernetes.io/hostname
