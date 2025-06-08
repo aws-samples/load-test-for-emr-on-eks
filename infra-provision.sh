@@ -628,9 +628,13 @@ sed -i '' 's|SPARK_JOB_NS_NUM|'$SPARK_JOB_NS_NUM'|g' ./resources/locust/locust-s
 # Create ConfigMap with the test script and Spark job template
 kubectl delete configmap spark-locust-scripts -n locust --ignore-not-found
 kubectl create configmap spark-locust-scripts \
-  --from-file=locust-spark-submit.py=./resources/locust/locust-submit-script.py \
+  --from-file=locust-submit-script.py=./resources/locust/locust-submit-script.py \
   --from-file=locust-spark-pi.yaml=./resources/locust/locust-spark-pi.yaml \
   -n locust
+
+
+kubectl rollout restart deployment/locust-master -n locust
+kubectl rollout restart deployment/locust-worker -n locust
 
 
 # Apply deployment

@@ -28,7 +28,7 @@ class SparkSubmitUser(HttpUser):
         self.k8s_client = client.CustomObjectsApi()
     
         try:
-            template_path = "/locust/spark-pi.yaml"
+            template_path = "/locust/locust-spark-pi.yaml"
             logger.info(f"Attempting to load template: {template_path}")
             with open(template_path, "r") as f:
                 self.spark_template = yaml.safe_load(f)
@@ -56,7 +56,7 @@ class SparkSubmitUser(HttpUser):
             unique_id = str(uuid.uuid4())[:8]
             job_name = f"spark-pi-{unique_id}"
             
-            template_path = "/locust/spark-pi.yaml"
+            template_path = "/locust/locust-spark-pi.yaml"
             with open(template_path, "r") as f:
                 template_content = f.read()
             

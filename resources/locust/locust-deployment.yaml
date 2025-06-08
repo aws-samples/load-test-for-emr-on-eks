@@ -78,7 +78,7 @@ spec:
           ls -l /locust
           
           echo "Starting Locust Master..."
-          locust -f /locust/locust-spark-submit.py --master --host=http://dummy --web-port=8089
+          locust -f /locust/locust-submit-script.py --master --host=http://dummy --web-port=8089
         volumeMounts:
         - name: locust-scripts
           mountPath: /locust
@@ -166,7 +166,7 @@ spec:
           ls -l /locust
           
           echo "Starting Locust Worker..."
-          locust -f /locust/locust-spark-submit.py --worker --master-host=locust-master
+          locust -f /locust/locust-submit-script.py --worker --master-host=locust-master
         volumeMounts:
         - name: locust-scripts
           mountPath: /locust
