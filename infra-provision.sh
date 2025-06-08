@@ -20,12 +20,12 @@ aws s3api create-bucket \
 }
 
 # Upload the testing pyspark code
-aws s3 cp ./locust/resources/custom-spark-pi.py "s3://${BUCKET_NAME}/testing-code/custom-spark-pi.py"
+aws s3 cp ./resources/locust/custom-spark-pi.py "s3://${BUCKET_NAME}/testing-code/custom-spark-pi.py"
 
 # Update the testing spark job yaml config
-sed -i '' 's|${BUCKET_NAME}|'$BUCKET_NAME'|g' ./resources/spark-pi.yaml
-sed -i '' 's|${SPARK_VERSION}|'$SPARK_VERSION'|g' ./resources/spark-pi.yaml
-sed -i '' 's|${EMR_IMAGE_URL}|'$EMR_IMAGE_URL'|g' ./resources/spark-pi.yaml
+sed -i '' 's|${BUCKET_NAME}|'$BUCKET_NAME'|g' ./resources/locust/locust-spark-pi.yaml
+sed -i '' 's|${SPARK_VERSION}|'$SPARK_VERSION'|g' ./resources/locust/locust-spark-pi.yaml
+sed -i '' 's|${EMR_IMAGE_URL}|'$EMR_IMAGE_URL'|g' ./resources/locust/locust-spark-pi.yaml
 
 
 
@@ -293,6 +293,7 @@ else
     echo "A prometheus workspace already exists"
     export WORKSPACE_ID=$amp
 fi
+
 
 sed -i '' 's/{AWS_REGION}/'$AWS_REGION'/g' ./resources/prometheus-values.yaml
 sed -i '' 's/{ACCOUNTID}/'$ACCOUNT_ID'/g' ./resources/prometheus-values.yaml
@@ -622,27 +623,19 @@ EOF
 done
 
 
-sed -i '' 's|SPARK_JOB_NS_NUM|'$SPARK_JOB_NS_NUM'|g' ./resources/locust-spark-submit.py
+sed -i '' 's|SPARK_JOB_NS_NUM|'$SPARK_JOB_NS_NUM'|g' ./resources/locust/locust-submit-script.py
 
 # Create ConfigMap with the test script and Spark job template
 kubectl delete configmap spark-locust-scripts -n locust --ignore-not-found
 kubectl create configmap spark-locust-scripts \
-  --from-file=locust-spark-submit.py=./resources/locust-spark-submit.py \
-  --from-file=spark-pi.yaml=./resources/spark-pi.yaml \
+  --from-file=locust-spark-submit.py=./resources/locust/locust-submit-script.py \
+  --from-file=locust-spark-pi.yaml=./resources/locust/locust-spark-pi.yaml \
   -n locust
 
 
 # Apply deployment
-kubectl apply -f ./resources/locust-deployment.yaml
+kubectl apply -f ./resources/locust/locust-deployment.yaml
 
-echo "==============================================="
-echo "  Locust setup completed ......"
-echo "==============================================="
-
-
-echo "==============================================="
-echo "  Set up Prometheus ServiceMonitor and PodMonitor ......"
-echo "==============================================="
 
 cat <<EOF | kubectl apply -f -
 apiVersion: monitoring.coreos.com/v1
@@ -706,8 +699,37 @@ spec:
       interval: 15s
 EOF
 
+kubectl apply -f - <<EOF
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: locust-metrics-monitor
+  namespace: prometheus
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: locust
+      component: master
+  namespaceSelector:
+    matchNames:
+    - locust
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: 15s
+EOF
 
-kubectl apply -f ./resources/locust-exporter-deployment.yaml
+
+kubectl apply -f ./resources/locust/locust-exporter-deployment.yaml
+
+
+echo "==============================================="
+echo "  Locust & Prometheus ServiceMonitor and PodMonitor setup completed ......"
+echo "==============================================="
+
+
 
 if [[ $USE_AMG == "true" ]]
 then 

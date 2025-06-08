@@ -14,9 +14,9 @@ spec:
   timeToLiveSeconds: 30
   arguments:
     - "--min_run_time"
-    - "500"
+    - "10"
     - "--max_run_time"
-    - "800"
+    - "50"
     - "--partitions"
     - "10"
     - "--pause_ratio"
@@ -29,6 +29,7 @@ spec:
         path: "/tmp"
         type: Directory
   driver:
+    schedulerName: "my-scheduler"   
     cores: 1
     memory: "512m"
     labels:
@@ -49,8 +50,9 @@ spec:
               values: 
               - "spark-driver-provisioner"
   executor:
+    schedulerName: "my-scheduler"
     cores: 1
-    instances: 3
+    instances: 1
     memory: "512m"
     labels:
       version: ${SPARK_VERSION}

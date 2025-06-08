@@ -21,10 +21,10 @@ spec:
           values: ["on-demand"]
         - key: karpenter.k8s.aws/instance-family
           operator: In
-          values: ["m5", "m6i", "m6a"]
+          values: ["r5"]
         - key: karpenter.k8s.aws/instance-size
           operator: In
-          values: ["2xlarge", "4xlarge"]
+          values: ["xlarge"]
         - key: "topology.kubernetes.io/zone"
           operator: In
           values: ["${AWS_REGION}a", "${AWS_REGION}b"]
@@ -120,7 +120,7 @@ spec:
           values: ["c5","r5"]
         - key: karpenter.k8s.aws/instance-size
           operator: In
-          values: ["xlarge"]
+          values: ["large"]
         - key: "topology.kubernetes.io/zone"
           operator: In
           values: ["${AWS_REGION}a", "${AWS_REGION}b"]

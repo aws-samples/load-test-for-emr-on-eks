@@ -1,0 +1,24 @@
+locust_requests_num_requests -> For locust submission made.
+locust_requests_num_failures
+locust_requests_max_response_time
+locust_requests_median_response_time
+locust_requests_min_response_time
+
+
+
+
+locust, spark operator metrics:
+• Average submission latency: 
+  rate(locust_spark_job_submission_latency_seconds_sum[5m]) / rate(locust_spark_job_submission_latency_seconds_count[5m])
+  
+
+• 90th percentile submission latency:
+   histogram_quantile(0.9, sum(rate(locust_spark_job_submission_latency_seconds_bucket[5m])) by (le, namespace))
+
+
+
+sum(locust_spark_jobs_running)
+
+locust_spark_jobs_completed_total
+locust_spark_jobs_submitted_total
+locust_spark_jobs_pending

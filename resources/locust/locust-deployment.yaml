@@ -17,6 +17,10 @@ spec:
       labels:
         app: locust
         component: master
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
     spec:
       nodeSelector: 
         operational: "true"
@@ -58,15 +62,17 @@ spec:
           name: master-1
         - containerPort: 5558
           name: master-2
+        - containerPort: 8000
+          name: metrics
         command:
         - /bin/sh
         - -c
         - |
           echo "Installing dependencies..."
-          pip install kubernetes pyyaml
+          pip install kubernetes pyyaml prometheus_client
           
           echo "Checking dependency versions..."
-          pip list | grep -E 'kubernetes|pyyaml'
+          pip list | grep -E 'kubernetes|pyyaml|prometheus_client'
           
           echo "Checking file paths..."
           ls -l /locust
@@ -151,10 +157,10 @@ spec:
         - -c
         - |
           echo "Installing dependencies..."
-          pip install kubernetes pyyaml
+          pip install kubernetes pyyaml prometheus_client
           
           echo "Checking dependency versions..."
-          pip list | grep -E 'kubernetes|pyyaml'
+          pip list | grep -E 'kubernetes|pyyaml|prometheus_client'
           
           echo "Checking file paths..."
           ls -l /locust
@@ -195,6 +201,29 @@ spec:
   - port: 5558
     targetPort: master-2
     name: master-2
+  - port: 8000
+    targetPort: metrics
+    name: metrics
   selector:
     app: locust
     component: master
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: locust-metrics-monitor
+  namespace: prometheus
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: locust
+      component: master
+  namespaceSelector:
+    matchNames:
+    - locust
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: 15s
