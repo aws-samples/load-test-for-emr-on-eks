@@ -152,6 +152,9 @@ spec:
       containers:
       - name: locust
         image: locustio/locust:latest
+        ports:
+        - containerPort: 8001
+          name: worker-metrics
         command:
         - /bin/sh
         - -c
@@ -208,6 +211,29 @@ spec:
     app: locust
     component: master
 ---
+# Service for worker metrics (merged from locust-worker-metrics-patch.yaml)
+apiVersion: v1
+kind: Service
+metadata:
+  name: locust-worker-metrics
+  namespace: locust
+  labels:
+    app: locust
+    component: worker
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8001"
+    prometheus.io/path: "/metrics"
+spec:
+  ports:
+  - port: 8001
+    targetPort: 8001
+    name: worker-metrics
+  selector:
+    app: locust
+    component: worker
+  clusterIP: None  # Headless service for individual worker metrics
+---
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
@@ -227,3 +253,25 @@ spec:
   - port: metrics
     path: /metrics
     interval: 15s
+---
+# ServiceMonitor for worker metrics (merged from locust-worker-metrics-patch.yaml)
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: locust-worker-metrics-monitor
+  namespace: locust
+  labels:
+    app: locust
+    component: worker
+spec:
+  selector:
+    matchLabels:
+      app: locust
+      component: worker
+  endpoints:
+  - port: worker-metrics
+    path: /metrics
+    interval: 30s
+  namespaceSelector:
+    matchNames:
+    - locust
