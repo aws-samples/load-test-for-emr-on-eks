@@ -749,6 +749,339 @@ then
     fi
 fi
 
+# AI Agents Setup (Optional)
+if [[ $AI_AGENTS_ENABLED == "true" ]]
+then
+    echo "==============================================="
+    echo "  Setup AI Agents for LLM-Powered Job Management"
+    echo "==============================================="
+    
+    # Create ECR repository for agent images
+    echo "Creating ECR repository for AI agents..."
+    if ! aws ecr describe-repositories --repository-names "${AGENT_ECR_REPO}" --region "${AWS_REGION}" >/dev/null 2>&1; then
+        aws ecr create-repository \
+            --repository-name "${AGENT_ECR_REPO}" \
+            --region "${AWS_REGION}" \
+            --image-scanning-configuration scanOnPush=true \
+            --encryption-configuration encryptionType=AES256
+        echo "✅ ECR repository created: ${AGENT_ECR_REPO}"
+    else
+        echo "ECR repository ${AGENT_ECR_REPO} already exists"
+    fi
+    
+    # Create SQS queues for job management
+    echo "Creating SQS queues for job management..."
+    
+    # Create Dead Letter Queue first
+    aws sqs create-queue \
+        --queue-name "${SQS_DLQ}" \
+        --attributes '{
+            "FifoQueue": "true",
+            "ContentBasedDeduplication": "true",
+            "VisibilityTimeout": "60",
+            "MessageRetentionPeriod": "1209600",
+            "ReceiveMessageWaitTimeSeconds": "20"
+        }' \
+        --region ${AWS_REGION} >/dev/null 2>&1 || echo "DLQ already exists"
+    
+    # Get DLQ ARN for redrive policy
+    DLQ_URL=$(aws sqs get-queue-url --queue-name "${SQS_DLQ}" --region ${AWS_REGION} --query 'QueueUrl' --output text)
+    DLQ_ARN=$(aws sqs get-queue-attributes --queue-url "${DLQ_URL}" --attribute-names QueueArn --region ${AWS_REGION} --query 'Attributes.QueueArn' --output text)
+    
+    # Create priority queues with DLQ
+    for queue in "${SQS_HIGH_PRIORITY_QUEUE}" "${SQS_MEDIUM_PRIORITY_QUEUE}" "${SQS_LOW_PRIORITY_QUEUE}"; do
+        aws sqs create-queue \
+            --queue-name "${queue}" \
+            --attributes '{
+                "FifoQueue": "true",
+                "ContentBasedDeduplication": "true",
+                "VisibilityTimeout": "300",
+                "MessageRetentionPeriod": "1209600",
+                "ReceiveMessageWaitTimeSeconds": "20",
+                "RedrivePolicy": "{\"deadLetterTargetArn\":\"'${DLQ_ARN}'\",\"maxReceiveCount\":3}"
+            }' \
+            --region ${AWS_REGION} >/dev/null 2>&1 || echo "Queue $queue already exists"
+    done
+    echo "✅ SQS queues created"
+    
+    # Create IAM policies for agents
+    echo "Creating IAM policies for AI agents..."
+    
+    # SQS Agent Policy
+    cat > /tmp/sqs-agent-policy.json << EOF
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "sqs:SendMessage",
+                "sqs:ReceiveMessage",
+                "sqs:DeleteMessage",
+                "sqs:GetQueueAttributes",
+                "sqs:GetQueueUrl",
+                "sqs:ChangeMessageVisibility"
+            ],
+            "Resource": [
+                "arn:aws:sqs:${AWS_REGION}:${ACCOUNT_ID}:${SQS_HIGH_PRIORITY_QUEUE}",
+                "arn:aws:sqs:${AWS_REGION}:${ACCOUNT_ID}:${SQS_MEDIUM_PRIORITY_QUEUE}",
+                "arn:aws:sqs:${AWS_REGION}:${ACCOUNT_ID}:${SQS_LOW_PRIORITY_QUEUE}",
+                "arn:aws:sqs:${AWS_REGION}:${ACCOUNT_ID}:${SQS_DLQ}"
+            ]
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "cloudwatch:PutMetricData",
+                "cloudwatch:GetMetricStatistics",
+                "cloudwatch:ListMetrics"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
+EOF
+    
+    aws iam create-policy \
+        --policy-name "${SQS_AGENT_POLICY}" \
+        --policy-document file:///tmp/sqs-agent-policy.json \
+        --description "Policy for AI agents to access SQS queues" >/dev/null 2>&1 || echo "SQS policy already exists"
+    
+    # Bedrock Agent Policy
+    cat > /tmp/bedrock-agent-policy.json << EOF
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "bedrock:InvokeModel",
+                "bedrock:InvokeModelWithResponseStream"
+            ],
+            "Resource": [
+                "arn:aws:bedrock:${AWS_REGION}::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0",
+                "arn:aws:bedrock:${AWS_REGION}::foundation-model/anthropic.claude-3-haiku-20240307-v1:0"
+            ]
+        }
+    ]
+}
+EOF
+    
+    aws iam create-policy \
+        --policy-name "${BEDROCK_AGENT_POLICY}" \
+        --policy-document file:///tmp/bedrock-agent-policy.json \
+        --description "Policy for AI agents to access Bedrock models" >/dev/null 2>&1 || echo "Bedrock policy already exists"
+    
+    # Agent Policy
+    cat > /tmp/agent-policy.json << EOF
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "cloudwatch:GetMetricStatistics",
+                "cloudwatch:ListMetrics",
+                "cloudwatch:PutMetricData"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "logs:CreateLogGroup",
+                "logs:CreateLogStream",
+                "logs:PutLogEvents",
+                "logs:DescribeLogGroups",
+                "logs:DescribeLogStreams",
+                "logs:FilterLogEvents"
+            ],
+            "Resource": [
+                "arn:aws:logs:${AWS_REGION}:${ACCOUNT_ID}:log-group:/aws/eks/${CLUSTER_NAME}/*",
+                "arn:aws:logs:${AWS_REGION}:${ACCOUNT_ID}:log-group:*spark*",
+                "arn:aws:logs:${AWS_REGION}:${ACCOUNT_ID}:log-group:*karpenter*"
+            ]
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "eks:DescribeCluster",
+                "eks:ListClusters"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
+EOF
+    
+    aws iam create-policy \
+        --policy-name "${AGENT_POLICY}" \
+        --policy-document file:///tmp/agent-policy.json \
+        --description "Policy for AI agents to access AWS services" >/dev/null 2>&1 || echo "Agent policy already exists"
+    
+    # Create IAM role for agents
+    echo "Creating IAM role for AI agents..."
+    cat > /tmp/agent-trust-policy.json << EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::${ACCOUNT_ID}:oidc-provider/${OIDC_PROVIDER}"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "${OIDC_PROVIDER}:sub": "system:serviceaccount:${AGENT_NAMESPACE}:spark-agents-sa",
+          "${OIDC_PROVIDER}:aud": "sts.amazonaws.com"
+        }
+      }
+    }
+  ]
+}
+EOF
+    
+    aws iam create-role \
+        --role-name "${AGENT_ROLE}" \
+        --assume-role-policy-document file:///tmp/agent-trust-policy.json \
+        --description "IAM role for AI agents in EKS cluster" >/dev/null 2>&1 || echo "Agent role already exists"
+    
+    # Attach policies to role
+    aws iam attach-role-policy --role-name "${AGENT_ROLE}" --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${AGENT_POLICY}" >/dev/null 2>&1 || true
+    aws iam attach-role-policy --role-name "${AGENT_ROLE}" --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${SQS_AGENT_POLICY}" >/dev/null 2>&1 || true
+    aws iam attach-role-policy --role-name "${AGENT_ROLE}" --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${BEDROCK_AGENT_POLICY}" >/dev/null 2>&1 || true
+    
+    echo "✅ IAM roles and policies created"
+    
+    # Create Kubernetes namespace and RBAC for agents
+    echo "Creating Kubernetes resources for AI agents..."
+    kubectl create namespace "${AGENT_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+    kubectl create serviceaccount spark-agents-sa -n "${AGENT_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+    
+    # Annotate service account with IAM role
+    kubectl annotate serviceaccount -n "${AGENT_NAMESPACE}" spark-agents-sa \
+        eks.amazonaws.com/role-arn=arn:aws:iam::${ACCOUNT_ID}:role/${AGENT_ROLE} --overwrite
+    
+    # Create cluster role for agents
+    cat <<EOF | kubectl apply -f -
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: spark-agents-cluster-role
+rules:
+- apiGroups: [""]
+  resources: ["nodes", "pods", "services", "endpoints", "namespaces"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["metrics.k8s.io"]
+  resources: ["nodes", "pods"]
+  verbs: ["get", "list"]
+- apiGroups: ["sparkoperator.k8s.io"]
+  resources: ["sparkapplications", "scheduledsparkapplications"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: spark-agents-cluster-role-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: spark-agents-cluster-role
+subjects:
+- kind: ServiceAccount
+  name: spark-agents-sa
+  namespace: ${AGENT_NAMESPACE}
+EOF
+    
+    # Deploy Redis for inter-agent communication
+    echo "Deploying Redis for inter-agent communication..."
+    cat <<EOF | kubectl apply -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-agents
+  namespace: ${AGENT_NAMESPACE}
+  labels:
+    app: redis-agents
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis-agents
+  template:
+    metadata:
+      labels:
+        app: redis-agents
+    spec:
+      nodeSelector:
+        operational: "true"
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+          name: redis
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+        command:
+        - redis-server
+        - --appendonly
+        - "yes"
+        - --maxmemory
+        - "100mb"
+        - --maxmemory-policy
+        - "allkeys-lru"
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+      volumes:
+      - name: redis-data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-agents
+  namespace: ${AGENT_NAMESPACE}
+  labels:
+    app: redis-agents
+spec:
+  selector:
+    app: redis-agents
+  ports:
+  - port: 6379
+    targetPort: 6379
+    name: redis
+  type: ClusterIP
+EOF
+    
+    # Wait for Redis to be ready
+    kubectl wait --for=condition=available deployment/redis-agents -n "${AGENT_NAMESPACE}" --timeout=120s
+    
+    echo "✅ AI Agents infrastructure setup completed"
+    echo "   - ECR Repository: ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${AGENT_ECR_REPO}"
+    echo "   - SQS Queues: High/Medium/Low priority + DLQ"
+    echo "   - IAM Roles: Agent role with Bedrock and SQS access"
+    echo "   - Kubernetes: Namespace, RBAC, and Redis deployed"
+    echo ""
+    echo "   To deploy AI agents, build and push agent images to ECR, then apply agent deployments"
+    
+    # Clean up temporary files
+    rm -f /tmp/sqs-agent-policy.json /tmp/bedrock-agent-policy.json /tmp/agent-policy.json /tmp/agent-trust-policy.json
+fi
+
 echo "==============================================="
 echo "  Setup completed successfully ......"
 echo "  Access the Locust UI by port-forwarding:"

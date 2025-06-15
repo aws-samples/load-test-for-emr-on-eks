@@ -1,0 +1,45 @@
+# AI Agent Deployment Template
+# This template will be processed to create individual agent deployments
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${AGENT_TYPE}-agent
+  namespace: ${AGENT_NAMESPACE}
+  labels:
+    app: ${AGENT_TYPE}-agent
+    component: ai-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ${AGENT_TYPE}-agent
+  template:
+    metadata:
+      labels:
+        app: ${AGENT_TYPE}-agent
+        component: ai-agent
+    spec:
+      serviceAccountName: spark-agents-sa
+      nodeSelector:
+        operational: "true"
+      containers:
+      - name: ${AGENT_TYPE}-agent
+        image: ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${AGENT_ECR_REPO}:${AGENT_TYPE}-${AGENT_IMAGE_TAG}
+        env:
+        - name: AWS_REGION
+          value: "${AWS_REGION}"
+        - name: BEDROCK_MODEL_ID
+          value: "${BEDROCK_MODEL_ID}"
+        - name: REDIS_HOST
+          value: "redis-agents"
+        - name: AGENT_CYCLE_INTERVAL
+          value: "${AGENT_CYCLE_INTERVAL}"
+        # Agent-specific environment variables will be added here
+        resources:
+          requests:
+            memory: "${AGENT_MEMORY_REQUEST}"
+            cpu: "${AGENT_CPU_REQUEST}"
+          limits:
+            memory: "${AGENT_MEMORY_LIMIT}"
+            cpu: "${AGENT_CPU_LIMIT}"

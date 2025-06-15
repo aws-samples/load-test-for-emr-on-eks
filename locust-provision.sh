@@ -450,6 +450,7 @@ if [ "$ACTION" == "apply" ]; then
             --group-name ${SECURITY_GROUP_NAME} \
             --description "Security group for EKS client EC2" \
             --vpc-id ${vpc_id} \
+            --query 'GroupId' \
             --output text)
             
         sleep 5
@@ -485,13 +486,13 @@ if [ "$ACTION" == "apply" ]; then
             # Add rule to cluster security group to allow all traffic from client security group
             aws ec2 authorize-security-group-ingress \
                 --group-id ${CLUSTER_SG} \
-                --protocol all \
+                --protocol -1 \
                 --source-group ${SECURITY_GROUP_ID}
 
             # Add rule to client security group to allow all traffic from cluster
             aws ec2 authorize-security-group-ingress \
                 --group-id ${SECURITY_GROUP_ID} \
-                --protocol all \
+                --protocol -1 \
                 --source-group ${CLUSTER_SG}
         else
             echo "EKS cluster security group rules already exist"
@@ -517,7 +518,7 @@ if [ "$ACTION" == "apply" ]; then
             # Add rule to allow communication with EKS control plane
             aws ec2 authorize-security-group-ingress \
                 --group-id ${SECURITY_GROUP_ID} \
-                --protocol all \
+                --protocol -1 \
                 --source-group ${CONTROL_PLANE_SG}
         else
             echo "EKS control plane security group rules already exist"
@@ -684,13 +685,13 @@ elif [ "$ACTION" == "delete" ]; then
             # Remove ingress rule from cluster security group
             aws ec2 revoke-security-group-ingress \
                 --group-id ${CLUSTER_SG} \
-                --protocol all \
+                --protocol -1 \
                 --source-group ${SECURITY_GROUP_ID} || true
 
             # Remove ingress rule from client security group
             aws ec2 revoke-security-group-ingress \
                 --group-id ${SECURITY_GROUP_ID} \
-                --protocol all \
+                --protocol -1 \
                 --source-group ${CLUSTER_SG} || true
         fi
 
@@ -705,7 +706,7 @@ elif [ "$ACTION" == "delete" ]; then
             # Remove ingress rule for control plane access
             aws ec2 revoke-security-group-ingress \
                 --group-id ${SECURITY_GROUP_ID} \
-                --protocol all \
+                --protocol -1 \
                 --source-group ${CONTROL_PLANE_SG} || true
         fi
 

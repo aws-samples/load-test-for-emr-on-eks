@@ -85,6 +85,33 @@ export EMR_IMAGE_URL="${ECR_REGISTRY_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.co
 export SPARK_OPERATOR_ROLE=${LOAD_TEST_PREFIX}-SparkJobS3AccessRole
 export SPARK_OPERATOR_POLICY=${LOAD_TEST_PREFIX}-SparkJobS3AccessPolicy
 
+# AI Agents Configuration
+export AI_AGENTS_ENABLED="true"
+export AGENT_NAMESPACE="spark-agents"
+export AGENT_ECR_REPO="spark-agents"
+export AGENT_IMAGE_TAG="v1.0.0"
+
+# LLM Configuration
+export BEDROCK_MODEL_ID="anthropic.claude-3-5-sonnet-20241022-v2:0"
+
+# SQS Configuration for Job Queues
+export SQS_HIGH_PRIORITY_QUEUE="${LOAD_TEST_PREFIX}-spark-jobs-high.fifo"
+export SQS_MEDIUM_PRIORITY_QUEUE="${LOAD_TEST_PREFIX}-spark-jobs-medium.fifo"
+export SQS_LOW_PRIORITY_QUEUE="${LOAD_TEST_PREFIX}-spark-jobs-low.fifo"
+export SQS_DLQ="${LOAD_TEST_PREFIX}-spark-jobs-dlq.fifo"
+
+# Agent IAM Configuration
+export AGENT_ROLE="${LOAD_TEST_PREFIX}-AgentRole"
+export AGENT_POLICY="${LOAD_TEST_PREFIX}-AgentPolicy"
+export SQS_AGENT_POLICY="${LOAD_TEST_PREFIX}-SQSAgentPolicy"
+export BEDROCK_AGENT_POLICY="${LOAD_TEST_PREFIX}-BedrockAgentPolicy"
+
+# Agent Resource Configuration
+export AGENT_CPU_REQUEST="100m"
+export AGENT_CPU_LIMIT="500m"
+export AGENT_MEMORY_REQUEST="256Mi"
+export AGENT_MEMORY_LIMIT="512Mi"
+
 
 # Prometheus
 export AMP_SERVICE_ACCOUNT_INGEST_NAME=amp-iamproxy-ingest-service-account

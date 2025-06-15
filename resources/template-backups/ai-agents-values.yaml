@@ -1,0 +1,76 @@
+# AI Agents Configuration Template
+# This file will be processed by infra-provision.sh to replace environment variables
+
+# Agent Infrastructure Configuration
+agent_namespace: spark-agents
+agent_image_repository: ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/spark-agents
+agent_image_tag: v1.0.0
+
+# Redis Configuration for Inter-Agent Communication
+redis:
+  enabled: true
+  image: redis:7-alpine
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "128Mi"
+      cpu: "100m"
+
+# Agent Resource Configuration
+agent_resources:
+  requests:
+    memory: "256Mi"
+    cpu: "100m"
+  limits:
+    memory: "512Mi"
+    cpu: "500m"
+
+# LLM Configuration
+llm:
+  bedrock_model_id: "anthropic.claude-3-5-sonnet-20241022-v2:0"
+  region: ${AWS_REGION}
+
+# SQS Configuration
+sqs:
+  high_priority_queue: "${LOAD_TEST_PREFIX}-spark-jobs-high.fifo"
+  medium_priority_queue: "${LOAD_TEST_PREFIX}-spark-jobs-medium.fifo"
+  low_priority_queue: "${LOAD_TEST_PREFIX}-spark-jobs-low.fifo"
+  dlq: "${LOAD_TEST_PREFIX}-spark-jobs-dlq.fifo"
+
+# Agent-Specific Configuration
+agents:
+  metrics:
+    enabled: true
+    cycle_interval: 60
+    prometheus_url: "http://prometheus-kube-prometheus-prometheus.prometheus.svc.cluster.local:9090"
+    
+  logs:
+    enabled: true
+    cycle_interval: 45
+    lookback_minutes: 10
+    
+  master:
+    enabled: true
+    cycle_interval: 60
+    confidence_threshold: 0.7
+    max_job_submission_rate: 100
+    
+  scheduler:
+    enabled: true
+    poll_interval: 15
+    max_concurrent_jobs: 50
+    rate_limit: 10
+    priority_weights: '{"high":3,"medium":2,"low":1}'
+
+# IAM Configuration
+iam:
+  agent_role: "${LOAD_TEST_PREFIX}-AgentRole"
+  agent_policy: "${LOAD_TEST_PREFIX}-AgentPolicy"
+  sqs_policy: "${LOAD_TEST_PREFIX}-SQSAgentPolicy"
+  bedrock_policy: "${LOAD_TEST_PREFIX}-BedrockAgentPolicy"
+
+# Node Selector for Agent Pods
+node_selector:
+  operational: "true"
