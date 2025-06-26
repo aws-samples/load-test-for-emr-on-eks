@@ -226,6 +226,21 @@ create_iam_resources() {
                 "arn:aws:s3:::${BUCKET_NAME}*",
                 "arn:aws:s3:::${BUCKET_NAME}*/*"
             ]
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "sqs:SendMessage",
+                "sqs:ReceiveMessage",
+                "sqs:DeleteMessage",
+                "sqs:GetQueueAttributes",
+                "sqs:GetQueueUrl",
+                "sqs:ListQueues"
+            ],
+            "Resource": [
+                "arn:aws:sqs:us-west-2:010117700078:${SQS_QUEUE_NAME}",
+                "arn:aws:sqs:us-west-2:010117700078:${SQS_DLQ_NAME}"
+            ]
         }
     ]
 }
@@ -450,8 +465,11 @@ if [ "$ACTION" == "apply" ]; then
             --group-name ${SECURITY_GROUP_NAME} \
             --description "Security group for EKS client EC2" \
             --vpc-id ${vpc_id} \
+            --query 'GroupId' \
             --output text)
-            
+        
+        echo "New SG ID is: " ${SECURITY_GROUP_ID}
+        
         sleep 5
 
         echo "Adding SSH ingress rule to new security group"
@@ -561,7 +579,7 @@ rm locust.zip
 source ./locust/env.sh
 
 # Install kubectl
-curl -LO "https://dl.k8s.io/release/\$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
 sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
 
 # Install helm

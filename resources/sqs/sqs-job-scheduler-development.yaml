@@ -1,0 +1,152 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: job-scheduler
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: job-scheduler-sa
+  namespace: job-scheduler
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::${ACCOUNT_ID}:role/${SQS_SCHEDULER_ROLE}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: job-scheduler-role
+rules:
+- apiGroups: [""]
+  resources: ["namespaces"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["sparkoperator.k8s.io"]
+  resources: ["sparkapplications"]
+  verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["pods", "services", "configmaps"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: job-scheduler-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: job-scheduler-role
+subjects:
+- kind: ServiceAccount
+  name: job-scheduler-sa
+  namespace: job-scheduler
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: scheduler-config
+  namespace: job-scheduler
+data:
+  AWS_REGION: "${AWS_REGION}"
+  SQS_QUEUE_URL: "${SQS_QUEUE_URL}"
+  SQS_DLQ_URL: "${SQS_DLQ_URL}"
+  JOB_SCHEDULER_BATCH_SIZE: "${JOB_SCHEDULER_BATCH_SIZE}"
+  JOB_SCHEDULER_POLL_INTERVAL: "${JOB_SCHEDULER_POLL_INTERVAL}"
+  DRIVER_CHECK_INTERVAL: "1"  # Check for pending drivers every 1 second
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sqs-job-scheduler
+  namespace: job-scheduler
+  labels:
+    app: sqs-job-scheduler
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: sqs-job-scheduler
+  template:
+    metadata:
+      labels:
+        app: sqs-job-scheduler
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: job-scheduler-sa
+      nodeSelector:
+        operational: "true"
+      tolerations:
+      - key: "dedicated"
+        operator: "Equal"
+        value: "operational"
+        effect: "NoSchedule"
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values: ["sqs-job-scheduler"]
+              topologyKey: "kubernetes.io/hostname"
+      containers:
+      - name: scheduler
+        image: python:3.9-slim
+        command: ["/bin/bash"]
+        args:
+        - -c
+        - |
+          pip install boto3 kubernetes pyyaml prometheus-client
+          python /app/sqs-job-scheduler.py
+        envFrom:
+        - configMapRef:
+            name: scheduler-config
+        ports:
+        - containerPort: 8080
+          name: metrics
+        volumeMounts:
+        - name: scheduler-script
+          mountPath: /app
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /metrics
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+      volumes:
+      - name: scheduler-script
+        configMap:
+          name: scheduler-script
+          defaultMode: 0755
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sqs-job-scheduler-service
+  namespace: job-scheduler
+  labels:
+    app: sqs-job-scheduler
+spec:
+  selector:
+    app: sqs-job-scheduler
+  ports:
+  - name: metrics
+    port: 8080
+    targetPort: 8080
+  type: ClusterIP

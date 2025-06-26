@@ -259,7 +259,7 @@ spec:
     matchLabels:
       component: scheduler
       tier: control-plane
-  replicas: 3
+  replicas: 1
   template:
     metadata:
       labels:

@@ -3,6 +3,9 @@ kind: NodePool
 metadata:
   name: cluster-operational-provisioner
 spec:
+  limits:
+    cpu: 8
+    memory: 16Gi
   template:
     metadata:
       labels:
@@ -24,7 +27,7 @@ spec:
           values: ["m5", "m6i", "m6a"]
         - key: karpenter.k8s.aws/instance-size
           operator: In
-          values: ["2xlarge", "4xlarge"]
+          values: ["xlarge"]
         - key: "topology.kubernetes.io/zone"
           operator: In
           values: ["${AWS_REGION}a", "${AWS_REGION}b"]
@@ -54,6 +57,9 @@ kind: NodePool
 metadata:
   name: spark-driver-provisioner
 spec:
+  limits:
+    cpu: 8
+    memory: 16Gi
   template:
     metadata:
       labels:
@@ -99,6 +105,9 @@ kind: NodePool
 metadata:
   name: spark-executor-provisioner
 spec:
+  limits:
+    cpu: 8
+    memory: 16Gi
   template:
     metadata:
       labels:

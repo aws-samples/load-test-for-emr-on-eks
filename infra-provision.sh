@@ -27,6 +27,8 @@ sed -i '' 's|${BUCKET_NAME}|'$BUCKET_NAME'|g' ./resources/spark-pi.yaml
 sed -i '' 's|${SPARK_VERSION}|'$SPARK_VERSION'|g' ./resources/spark-pi.yaml
 sed -i '' 's|${EMR_IMAGE_URL}|'$EMR_IMAGE_URL'|g' ./resources/spark-pi.yaml
 
+cp ./resources/spark-pi.yaml ./locust/resources/spark-pi.yaml
+
 
 
 echo "==============================================="
@@ -305,35 +307,6 @@ helm repo update
 helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n prometheus -f ./resources/prometheus-values.yaml
 
 
-# # Setup Prometheus with Karpenter dashboards
-# echo "Setting up Prometheus with Karpenter dashboards..."
-
-# # Create monitoring namespace if not exists
-# kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
-
-# # Download Karpenter monitoring configurations
-# curl -fsSL https://raw.githubusercontent.com/aws/karpenter-provider-aws/v"${KARPENTER_VERSION}"/website/content/en/preview/getting-started/getting-started-with-karpenter/prometheus-values.yaml > ./resources/prometheus-values.yaml
-# curl -fsSL https://raw.githubusercontent.com/aws/karpenter-provider-aws/v"${KARPENTER_VERSION}"/website/content/en/preview/getting-started/getting-started-with-karpenter/grafana-values.yaml > ./resources/grafana-values.yaml
-
-# # Update Prometheus values
-# sed -i '' 's/{AWS_REGION}/'$AWS_REGION'/g' ./resources/prometheus-values.yaml
-# sed -i '' 's/{ACCOUNTID}/'$ACCOUNT_ID'/g' ./resources/prometheus-values.yaml
-# sed -i '' 's/{WORKSPACE_ID}/'$WORKSPACE_ID'/g' ./resources/prometheus-values.yaml
-# sed -i '' 's/{LOAD_TEST_PREFIX}/'$LOAD_TEST_PREFIX'/g' ./resources/prometheus-values.yaml
-
-# # Install Prometheus and Grafana with Karpenter dashboards
-# helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-# helm repo add grafana-charts https://grafana.github.io/helm-charts
-# helm repo update
-
-# helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
-#   -n monitoring \
-#   -f ./resources/prometheus-values.yaml
-
-# helm upgrade --install grafana grafana-charts/grafana \
-#   -n monitoring \
-#   -f ./resources/grafana-values.yaml
-
 echo "==============================================="
 echo "  Setup BinPacking ......"
 echo "==============================================="
@@ -428,7 +401,27 @@ do
     kubectl annotate serviceaccount -n spark-job$i emr-containers-sa-spark \
         eks.amazonaws.com/role-arn=arn:aws:iam::${ACCOUNT_ID}:role/${SPARK_OPERATOR_ROLE} --overwrite
 
+    # CREATE THE ROLE FOR BOTH MODES (MOVED FROM ELSE BRANCH)
     cat <<EOF | kubectl apply -f -
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spark-role
+  namespace: spark-job$i
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["create", "get", "list", "watch", "update", "delete", "patch"]
+- apiGroups: [""]
+  resources: ["services", "configmaps", "persistentvolumeclaims"]
+  verbs: ["create", "get", "list", "watch", "update", "delete"]
+- apiGroups: ["sparkoperator.k8s.io"]
+  resources: ["sparkapplications", "scheduledsparkapplications"]
+  verbs: ["create", "get", "list", "watch", "update", "delete"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create", "patch"]
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
@@ -448,47 +441,20 @@ roleRef:
 EOF
 done
 
+helm repo add spark-operator https://kubeflow.github.io/spark-operator
+helm repo update
+
 if [ "$OPERATOR_TEST_MODE" = "multiple" ]; then
     # For multiple Operators
     echo "Installing multiple operators..."
-    
-    # Install operators (Helm will create the necessary roles), comments as current limitation. Bug fix with TT: https://t.corp.amazon.com/P239850734/overview
-    # for i in $(seq 0 $((SPARK_JOB_NS_NUM-1)))
-    # do
-    #     echo "Installing spark-operator$i..."
-    #     helm install spark-operator$i \
-    #         oci://${ECR_REGISTRY_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/spark-operator \
-    #         --version ${SPARK_OPERATOR_VERSION} \
-    #         --namespace spark-operator \
-    #         --set sparkJobNamespace=spark-job$i \
-    #         --set rbac.create=true \
-    #         --set serviceAccounts.sparkoperator.create=true \
-    #         --set serviceAccounts.sparkoperator.name=spark-operator-sa$i \
-    #         --set serviceAccounts.spark.create=false \
-    #         --set nameOverride=spark-operator$i \
-    #         --set fullnameOverride=spark-operator$i \
-    #         --set emrContainers.awsRegion=${AWS_REGION} \
-    #         -f ./resources/spark-operator-values.yaml
-    # done
 
-    mkdir -p custom-spark-operator
-    helm pull oci://895885662937.dkr.ecr.us-west-2.amazonaws.com/spark-operator --version 7.7.0 --untar -d custom-spark-operator
-    cd custom-spark-operator/spark-operator
-    perl -i -pe 's/name: emr-eks-region-to-account-lookup/name: {{ include "spark-operator.fullname" . }}-region-lookup/g' templates/deployment.yaml
-    perl -i -pe 's/configMap:\n\s+name: emr-eks-region-to-account-lookup/configMap:\n      name: {{ include "spark-operator.fullname" . }}-region-lookup/g' templates/deployment.yaml
-    helm template test-operator . --namespace spark-operator > rendered.yaml
-    cd ../../
-    helm package ./custom-spark-operator/spark-operator -d .
-
-
-    # Install multiple instances
     for i in $(seq 0 $((SPARK_JOB_NS_NUM-1)))
     do
         echo "Installing spark-operator$i..."
-        helm install spark-operator$i \
-            ./spark-operator-7.7.0.tgz \
+        helm upgrade --install spark-operator$i spark-operator/spark-operator \
             --namespace spark-operator \
-            --set sparkJobNamespace=spark-job$i \
+            --version ${SPARK_OPERATOR_OSS_VERSION} \
+            --set spark.jobNamespaces={spark-job$i} \
             --set rbac.create=true \
             --set serviceAccounts.sparkoperator.create=true \
             --set serviceAccounts.sparkoperator.name=spark-operator-sa$i \
@@ -500,10 +466,7 @@ if [ "$OPERATOR_TEST_MODE" = "multiple" ]; then
     done
 
     echo "Waiting for operators to be ready..."
-    for i in $(seq 0 $((SPARK_JOB_NS_NUM-1)))
-    do
-        kubectl rollout status deployment/spark-operator$i -n spark-operator --timeout=120s
-    done
+    sleep 5
 
     for i in $(seq 0 $((SPARK_JOB_NS_NUM-1)))
     do
@@ -519,38 +482,9 @@ else
     # One spark-operator0 operator for multiple namespace
     echo "Installing single operator..."
     
-    for i in $(seq 0 $((SPARK_JOB_NS_NUM-1)))
-    do
-        cat <<EOF | kubectl apply -f -
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: spark-role
-  namespace: spark-job$i
-rules:
-- apiGroups: [""]
-  resources: ["pods", "services", "configmaps", "persistentvolumeclaims"]
-  verbs: ["create", "get", "list", "watch", "update", "delete"]
-- apiGroups: ["sparkoperator.k8s.io"]
-  resources: ["sparkapplications", "scheduledsparkapplications"]
-  verbs: ["create", "get", "list", "watch", "update", "delete"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: spark-role-binding
-  namespace: spark-job$i
-subjects:
-- kind: ServiceAccount
-  name: spark-job-sa$i
-  namespace: spark-job$i
-roleRef:
-  kind: Role
-  name: spark-role
-  apiGroup: rbac.authorization.k8s.io
-EOF
-    done
-
+    # NOTE: Role creation is now moved to the common section above
+    # No need to duplicate Role creation here
+    
     helm install spark-operator0 \
         oci://${ECR_REGISTRY_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/spark-operator \
         --version ${SPARK_OPERATOR_VERSION} \
@@ -565,79 +499,7 @@ EOF
         -f /tmp/spark-operator-installation-values.yaml
 fi
 
-
 echo "Spark operator installation completed"
-
-
-echo "==============================================="
-echo "  Setup Locust for Spark Operator Testing ......"
-echo "==============================================="
-
-
-# Create the Required Namespace and Service Account
-kubectl create namespace locust --dry-run=client -o yaml | kubectl apply -f -
-
-cat <<EOF | kubectl apply -f -
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: locust-spark-submitter
-  namespace: locust
-EOF
-
-# Create roles and rolebindings for each Spark namespace
-for i in $(seq 0 $((SPARK_JOB_NS_NUM-1)))
-do
-    cat <<EOF | kubectl apply -f -
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: spark-submitter-role
-  namespace: spark-job$i
-rules:
-- apiGroups: ["sparkoperator.k8s.io"]
-  resources: ["sparkapplications"]
-  verbs: ["get", "list", "create", "delete", "watch"]
-- apiGroups: [""]
-  resources: ["pods", "pods/log", "services"]
-  verbs: ["get", "list", "watch"]
-- apiGroups: ["batch"]
-  resources: ["jobs"]
-  verbs: ["get", "list", "watch"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: locust-spark-submitter-binding
-  namespace: spark-job$i
-subjects:
-- kind: ServiceAccount
-  name: locust-spark-submitter
-  namespace: locust
-roleRef:
-  kind: Role
-  name: spark-submitter-role
-  apiGroup: rbac.authorization.k8s.io
-EOF
-done
-
-
-sed -i '' 's|SPARK_JOB_NS_NUM|'$SPARK_JOB_NS_NUM'|g' ./resources/locust-spark-submit.py
-
-# Create ConfigMap with the test script and Spark job template
-kubectl delete configmap spark-locust-scripts -n locust --ignore-not-found
-kubectl create configmap spark-locust-scripts \
-  --from-file=locust-spark-submit.py=./resources/locust-spark-submit.py \
-  --from-file=spark-pi.yaml=./resources/spark-pi.yaml \
-  -n locust
-
-
-# Apply deployment
-kubectl apply -f ./resources/locust-deployment.yaml
-
-echo "==============================================="
-echo "  Locust setup completed ......"
-echo "==============================================="
 
 
 echo "==============================================="
@@ -686,28 +548,6 @@ spec:
 EOF
 
 
-cat <<EOF | kubectl apply -f -
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: locust-exporter-monitor
-  namespace: prometheus
-  labels:
-    release: prometheus
-spec:
-  namespaceSelector:
-    matchNames:
-    - locust
-  selector:
-    matchLabels:
-      app: locust-exporter
-  endpoints:
-    - port: metrics
-      interval: 15s
-EOF
-
-
-kubectl apply -f ./resources/locust-exporter-deployment.yaml
 
 if [[ $USE_AMG == "true" ]]
 then 
@@ -751,8 +591,12 @@ fi
 
 echo "==============================================="
 echo "  Setup completed successfully ......"
-echo "  Access the Locust UI by port-forwarding:"
-echo "  kubectl port-forward svc/locust-master 8089:8089 -n locust"
 echo "  Access the Prometheus UI by port-forwarding:"
 echo "  kubectl port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 -n prometheus"
 echo "==============================================="
+
+# install SQS Queues:
+./resources/sqs/sqs-provision.sh
+
+# install SQS Scheduler on EKS cluster:
+./resources/sqs/sqs-job-scheduler.sh

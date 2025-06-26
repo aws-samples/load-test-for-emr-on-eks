@@ -102,3 +102,20 @@ export KARPENTER_NODE_ROLE="KarpenterNodeRole-${LOAD_TEST_PREFIX}"
 
 # To use Amazon Managed Grafana
 export USE_AMG="true"
+
+
+
+# SQS Configuration
+export SQS_QUEUE_NAME="${LOAD_TEST_PREFIX}-spark-jobs-queue"
+export SQS_DLQ_NAME="${LOAD_TEST_PREFIX}-spark-jobs-dlq"
+export SQS_SCHEDULER_ROLE="${LOAD_TEST_PREFIX}-SQSSchedulerRole"
+export SQS_SCHEDULER_POLICY="${LOAD_TEST_PREFIX}-SQSSchedulerPolicy"
+
+# Spark Operator V2 Configuration (OSS)
+export SPARK_OPERATOR_OSS_VERSION="v2.2.0"
+
+# Job Scheduler Configuration
+export JOB_SCHEDULER_NAMESPACE="job-scheduler"
+export JOB_SCHEDULER_SERVICE_ACCOUNT="job-scheduler-sa"
+export JOB_SCHEDULER_BATCH_SIZE=10
+export JOB_SCHEDULER_POLL_INTERVAL=1
