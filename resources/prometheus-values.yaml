@@ -3,7 +3,22 @@
 alertmanager:
   enabled: false       
 grafana:
-  enabled: false
+  enabled: true
+  adminPassword: admin123
+  service:
+    type: LoadBalancer
+  nodeSelector:
+    operational: "true"
+    monitor: "true"
+  persistence:
+    enabled: false
+  env:
+    GF_INSTALL_PLUGINS: ""
+  datasources: {}
+  dashboards: {}
+  dashboardProviders: {}
+
+
 kubelet:
   enabled: false
 
@@ -58,12 +73,16 @@ kubeApiServer:
       regex: etcd_request_duration_seconds_bucket;(0.15|0.25|0.3|0.35|0.4|0.45|0.6|0.7|0.8|0.9|1.25|1.5|1.75|2.5|3|3.5|4.5|6|7|8|9|15|25|30|50)
       sourceLabels: [__name__,le]
 
+# prometheus:
+  # serviceAccount:
+  #   create: true
+  #   name: amp-iamproxy-ingest-service-account
+  #   annotations: 
+  #     eks.amazonaws.com/role-arn: arn:aws:iam::{ACCOUNTID}:role/{LOAD_TEST_PREFIX}-prometheus-ingest
+
 prometheus:
   serviceAccount:
     create: true
-    name: amp-iamproxy-ingest-service-account
-    annotations: 
-      eks.amazonaws.com/role-arn: arn:aws:iam::{ACCOUNTID}:role/{LOAD_TEST_PREFIX}-prometheus-ingest
   prometheusSpec:
     additionalArgs:
       - name: storage.tsdb.min-block-duration
@@ -115,26 +134,26 @@ prometheus:
     probeSelectorNilUsesHelmValues: false
     scrapeInterval: 30s
     evaluationInterval: 30s
-    remoteRead:
-    - url: https://aps-workspaces.{AWS_REGION}.amazonaws.com/workspaces/{WORKSPACE_ID}/api/v1/query
-      readRecent: true
-    remoteWrite:
-    - url: https://aps-workspaces.{AWS_REGION}.amazonaws.com/workspaces/{WORKSPACE_ID}/api/v1/remote_write
-      sigv4:
-        region: {AWS_REGION}
-      queueConfig:
-        maxSamplesPerSend: 3500
-        batchSendDeadline: 10s
-        maxRetries: 10
-        # maxBackoff: 10m
-        retryOnRateLimit: true
-        minShards: 100
-        maxShards: 300
-        capacity: 35000
-      metadataConfig:
-        send: false
-    retention: 12h
-    # retentionSize: 85GB
+    # remoteRead:
+    # - url: https://aps-workspaces.{AWS_REGION}.amazonaws.com/workspaces/{WORKSPACE_ID}/api/v1/query
+    #   readRecent: true
+    # remoteWrite:
+    # - url: https://aps-workspaces.{AWS_REGION}.amazonaws.com/workspaces/{WORKSPACE_ID}/api/v1/remote_write
+    #   sigv4:
+    #     region: {AWS_REGION}
+    #   queueConfig:
+    #     maxSamplesPerSend: 3500
+    #     batchSendDeadline: 10s
+    #     maxRetries: 10
+    #     # maxBackoff: 10m
+    #     retryOnRateLimit: true
+    #     minShards: 100
+    #     maxShards: 300
+    #     capacity: 35000
+    #   metadataConfig:
+    #     send: false
+    retention: 2d
+    retentionSize: 45GB
     scrapeTimeout: 30s
     additionalScrapeConfigs:
       # Prometheus Operator doesn't scrape metrics by default from pods or endpoints with prometheus.io/scrape: "true"

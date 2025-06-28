@@ -141,7 +141,7 @@ helm upgrade --install nodescaler autoscaler/cluster-autoscaler -n kube-system -
 # echo "  Setup BinPacking ......"
 # echo "==============================================="
 
-# kubectl apply -f ./resources/binpacking-values.yaml
+kubectl apply -f ./resources/binpacking-values.yaml
 
 
 
@@ -350,75 +350,75 @@ echo "  Setup Prometheus ......"
 echo "==============================================="
 
 # Check and create IAM Policy
-if aws iam get-policy --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY}" 2>/dev/null; then
-    echo "Policy ${AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY} already exists"
-else
-    echo "Creating policy ${AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY}..."
-    cat <<EOF > /tmp/PermissionPolicyIngest.json
-{
-  "Version": "2012-10-17",
-   "Statement": [
-       {"Effect": "Allow",
-        "Action": [
-           "aps:RemoteWrite", 
-           "aps:GetSeries", 
-           "aps:GetLabels",
-           "aps:GetMetricMetadata"
-        ], 
-        "Resource": "*"
-      }
-   ]
-}
-EOF
-    aws iam create-policy --policy-name ${AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY} --policy-document file:///tmp/PermissionPolicyIngest.json
-fi
+# if aws iam get-policy --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY}" 2>/dev/null; then
+#     echo "Policy ${AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY} already exists"
+# else
+#     echo "Creating policy ${AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY}..."
+#     cat <<EOF > /tmp/PermissionPolicyIngest.json
+# {
+#   "Version": "2012-10-17",
+#    "Statement": [
+#        {"Effect": "Allow",
+#         "Action": [
+#            "aps:RemoteWrite", 
+#            "aps:GetSeries", 
+#            "aps:GetLabels",
+#            "aps:GetMetricMetadata"
+#         ], 
+#         "Resource": "*"
+#       }
+#    ]
+# }
+# EOF
+#     aws iam create-policy --policy-name ${AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY} --policy-document file:///tmp/PermissionPolicyIngest.json
+# fi
 
-sleep 5
-# Check and create IAM Role
-if aws iam get-role --role-name "${AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE}" >/dev/null 2>&1; then
-    echo "Role ${AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE} already exists"
-else
-    echo "Creating role ${AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE}..."
-    cat <<EOF > /tmp/TrustPolicyIngest.json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "Federated": "arn:aws:iam::${ACCOUNT_ID}:oidc-provider/${OIDC_PROVIDER}"
-      },
-      "Action": "sts:AssumeRoleWithWebIdentity",
-      "Condition": {
-        "StringEquals": {
-          "${OIDC_PROVIDER}:sub": "system:serviceaccount:prometheus:amp-iamproxy-ingest-service-account"
-        }
-      }
-    }
-  ]
-}
-EOF
-    aws iam create-role --role-name ${AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE} --assume-role-policy-document file:///tmp/TrustPolicyIngest.json
-    aws iam attach-role-policy --role-name ${AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE} --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY}"
-fi
+# sleep 5
+# # Check and create IAM Role
+# if aws iam get-role --role-name "${AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE}" >/dev/null 2>&1; then
+#     echo "Role ${AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE} already exists"
+# else
+#     echo "Creating role ${AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE}..."
+#     cat <<EOF > /tmp/TrustPolicyIngest.json
+# {
+#   "Version": "2012-10-17",
+#   "Statement": [
+#     {
+#       "Effect": "Allow",
+#       "Principal": {
+#         "Federated": "arn:aws:iam::${ACCOUNT_ID}:oidc-provider/${OIDC_PROVIDER}"
+#       },
+#       "Action": "sts:AssumeRoleWithWebIdentity",
+#       "Condition": {
+#         "StringEquals": {
+#           "${OIDC_PROVIDER}:sub": "system:serviceaccount:prometheus:amp-iamproxy-ingest-service-account"
+#         }
+#       }
+#     }
+#   ]
+# }
+# EOF
+#     aws iam create-role --role-name ${AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE} --assume-role-policy-document file:///tmp/TrustPolicyIngest.json
+#     aws iam attach-role-policy --role-name ${AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE} --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY}"
+# fi
 
-eksctl utils associate-iam-oidc-provider --cluster $CLUSTER_NAME --approve
+# eksctl utils associate-iam-oidc-provider --cluster $CLUSTER_NAME --approve
 
 kubectl create namespace prometheus --dry-run=client -o yaml | kubectl apply -f -
 
-amp=$(aws amp list-workspaces --query "workspaces[?alias=='${CLUSTER_NAME}'].workspaceId" --output text)
-if [ -z "$amp" ]; then
-    echo "Creating a new prometheus workspace..."
-    export WORKSPACE_ID=$(aws amp create-workspace --alias ${CLUSTER_NAME} --query workspaceId --output text)
-else
-    echo "A prometheus workspace already exists"
-    export WORKSPACE_ID=$amp
-fi
+# amp=$(aws amp list-workspaces --query "workspaces[?alias=='${CLUSTER_NAME}'].workspaceId" --output text)
+# if [ -z "$amp" ]; then
+#     echo "Creating a new prometheus workspace..."
+#     export WORKSPACE_ID=$(aws amp create-workspace --alias ${CLUSTER_NAME} --query workspaceId --output text)
+# else
+#     echo "A prometheus workspace already exists"
+#     export WORKSPACE_ID=$amp
+# fi
 
-replace_in_file "{AWS_REGION}" "$AWS_REGION" "./resources/prometheus-values.yaml"
-replace_in_file "{ACCOUNTID}" "$ACCOUNT_ID" "./resources/prometheus-values.yaml"
-replace_in_file "{WORKSPACE_ID}" "$WORKSPACE_ID" "./resources/prometheus-values.yaml"
-replace_in_file "{LOAD_TEST_PREFIX}" "$LOAD_TEST_PREFIX" "./resources/prometheus-values.yaml"
+# replace_in_file "{AWS_REGION}" "$AWS_REGION" "./resources/prometheus-values.yaml"
+# replace_in_file "{ACCOUNTID}" "$ACCOUNT_ID" "./resources/prometheus-values.yaml"
+# replace_in_file "{WORKSPACE_ID}" "$WORKSPACE_ID" "./resources/prometheus-values.yaml"
+# replace_in_file "{LOAD_TEST_PREFIX}" "$LOAD_TEST_PREFIX" "./resources/prometheus-values.yaml"
 
 
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
@@ -616,45 +616,45 @@ spec:
 EOF
 
 
-if [[ $USE_AMG == "true" ]]
-then 
-    # Create AMG
-    echo "==============================================="
-    echo "  Set up Amazon Managed Grafana ......"
-    echo "==============================================="
-    # create grafana service role policy
-    aws iam create-policy --policy-name ${LOAD_TEST_PREFIX}-grafana-service-role-policy --policy-document file://./grafana/grafana-service-role-policy.json \
-    && export grafana_service_role_policy_arn=$(aws iam list-policies --query 'Policies[?PolicyName==`'${LOAD_TEST_PREFIX}-grafana-service-role-policy'`].Arn' --output text)
-    if [[ $$grafana_service_role_policy_arn != "" ]]
-    then 
-        echo "Create AWS Managed Grafana service role policy $grafana_service_role_policy_arn"
-    fi 
+# if [[ $USE_AMG == "true" ]]
+# then 
+#     # Create AMG
+#     echo "==============================================="
+#     echo "  Set up Amazon Managed Grafana ......"
+#     echo "==============================================="
+#     # create grafana service role policy
+#     aws iam create-policy --policy-name ${LOAD_TEST_PREFIX}-grafana-service-role-policy --policy-document file://./grafana/grafana-service-role-policy.json \
+#     && export grafana_service_role_policy_arn=$(aws iam list-policies --query 'Policies[?PolicyName==`'${LOAD_TEST_PREFIX}-grafana-service-role-policy'`].Arn' --output text)
+#     if [[ $$grafana_service_role_policy_arn != "" ]]
+#     then 
+#         echo "Create AWS Managed Grafana service role policy $grafana_service_role_policy_arn"
+#     fi 
 
-    # create grafana service role
-    replace_in_file "\${ACCOUNT_ID}" "$ACCOUNT_ID" "./grafana/grafana-service-role-assume-policy.json"
-    replace_in_file "\${AWS_REGION}" "$AWS_REGION" "./grafana/grafana-service-role-assume-policy.json"
+#     # create grafana service role
+#     replace_in_file "\${ACCOUNT_ID}" "$ACCOUNT_ID" "./grafana/grafana-service-role-assume-policy.json"
+#     replace_in_file "\${AWS_REGION}" "$AWS_REGION" "./grafana/grafana-service-role-assume-policy.json"
 
-    aws iam create-role --role-name ${LOAD_TEST_PREFIX}-grafana-service-role \
-        --assume-role-policy-document file://./grafana/grafana-service-role-assume-policy.json \
-        --tags Key=Name,Value=${LOAD_TEST_PREFIX}-grafana-service-role && \
-        export grafana_service_role_arn=$(aws iam list-roles --query 'Roles[?RoleName==`'${LOAD_TEST_PREFIX}-grafana-service-role'`].Arn' --output text)
+#     aws iam create-role --role-name ${LOAD_TEST_PREFIX}-grafana-service-role \
+#         --assume-role-policy-document file://./grafana/grafana-service-role-assume-policy.json \
+#         --tags Key=Name,Value=${LOAD_TEST_PREFIX}-grafana-service-role && \
+#         export grafana_service_role_arn=$(aws iam list-roles --query 'Roles[?RoleName==`'${LOAD_TEST_PREFIX}-grafana-service-role'`].Arn' --output text)
     
-    if [[ $grafana_service_role_arn != "" ]]
-    then 
-        echo "Created AWS Managed Grafana service role $grafana_service_role_arn" 
-    fi
+#     if [[ $grafana_service_role_arn != "" ]]
+#     then 
+#         echo "Created AWS Managed Grafana service role $grafana_service_role_arn" 
+#     fi
 
-    aws iam attach-role-policy --role-name  ${LOAD_TEST_PREFIX}-grafana-service-role --policy-arn $grafana_service_role_policy_arn \
-    && echo "Attached policy $grafana_service_role_policy_arn to role ${LOAD_TEST_PREFIX}-grafana-service-role"
+#     aws iam attach-role-policy --role-name  ${LOAD_TEST_PREFIX}-grafana-service-role --policy-arn $grafana_service_role_policy_arn \
+#     && echo "Attached policy $grafana_service_role_policy_arn to role ${LOAD_TEST_PREFIX}-grafana-service-role"
 
-    # create grafana workspace in public network
-    aws grafana create-workspace --workspace-name ${LOAD_TEST_PREFIX} --account-access-type CURRENT_ACCOUNT --authentication-providers AWS_SSO --permission-type SERVICE_MANAGED --workspace-role-arn $grafana_service_role_arn --region $AWS_REGION \
-    && export grafana_workspace_id=$(aws grafana list-workspaces --query 'workspaces[?name==`'${LOAD_TEST_PREFIX}'`].id' --region $AWS_REGION --output text)
-    if [[ $grafana_workspace_id != "" ]]
-    then 
-        echo "Created AWS Manged Grafana workspace $grafana_workspace_id"
-    fi
-fi
+#     # create grafana workspace in public network
+#     aws grafana create-workspace --workspace-name ${LOAD_TEST_PREFIX} --account-access-type CURRENT_ACCOUNT --authentication-providers AWS_SSO --permission-type SERVICE_MANAGED --workspace-role-arn $grafana_service_role_arn --region $AWS_REGION \
+#     && export grafana_workspace_id=$(aws grafana list-workspaces --query 'workspaces[?name==`'${LOAD_TEST_PREFIX}'`].id' --region $AWS_REGION --output text)
+#     if [[ $grafana_workspace_id != "" ]]
+#     then 
+#         echo "Created AWS Manged Grafana workspace $grafana_workspace_id"
+#     fi
+# fi
 
 echo "==============================================="
 echo "  Packaging and uploading all files to s3 as locust assets..."

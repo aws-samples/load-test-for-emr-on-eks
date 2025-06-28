@@ -1,5 +1,5 @@
 autoDiscovery:
-  clusterName: ${CLUSTER_NAME}-eks-cluster
+  clusterName: ${CLUSTER_NAME}
 awsRegion: ${AWS_REGION}
 image:
   tag: v1.30.0
