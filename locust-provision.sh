@@ -509,19 +509,6 @@ which pip3 || echo "[WARNING] pip3 not found in PATH"
 which locust || echo "[WARNING] locust not found in PATH"
 pip3 list | grep locust || echo "[WARNING] locust package not installed"
 
-# Replace the IP to Prometheus on eks
-# echo "Update the Locust Private IP to Prometheus on EKS, re-installing Prometheus"
-
-PRIVATE_IP=$(ip route get 1.1.1.1 | awk '{print $7}' | head -1)
-cd ~/load-test/load-test-for-emr-on-eks/
-sed -i "s|{LOCUST_IP_PRIV}|$PRIVATE_IP|g" "./resources/prometheus-values.yaml"
-
-helm uninstall prometheus -n prometheus 
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm repo update
-helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n prometheus -f ./resources/prometheus-values.yaml
-
-echo "Prometheus has been re-installed."
 
 # Install K9s
 curl -sS https://webinstall.dev/k9s | bash
@@ -531,17 +518,7 @@ curl -sS https://webinstall.dev/k9s | bash
 echo "Installing Go for eks-node-viewer plugin"
 sudo dnf install -y golang
 
-echo "Installing eks-node-viewer plugin"
-go install github.com/awslabs/eks-node-viewer/cmd/eks-node-viewer@latest
-sudo cp ~/go/bin/eks-node-viewer /usr/local/bin/
-
-echo "Complete eks-node-viewer plugin"
-
 EEOF
-
-
-
-
 
 echo "[$(date)] Locust EC2 setup completed"
 EOF

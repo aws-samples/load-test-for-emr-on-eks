@@ -13,37 +13,6 @@ echo "deleting all spark jobs"
 kubectl delete sparkapplications --all --all-namespaces
 
 
-# if [[ $USE_AMG == "true" ]]
-# then 
-#     # delete grafana
-#     export grafana_workspace_id=$(aws grafana list-workspaces --query 'workspaces[?name==`'${LOAD_TEST_PREFIX}'`].id' --region $AWS_REGION --output text)
-#     if [[ $grafana_workspace_id != "" ]]
-#     then 
-#         aws grafana delete-workspace --workspace-id $grafana_workspace_id --region $AWS_REGION && echo "Deleted AWS Manged Grafana workspace $grafana_workspace_id"
-#     fi 
-
-#     # detach grafana service role policy from service role 
-#     export grafana_service_role_policy_arn=$(aws iam list-policies --query 'Policies[?PolicyName==`'${LOAD_TEST_PREFIX}-grafana-service-role-policy'`].Arn' --output text)
-#     export grafana_service_role_arn=$(aws iam list-roles --query 'Roles[?RoleName==`'${LOAD_TEST_PREFIX}-grafana-service-role'`].Arn' --output text)
-#     if [[ $grafana_service_role_arn != "" && $grafana_service_role_policy_arn != "" ]]
-#     then 
-#         aws iam detach-role-policy --role-name ${LOAD_TEST_PREFIX}-grafana-service-role --policy-arn $grafana_service_role_policy_arn && echo "Detach policy $grafana_service_role_policy_arn from role $grafana_service_role_arn"
-#     fi 
-
-#     # delete grafana-service role 
-#     if [[ $grafana_service_role_arn != "" ]]
-#     then 
-#         aws iam delete-role --role-name ${LOAD_TEST_PREFIX}-grafana-service-role --region ${AWS_REGION} && echo "Deleted AWS Managed Grafana service role $grafana_service_role_arn"
-#     fi 
-
-#     # delete grafana service role policy 
-#     if [[ $grafana_service_role_policy_arn != "" ]]
-#     then 
-#         aws iam delete-policy --policy-arn $grafana_service_role_policy_arn && echo "Deleted AWS Deleted AWS Managed Grafana service role policy $grafana_service_role_policy_arn"
-#     fi 
-# fi 
-
-
 # Delete Karpenter resources
 echo "Deleting Karpenter resources..."
 kubectl delete -f ./resources/karpenter-nodepool.yaml || true
@@ -83,15 +52,6 @@ echo "Deleting Prometheus resources..."
 helm uninstall prometheus -n prometheus || true
 kubectl delete namespace prometheus || true
 
-# aws iam detach-role-policy --role-name "${AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE}" --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY}" || true
-# aws iam delete-role --role-name "${AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE}" || true
-# aws iam delete-policy --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY}" || true
-
-# # Delete AMP workspace
-# amp=$(aws amp list-workspaces --query "workspaces[?alias=='${CLUSTER_NAME}'].workspaceId" --output text)
-# if [ ! -z "$amp" ]; then
-#     aws amp delete-workspace --workspace-id $amp
-# fi
 
 # Delete Spark Operator resources
 echo "Deleting Spark Operator resources..."
