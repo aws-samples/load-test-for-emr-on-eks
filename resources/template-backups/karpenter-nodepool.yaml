@@ -24,7 +24,7 @@ spec:
           values: ["m5","c5","r5"]
         - key: karpenter.k8s.aws/instance-size
           operator: In
-          values: ["xlarge"]
+          values: ["2xlarge"]
         - key: "topology.kubernetes.io/zone"
           operator: In
           values: ["${AWS_REGION}a", "${AWS_REGION}b"]
@@ -69,7 +69,7 @@ spec:
           values: ["c5","r5"]
         - key: karpenter.k8s.aws/instance-size
           operator: In
-          values: ["xlarge"]
+          values: ["2xlarge","4xlarge", "8xlarge"]
         - key: "topology.kubernetes.io/zone"
           operator: In
           values: ["${AWS_REGION}a", "${AWS_REGION}b"]

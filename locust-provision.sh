@@ -210,7 +210,9 @@ EOF
             --role-name "$ROLE_NAME" \
             --policy-name "EC2ClientCustomPolicy" \
             --policy-document "file:///tmp/ec2_custom_policy.json"
-
+        
+        sleep 15
+        
         # Optionally, cleanup the temporary file
         rm -f /tmp/ec2_custom_policy.json
         
