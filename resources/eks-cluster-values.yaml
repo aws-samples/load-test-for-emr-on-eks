@@ -42,8 +42,8 @@ managedNodeGroups:
     labels:
       operational: "true"
       monitor: "false"
-  - name: ${LOAD_TEST_PREFIX}-m5-x-worker-ng-2a
-    instanceType: m5.xlarge
+  - name: ${LOAD_TEST_PREFIX}-m5-4x-worker-ng-2a
+    instanceType: m5.4xlarge
     desiredCapacity: 1
     minSize: 1
     maxSize: 350
@@ -52,8 +52,8 @@ managedNodeGroups:
       operational: "false"
       monitor: "false"
     availabilityZones: ["${AWS_REGION}a"]
-  - name: ${LOAD_TEST_PREFIX}-m5-x-worker-ng-2b
-    instanceType: m5.xlarge
+  - name: ${LOAD_TEST_PREFIX}-m5-4x-worker-ng-2b
+    instanceType: m5.4xlarge
     desiredCapacity: 1
     minSize: 1
     maxSize: 350
