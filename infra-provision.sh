@@ -595,8 +595,25 @@ echo "  Access the Prometheus UI by port-forwarding:"
 echo "  kubectl port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 -n prometheus"
 echo "==============================================="
 
+
+chmod +x ./resources/sqs/sqs-provision.sh
+chmod +x ./resources/sqs/sqs-job-scheduler.sh
+
 # install SQS Queues:
 ./resources/sqs/sqs-provision.sh
 
 # install SQS Scheduler on EKS cluster:
 ./resources/sqs/sqs-job-scheduler.sh
+
+
+export SQS_QUEUE_URL=$(aws sqs get-queue-url \
+  --queue-name "$SQS_QUEUE_NAME" \
+  --region "$AWS_REGION" \
+  --query 'QueueUrl' \
+  --output text)
+
+echo "==============================================="
+echo "  Setup SQS successfully ......"
+echo "  The SQS URL is ${SQS_QUEUE_URL}"
+echo "==============================================="
+
