@@ -1,5 +1,7 @@
 ## Locust EC2 Server User Manual to submit jobs to SQS
 
+![design_diagram](./sqs_diagram.png)
+
 ### Access EC2 server for load testing
 1. SSH to EC2
 
