@@ -386,7 +386,7 @@ if [ "$ACTION" == "apply" ]; then
         # Check if the rule already exists
         EXISTING_RULE=$(aws ec2 describe-security-group-rules \
             --filters "Name=group-id,Values=${CLUSTER_SG}" \
-            --query "SecurityGroupRules[?Protocol=='-1' && SourceGroupId=='${SECURITY_GROUP_ID}']" \
+            --query "SecurityGroupRules[?IpProtocol=='-1' && ReferencedGroupInfo.GroupId=='${SECURITY_GROUP_ID}']" \
             --output text)
         
         if [ -z "$EXISTING_RULE" ]; then
@@ -418,7 +418,7 @@ if [ "$ACTION" == "apply" ]; then
         # Check if the rule already exists
         EXISTING_RULE=$(aws ec2 describe-security-group-rules \
             --filters "Name=group-id,Values=${SECURITY_GROUP_ID}" \
-            --query "SecurityGroupRules[?Protocol=='-1' && SourceGroupId=='${CONTROL_PLANE_SG}']" \
+            --query "SecurityGroupRules[?IpProtocol=='-1' && ReferencedGroupInfo.GroupId=='${CONTROL_PLANE_SG}']" \
             --output text)
         
         if [ -z "$EXISTING_RULE" ]; then
