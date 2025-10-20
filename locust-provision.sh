@@ -430,12 +430,13 @@ if [ "$ACTION" == "apply" ]; then
         # Check if the SSH rule already exists
         EXISTING_RULE=$(aws ec2 describe-security-group-rules \
             --filters "Name=group-id,Values=${SECURITY_GROUP_ID}" \
-            --query "SecurityGroupRules[?IpProtocol=='tcp' && FromPort=='22' && ToPort=='22']" \
+            --query 'SecurityGroupRules[?IpProtocol==`tcp` && FromPort==`22` && ToPort==`22`]' \
             --output text)
         
         if [ -z "$EXISTING_RULE" ]; then
             echo "Adding SSH ingress rule to existing security group"
             MY_IP=$(curl -s http://checkip.amazonaws.com)
+            sleep 5
             aws ec2 authorize-security-group-ingress \
                 --group-id ${SECURITY_GROUP_ID} \
                 --protocol tcp \
@@ -454,6 +455,7 @@ if [ "$ACTION" == "apply" ]; then
         
         echo "Adding SSH ingress rule to new security group"
         MY_IP=$(curl -s http://checkip.amazonaws.com)
+        sleep 5
         aws ec2 authorize-security-group-ingress \
             --group-id ${SECURITY_GROUP_ID} \
             --protocol tcp \
@@ -476,7 +478,7 @@ if [ "$ACTION" == "apply" ]; then
         # Check if the rule already exists
         EXISTING_RULE=$(aws ec2 describe-security-group-rules \
             --filters "Name=group-id,Values=${CLUSTER_SG}" \
-            --query "SecurityGroupRules[?Protocol=='-1' && SourceGroupId=='${SECURITY_GROUP_ID}']" \
+            --query "SecurityGroupRules[?IpProtocol=='-1' && ReferencedGroupInfo.GroupId=='${SECURITY_GROUP_ID}']" \
             --output text)
         
         if [ -z "$EXISTING_RULE" ]; then
