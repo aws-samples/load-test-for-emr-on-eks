@@ -628,7 +628,7 @@ EOF
         
         # Replace the IP to Prometheus on eks
         echo "Update the Locust Private IP to Prometheus on EKS, re-installing Prometheus"
-        sed -i '' 's/{LOCUST_IP_PRIV}/'$PRIVATE_IP'/g' ./resources/prometheus-values.yaml
+        sed -i='' 's/{LOCUST_IP_PRIV}/'$PRIVATE_IP'/g' ./resources/prometheus-values.yaml
 
         helm uninstall prometheus -n prometheus 
         helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n prometheus -f ./resources/prometheus-values.yaml

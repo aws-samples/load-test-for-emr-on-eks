@@ -24,7 +24,7 @@ aws s3api create-bucket \
 aws s3 cp ./locust/resources/custom-spark-pi.py "s3://${BUCKET_NAME}/testing-code/custom-spark-pi.py"
 
 # Update the testing spark job yaml config
-sed -i '' 's/{BUCKET_NAME}/'$BUCKET_NAME'/g' ./locust/resources/spark-pi.yaml
+sed -i='' 's/{BUCKET_NAME}/'$BUCKET_NAME'/g' ./locust/resources/spark-pi.yaml
 
 echo "==============================================="
 echo "  Create EKS Cluster ......"
@@ -32,11 +32,11 @@ echo "==============================================="
 
 if ! aws eks describe-cluster --name ${CLUSTER_NAME} --region ${AWS_REGION} >/dev/null 2>&1; then
 
-    sed -i '' 's|${AWS_REGION}|'$AWS_REGION'|g' ./resources/eks-cluster-values.yaml
-    sed -i '' 's|${CLUSTER_NAME}|'$CLUSTER_NAME'|g' ./resources/eks-cluster-values.yaml
-    sed -i '' 's|${EKS_VERSION}|'$EKS_VERSION'|g' ./resources/eks-cluster-values.yaml
-    sed -i '' 's|${EKS_VPC_CIDR}|'$EKS_VPC_CIDR'|g' ./resources/eks-cluster-values.yaml
-    sed -i '' 's|${LOAD_TEST_PREFIX}|'$LOAD_TEST_PREFIX'|g' ./resources/eks-cluster-values.yaml
+    sed -i='' 's|${AWS_REGION}|'$AWS_REGION'|g' ./resources/eks-cluster-values.yaml
+    sed -i='' 's|${CLUSTER_NAME}|'$CLUSTER_NAME'|g' ./resources/eks-cluster-values.yaml
+    sed -i='' 's|${EKS_VERSION}|'$EKS_VERSION'|g' ./resources/eks-cluster-values.yaml
+    sed -i='' 's|${EKS_VPC_CIDR}|'$EKS_VPC_CIDR'|g' ./resources/eks-cluster-values.yaml
+    sed -i='' 's|${LOAD_TEST_PREFIX}|'$LOAD_TEST_PREFIX'|g' ./resources/eks-cluster-values.yaml
     
     eksctl create cluster -f ./resources/eks-cluster-values.yaml
 
@@ -55,8 +55,8 @@ echo "==============================================="
 echo "  Setup Cluster Autoscaler ......"
 echo "==============================================="
 
-sed -i '' 's/${CLUSTER_NAME}/'$CLUSTER_NAME'/g' ./resources/autoscaler-values.yaml
-sed -i '' 's/${AWS_REGION}/'$AWS_REGION'/g' ./resources/autoscaler-values.yaml
+sed -i='' 's/${CLUSTER_NAME}/'$CLUSTER_NAME'/g' ./resources/autoscaler-values.yaml
+sed -i='' 's/${AWS_REGION}/'$AWS_REGION'/g' ./resources/autoscaler-values.yaml
 
 helm repo update
 helm repo add autoscaler https://kubernetes.github.io/autoscaler
@@ -342,10 +342,10 @@ else
     export WORKSPACE_ID=$amp
 fi
 
-sed -i '' 's/{AWS_REGION}/'$AWS_REGION'/g' ./resources/prometheus-values.yaml
-sed -i '' 's/{ACCOUNTID}/'$ACCOUNT_ID'/g' ./resources/prometheus-values.yaml
-sed -i '' 's/{WORKSPACE_ID}/'$WORKSPACE_ID'/g' ./resources/prometheus-values.yaml
-sed -i '' 's/{LOAD_TEST_PREFIX}/'$LOAD_TEST_PREFIX'/g' ./resources/prometheus-values.yaml
+sed -i='' 's/{AWS_REGION}/'$AWS_REGION'/g' ./resources/prometheus-values.yaml
+sed -i='' 's/{ACCOUNTID}/'$ACCOUNT_ID'/g' ./resources/prometheus-values.yaml
+sed -i='' 's/{WORKSPACE_ID}/'$WORKSPACE_ID'/g' ./resources/prometheus-values.yaml
+sed -i='' 's/{LOAD_TEST_PREFIX}/'$LOAD_TEST_PREFIX'/g' ./resources/prometheus-values.yaml
 
 
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
@@ -364,10 +364,10 @@ echo "Check and create Karpenter controller policy"
 if aws iam get-policy --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${KARPENTER_CONTROLLER_POLICY}" 2>/dev/null; then
     echo "Policy ${KARPENTER_CONTROLLER_POLICY} already exists"
 else
-    sed -i '' 's/${ACCOUNT_ID}/'$ACCOUNT_ID'/g' ./resources/karpenter-controller-policy.json
-    sed -i '' 's/${NODE_ROLE_NAME}/'$KARPENTER_NODE_ROLE'/g' ./resources/karpenter-controller-policy.json
-    sed -i '' 's/${AWS_REGION}/'$AWS_REGION'/g' ./resources/karpenter-controller-policy.json
-    sed -i '' 's/${CLUSTER_NAME}/'$CLUSTER_NAME'/g' ./resources/karpenter-controller-policy.json
+    sed -i='' 's/${ACCOUNT_ID}/'$ACCOUNT_ID'/g' ./resources/karpenter-controller-policy.json
+    sed -i='' 's/${NODE_ROLE_NAME}/'$KARPENTER_NODE_ROLE'/g' ./resources/karpenter-controller-policy.json
+    sed -i='' 's/${AWS_REGION}/'$AWS_REGION'/g' ./resources/karpenter-controller-policy.json
+    sed -i='' 's/${CLUSTER_NAME}/'$CLUSTER_NAME'/g' ./resources/karpenter-controller-policy.json
 
     aws iam create-policy --policy-name "${KARPENTER_CONTROLLER_POLICY}" --policy-document file://resources/karpenter-controller-policy.json
 fi
@@ -480,8 +480,8 @@ data:
       username: system:node:{{EC2PrivateDNSName}}
 EOF
 
-sed -i '' 's|KarpenterControllerRole_ARN|arn:aws:iam::'$ACCOUNT_ID':role/'$KARPENTER_CONTROLLER_ROLE'|g' ./resources/karpenter-0.37.0.yaml
-sed -i '' 's|CLUSTER_NAME_VALUE|'$CLUSTER_NAME'|g' ./resources/karpenter-0.37.0.yaml
+sed -i='' 's|KarpenterControllerRole_ARN|arn:aws:iam::'$ACCOUNT_ID':role/'$KARPENTER_CONTROLLER_ROLE'|g' ./resources/karpenter-0.37.0.yaml
+sed -i='' 's|CLUSTER_NAME_VALUE|'$CLUSTER_NAME'|g' ./resources/karpenter-0.37.0.yaml
 
 kubectl apply -f https://raw.githubusercontent.com/aws/karpenter-provider-aws/refs/tags/v0.37.0/pkg/apis/crds/karpenter.k8s.aws_ec2nodeclasses.yaml
 kubectl apply -f https://raw.githubusercontent.com/aws/karpenter-provider-aws/refs/tags/v0.37.0/pkg/apis/crds/karpenter.sh_nodeclaims.yaml
@@ -494,11 +494,11 @@ echo "  Set up Karpenter Nodepools ......"
 echo "==============================================="
 
 # Create NodePools for Karpenter:
-sed -i '' 's/${AWS_REGION}/'$AWS_REGION'/g' ./resources/karpenter-nodepool.yaml
-sed -i '' 's/${NODE_ROLE_NAME}/'$KARPENTER_NODE_ROLE'/g' ./resources/karpenter-nodepool.yaml
-sed -i '' 's/${CLUSTER_NAME}/'$CLUSTER_NAME'/g' ./resources/karpenter-nodepool.yaml
-sed -i '' 's/${private_subnet_1}/'$subnet_1_priv'/g' ./resources/karpenter-nodepool.yaml
-sed -i '' 's/${private_subnet_2}/'$subnet_2_priv'/g' ./resources/karpenter-nodepool.yaml
+sed -i='' 's/${AWS_REGION}/'$AWS_REGION'/g' ./resources/karpenter-nodepool.yaml
+sed -i='' 's/${NODE_ROLE_NAME}/'$KARPENTER_NODE_ROLE'/g' ./resources/karpenter-nodepool.yaml
+sed -i='' 's/${CLUSTER_NAME}/'$CLUSTER_NAME'/g' ./resources/karpenter-nodepool.yaml
+sed -i='' 's/${private_subnet_1}/'$subnet_1_priv'/g' ./resources/karpenter-nodepool.yaml
+sed -i='' 's/${private_subnet_2}/'$subnet_2_priv'/g' ./resources/karpenter-nodepool.yaml
 
 kubectl apply -f ./resources/karpenter-nodepool.yaml
 
@@ -566,8 +566,8 @@ then
     fi 
 
     # create grafana service role
-    sed -i '' "s/\${ACCOUNT_ID}/$ACCOUNT_ID/g" ./grafana/grafana-service-role-assume-policy.json
-    sed -i '' "s/\${AWS_REGION}/$AWS_REGION/g" ./grafana/grafana-service-role-assume-policy.json
+    sed -i='' "s/\${ACCOUNT_ID}/$ACCOUNT_ID/g" ./grafana/grafana-service-role-assume-policy.json
+    sed -i='' "s/\${AWS_REGION}/$AWS_REGION/g" ./grafana/grafana-service-role-assume-policy.json
 
     aws iam create-role --role-name ${LOAD_TEST_PREFIX}-grafana-service-role \
         --assume-role-policy-document file://./grafana/grafana-service-role-assume-policy.json \
