@@ -1,8 +1,8 @@
 autoDiscovery:
-  clusterName: ${CLUSTER_NAME}-eks-cluster
+  clusterName: load-test-cluster-10
 awsRegion: us-west-2
 image:
-  tag: v1.30.0
+  tag: v1.34.0
 nodeSelector:
   operational: "true"
   monitor: "true"

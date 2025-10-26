@@ -20,29 +20,28 @@ iam:
     wellKnownPolicies:
       autoScaler: true
     roleName: eksctl-cluster-autoscaler-role
+  - metadata:
+      name: amp-iamproxy-ingest-service-account
+      namespace: prometheus
+      labels: {aws-usage: "monitoring"}
+    attachPolicyARNs: 
+    - "arn:aws:iam::aws:policy/AmazonPrometheusRemoteWriteAccess"
+    roleName: ${CLUSTER_NAME}-prometheus-ingest 
+    roleOnly: true    
 addons:
   - name: aws-ebs-csi-driver
     version: latest
 managedNodeGroups:
-  - name: ${LOAD_TEST_PREFIX}-operational-ng
+  - name: ${CLUSTER_NAME}-operational-ng
     instanceType: r5.4xlarge
     desiredCapacity: 1
     minSize: 1
-    maxSize: 1
+    maxSize: 2
     privateNetworking: true
     labels:
       operational: "true"
       monitor: "true"
-  - name: ${LOAD_TEST_PREFIX}-sparkoperator-ng
-    instanceType: r5.2xlarge
-    desiredCapacity: 1
-    minSize: 1
-    maxSize: 20
-    privateNetworking: true
-    labels:
-      operational: "true"
-      monitor: "false"
-  - name: ${LOAD_TEST_PREFIX}-m5-x-worker-ng-2a
+  - name: ${CLUSTER_NAME}-m5-worker-ng-2a
     instanceType: m5.xlarge
     desiredCapacity: 1
     minSize: 1
@@ -53,7 +52,7 @@ managedNodeGroups:
       monitor: "false"
     availabilityZones: ["${AWS_REGION}a"]
   # us-west-2b worker nodegroup
-  - name: ${LOAD_TEST_PREFIX}-m5-x-worker-ng-2b
+  - name: ${CLUSTER_NAME}-m5-worker-ng-2b
     instanceType: m5.xlarge
     desiredCapacity: 1
     minSize: 1

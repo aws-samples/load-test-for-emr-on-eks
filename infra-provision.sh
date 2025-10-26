@@ -21,10 +21,7 @@ aws s3api create-bucket \
 }
 
 # Upload the testing pyspark code
-aws s3 cp ./locust/resources/custom-spark-pi.py "s3://${BUCKET_NAME}/testing-code/custom-spark-pi.py"
-
-# Update the testing spark job yaml config
-sed -i='' 's/{BUCKET_NAME}/'$BUCKET_NAME'/g' ./locust/resources/spark-pi.yaml
+aws s3 sync ./locust/resources/ "s3://${BUCKET_NAME}/app-code/"
 
 echo "==============================================="
 echo "  Create EKS Cluster ......"
@@ -36,7 +33,6 @@ if ! aws eks describe-cluster --name ${CLUSTER_NAME} --region ${AWS_REGION} >/de
     sed -i='' 's|${CLUSTER_NAME}|'$CLUSTER_NAME'|g' ./resources/eks-cluster-values.yaml
     sed -i='' 's|${EKS_VERSION}|'$EKS_VERSION'|g' ./resources/eks-cluster-values.yaml
     sed -i='' 's|${EKS_VPC_CIDR}|'$EKS_VPC_CIDR'|g' ./resources/eks-cluster-values.yaml
-    sed -i='' 's|${LOAD_TEST_PREFIX}|'$LOAD_TEST_PREFIX'|g' ./resources/eks-cluster-values.yaml
     
     eksctl create cluster -f ./resources/eks-cluster-values.yaml
 
@@ -50,6 +46,11 @@ echo "==============================================="
 OIDC_PROVIDER=$(aws eks describe-cluster --name $CLUSTER_NAME --query "cluster.identity.oidc.issuer" --output text | sed -e "s/^https:\/\///")
 echo $OIDC_PROVIDER
 
+echo "==============================================="
+echo "  Create a default gp3 storageclass ......"
+echo "==============================================="
+
+kubectl apply -f resources/storageclass.yaml
 
 echo "==============================================="
 echo "  Setup Cluster Autoscaler ......"
@@ -63,25 +64,20 @@ helm repo add autoscaler https://kubernetes.github.io/autoscaler
 helm upgrade --install nodescaler autoscaler/cluster-autoscaler -n kube-system --values ./resources/autoscaler-values.yaml
 
 
-
 echo "==============================================="
 echo "  Setup BinPacking ......"
 echo "==============================================="
 
-kubectl apply -f ./resources/binpacking-values.yaml
-
-
+git clone https://github.com/aws-samples/custom-scheduler-eks
+cd custom-scheduler-eks/deploy
+helm install custom-scheduler-eks charts/custom-scheduler-eks -n kube-system -f ./resources/binpacking-values.yaml
 
 echo "==============================================="
-echo "  Setup Spark Operator ......"
-echo "Spark Operator Testing Mode: ${OPERATOR_TEST_MODE}" Operators
-echo "Number of Job namespaces: ${SPARK_JOB_NS_NUM}"
+echo "  Create EMR on EKS Execution Role ......"
 echo "==============================================="
-
-
 # Create S3 access policy if it doesn't exist
-if aws iam get-policy --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${SPARK_OPERATOR_POLICY}" 2>/dev/null; then
-    echo "IAM policy ${SPARK_OPERATOR_POLICY} already exists"
+if aws iam get-policy --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${EXECUTION_ROLE_POLICY}" 2>/dev/null; then
+    echo "IAM policy ${EXECUTION_ROLE_POLICY} already exists"
 else
     cat <<EOF > /tmp/spark-job-s3-policy.json
 {
@@ -90,8 +86,11 @@ else
         {
             "Effect": "Allow",
             "Action": [
-                "s3:*"
-            ],
+                "s3:PutObject",
+                "s3:DeleteObject",
+                "s3:GetObject",
+                "s3:ListBucket"
+              ],
             "Resource": [
                 "arn:aws:s3:::${BUCKET_NAME}",
                 "arn:aws:s3:::${BUCKET_NAME}/*"
@@ -100,13 +99,13 @@ else
     ]
 }
 EOF
-    aws iam create-policy --policy-name ${SPARK_OPERATOR_POLICY} --policy-document file:///tmp/spark-job-s3-policy.json
+    aws iam create-policy --policy-name ${EXECUTION_ROLE_POLICY} --policy-document file:///tmp/spark-job-s3-policy.json
 fi
 
-if aws iam get-role --role-name "$SPARK_OPERATOR_ROLE" 2>/dev/null; then
-    echo "IAM role ${SPARK_OPERATOR_ROLE} already exists"
+if aws iam get-role --role-name "$EXECUTION_ROLE" 2>/dev/null; then
+    echo "IAM role ${EXECUTION_ROLE} already exists"
 else
-    echo "Creating IAM role ${SPARK_OPERATOR_ROLE}..."
+    echo "Creating IAM role ${EXECUTION_ROLE}..."
     cat <<EOF > /tmp/trust-relationship.json
 {
   "Version": "2012-10-17",
@@ -114,260 +113,76 @@ else
     {
       "Effect": "Allow",
       "Principal": {
-        "Federated": "arn:aws:iam::${ACCOUNT_ID}:oidc-provider/${OIDC_PROVIDER}"
+        "Service": "eks.amazonaws.com"
       },
-      "Action": "sts:AssumeRoleWithWebIdentity",
-      "Condition": {
-        "StringLike": {
-          "${OIDC_PROVIDER}:sub": "system:serviceaccount:spark-job*:spark-job-sa*"
-        }
-      }
+      "Action": "sts:AssumeRole"
     }
   ]
 }
 EOF
-    aws iam create-role --role-name ${SPARK_OPERATOR_ROLE} --assume-role-policy-document file:///tmp/trust-relationship.json
-    aws iam attach-role-policy --role-name ${SPARK_OPERATOR_ROLE} --policy-arn arn:aws:iam::${ACCOUNT_ID}:policy/${SPARK_OPERATOR_POLICY}
+    aws iam create-role --role-name ${EXECUTION_ROLE} --assume-role-policy-document file:///tmp/trust-relationship.json
+    aws iam attach-role-policy --role-name ${EXECUTION_ROLE} --policy-arn arn:aws:iam::${ACCOUNT_ID}:policy/${EXECUTION_ROLE_POLICY}
 fi
 
-# ECR Login
+echo "================================================================="
+echo "  Create multi-platform Image for Spark benchmark Utility ......"
+echo "================================================================="   
+
 echo "Logging into ECR..."
-aws ecr get-login-password \
---region ${AWS_REGION} | helm registry login \
---username AWS \
---password-stdin ${ECR_REGISTRY_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com
+export SRC_ECR_URL=${PUB_ECR_REGISTRY_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com
+aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin $SRC_ECR_URL
+docker pull $SRC_ECR_URL/spark/emr-${EMR_IMAGE_VERSION}:latest
 
+# Custom an image on top of the EMR Spark
+wget -O Dockerfile https://raw.githubusercontent.com/aws-samples/emr-on-eks-benchmark/refs/heads/main/docker/benchmark-util/Dockerfile
 
-# Create namespace and service accounts
-echo "Creating spark-operator namespace..."
-kubectl create namespace spark-operator --dry-run=client -o yaml | kubectl apply -f -
-
-for i in $(seq 0 $((SPARK_JOB_NS_NUM-1)))
-do
-    echo "Setting up namespace spark-job$i..."
-    # Create namespace
-    kubectl create namespace spark-job$i --dry-run=client -o yaml | kubectl apply -f -
-    
-    # Create service accounts
-    kubectl create serviceaccount spark-job-sa$i -n spark-job$i --dry-run=client -o yaml | kubectl apply -f -
-    kubectl create serviceaccount emr-containers-sa-spark -n spark-job$i --dry-run=client -o yaml | kubectl apply -f -
-    
-    # Annotate service accounts
-    kubectl annotate serviceaccount -n spark-job$i spark-job-sa$i \
-        eks.amazonaws.com/role-arn=arn:aws:iam::${ACCOUNT_ID}:role/${SPARK_OPERATOR_ROLE} --overwrite
-    kubectl annotate serviceaccount -n spark-job$i emr-containers-sa-spark \
-        eks.amazonaws.com/role-arn=arn:aws:iam::${ACCOUNT_ID}:role/${SPARK_OPERATOR_ROLE} --overwrite
-
-    cat <<EOF | kubectl apply -f -
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: spark-job-sa$i-binding
-  namespace: spark-job$i
-subjects:
-- kind: ServiceAccount
-  name: spark-job-sa$i
-  namespace: spark-job$i
-- kind: ServiceAccount
-  name: emr-containers-sa-spark
-  namespace: spark-job$i
-roleRef:
-  kind: Role
-  name: spark-role
-  apiGroup: rbac.authorization.k8s.io
-EOF
-done
-
-if [ "$OPERATOR_TEST_MODE" = "multiple" ]; then
-    # For multiple Operators
-    echo "Installing multiple operators..."
-    
-    # Install operators (Helm will create the necessary roles)
-    for i in $(seq 0 $((SPARK_JOB_NS_NUM-1)))
-    do
-        echo "Installing spark-operator$i..."
-        helm install spark-operator$i \
-            oci://${ECR_REGISTRY_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/spark-operator \
-            --version 6.11.0 \
-            --namespace spark-operator \
-            --set sparkJobNamespace=spark-job$i \
-            --set rbac.create=true \
-            --set serviceAccounts.sparkoperator.create=true \
-            --set serviceAccounts.sparkoperator.name=spark-operator-sa$i \
-            --set serviceAccounts.spark.create=false \
-            --set nameOverride=spark-operator$i \
-            --set fullnameOverride=spark-operator$i \
-            --set emrContainers.awsRegion=${AWS_REGION} \
-            -f ./resources/spark-operator-values.yaml
-    done
-
-    echo "Waiting for operators to be ready..."
-    for i in $(seq 0 $((SPARK_JOB_NS_NUM-1)))
-    do
-        kubectl rollout status deployment/spark-operator$i -n spark-operator --timeout=120s
-    done
-
-    for i in $(seq 0 $((SPARK_JOB_NS_NUM-1)))
-    do
-        echo "Creating rolebinding for spark-operator$i..."
-        kubectl create rolebinding spark-operator$i-rb-spark-job$i \
-            --clusterrole=spark-operator$i \
-            --serviceaccount=spark-operator:spark-operator-sa$i \
-            --namespace=spark-job$i \
-            --dry-run=client -o yaml | kubectl apply -f -
-    done
-
-else
-    # One spark-operator0 operator for multiple namespace
-    echo "Installing single operator..."
-    
-    for i in $(seq 0 $((SPARK_JOB_NS_NUM-1)))
-    do
-        cat <<EOF | kubectl apply -f -
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: spark-role
-  namespace: spark-job$i
-rules:
-- apiGroups: [""]
-  resources: ["pods", "services", "configmaps", "persistentvolumeclaims"]
-  verbs: ["create", "get", "list", "watch", "update", "delete"]
-- apiGroups: ["sparkoperator.k8s.io"]
-  resources: ["sparkapplications", "scheduledsparkapplications"]
-  verbs: ["create", "get", "list", "watch", "update", "delete"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: spark-role-binding
-  namespace: spark-job$i
-subjects:
-- kind: ServiceAccount
-  name: spark-job-sa$i
-  namespace: spark-job$i
-roleRef:
-  kind: Role
-  name: spark-role
-  apiGroup: rbac.authorization.k8s.io
-EOF
-    done
-
-    helm install spark-operator0 \
-        oci://${ECR_REGISTRY_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/spark-operator \
-        --version 6.11.0 \
-        --namespace spark-operator \
-        --set rbac.create=true \
-        --set serviceAccounts.sparkoperator.create=true \
-        --set serviceAccounts.sparkoperator.name=spark-operator-sa0 \
-        --set serviceAccounts.spark.create=false \
-        --set nameOverride=spark-operator0 \
-        --set fullnameOverride=spark-operator0 \
-        --set sparkJobNamespace="" \
-        -f /tmp/spark-operator-installation-values.yaml
-fi
-
-
-echo "Spark operator installation completed"
-
+docker buildx build --platform linux/amd64,linux/arm64 \
+-t $ECR_URL/eks-spark-benchmark:emr${EMR_IMAGE_VERSION} \
+-f ./Dockerfile \
+--build-arg SPARK_BASE_IMAGE=$SRC_ECR_URL/spark/emr-${EMR_IMAGE_VERSION}:latest \
+--push .
 
 
 echo "==============================================="
 echo "  Setup Prometheus ......"
 echo "==============================================="
 
-# Check and create IAM Policy
-if aws iam get-policy --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY}" 2>/dev/null; then
-    echo "Policy ${AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY} already exists"
-else
-    echo "Creating policy ${AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY}..."
-    cat <<EOF > /tmp/PermissionPolicyIngest.json
-{
-  "Version": "2012-10-17",
-   "Statement": [
-       {"Effect": "Allow",
-        "Action": [
-           "aps:RemoteWrite", 
-           "aps:GetSeries", 
-           "aps:GetLabels",
-           "aps:GetMetricMetadata"
-        ], 
-        "Resource": "*"
-      }
-   ]
-}
-EOF
-    aws iam create-policy --policy-name ${AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY} --policy-document file:///tmp/PermissionPolicyIngest.json
-fi
-
-sleep 5
-# Check and create IAM Role
-if aws iam get-role --role-name "${AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE}" >/dev/null 2>&1; then
-    echo "Role ${AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE} already exists"
-else
-    echo "Creating role ${AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE}..."
-    cat <<EOF > /tmp/TrustPolicyIngest.json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "Federated": "arn:aws:iam::${ACCOUNT_ID}:oidc-provider/${OIDC_PROVIDER}"
-      },
-      "Action": "sts:AssumeRoleWithWebIdentity",
-      "Condition": {
-        "StringEquals": {
-          "${OIDC_PROVIDER}:sub": "system:serviceaccount:prometheus:amp-iamproxy-ingest-service-account"
-        }
-      }
-    }
-  ]
-}
-EOF
-    aws iam create-role --role-name ${AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE} --assume-role-policy-document file:///tmp/TrustPolicyIngest.json
-    aws iam attach-role-policy --role-name ${AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE} --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY}"
-fi
-
-eksctl utils associate-iam-oidc-provider --cluster $CLUSTER_NAME --approve
-
 kubectl create namespace prometheus --dry-run=client -o yaml | kubectl apply -f -
-
-amp=$(aws amp list-workspaces --query "workspaces[?alias=='${CLUSTER_NAME}'].workspaceId" --output text)
+# SA name and IRSA role were created at EKS cluster creation time
+amp=$(aws amp list-workspaces --query "workspaces[?alias=='$EKSCLUSTER_NAME'].workspaceId" --output text)
 if [ -z "$amp" ]; then
     echo "Creating a new prometheus workspace..."
-    export WORKSPACE_ID=$(aws amp create-workspace --alias ${CLUSTER_NAME} --query workspaceId --output text)
+    export WORKSPACE_ID=$(aws amp create-workspace --alias $EKSCLUSTER_NAME --query workspaceId --output text)
 else
     echo "A prometheus workspace already exists"
     export WORKSPACE_ID=$amp
 fi
-
-sed -i='' 's/{AWS_REGION}/'$AWS_REGION'/g' ./resources/prometheus-values.yaml
-sed -i='' 's/{ACCOUNTID}/'$ACCOUNT_ID'/g' ./resources/prometheus-values.yaml
-sed -i='' 's/{WORKSPACE_ID}/'$WORKSPACE_ID'/g' ./resources/prometheus-values.yaml
-sed -i='' 's/{LOAD_TEST_PREFIX}/'$LOAD_TEST_PREFIX'/g' ./resources/prometheus-values.yaml
-
+# export INGEST_ROLE_ARN="arn:aws:iam::${ACCOUNTID}:role/${EKSCLUSTER_NAME}-prometheus-ingest"
 
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo add kube-state-metrics https://kubernetes.github.io/kube-state-metrics
 helm repo update
-helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n prometheus -f ./resources/prometheus-values.yaml
+sed -i -- 's/{AWS_REGION}/'$AWS_REGION'/g'  ./resources/prometheus-values.yaml
+sed -i -- 's/{ACCOUNTID}/'$ACCOUNT_ID'/g'  ./resources/prometheus-values.yaml
+sed -i -- 's/{WORKSPACE_ID}/'$WORKSPACE_ID'/g'  ./resources/prometheus-values.yaml
+sed -i -- 's/{CLUSTER_NAME}/'$CLUSTER_NAME'/g'  ./resources/prometheus-values.yaml
+helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n prometheus -f  ./resources/prometheus-values.yaml --debug
+# validate in a web browser - localhost:9090, go to menu of status->targets
+# kubectl --namespace prometheus port-forward service/prometheus-kube-prometheus-prometheus 9090
 
-
-
+# create pod monitor for Spark apps works with Prometheus
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
 
 echo "==============================================="
 echo "  Setup Karpenter ......"
 echo "==============================================="
-
-
 echo "Check and create Karpenter controller policy"
 if aws iam get-policy --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${KARPENTER_CONTROLLER_POLICY}" 2>/dev/null; then
     echo "Policy ${KARPENTER_CONTROLLER_POLICY} already exists"
 else
-    sed -i='' 's/${ACCOUNT_ID}/'$ACCOUNT_ID'/g' ./resources/karpenter-controller-policy.json
-    sed -i='' 's/${NODE_ROLE_NAME}/'$KARPENTER_NODE_ROLE'/g' ./resources/karpenter-controller-policy.json
-    sed -i='' 's/${AWS_REGION}/'$AWS_REGION'/g' ./resources/karpenter-controller-policy.json
-    sed -i='' 's/${CLUSTER_NAME}/'$CLUSTER_NAME'/g' ./resources/karpenter-controller-policy.json
+    sed -i='' 's/${AWS_ACCOUNT_ID}/'$ACCOUNT_ID'/g' ./resources/karpenter/karpenter-controller-policy.json
+    sed -i='' 's/${AWS_REGION}/'$AWS_REGION'/g' ./resources/karpenter/karpenter-controller-policy.json
+    sed -i='' 's/${CLUSTER_NAME}/'$CLUSTER_NAME'/g' ./resources/karpenter/karpenter-controller-policy.json
 
     aws iam create-policy --policy-name "${KARPENTER_CONTROLLER_POLICY}" --policy-document file://resources/karpenter-controller-policy.json
 fi
@@ -426,12 +241,21 @@ EOF
     aws iam attach-role-policy --role-name "${KARPENTER_NODE_ROLE}" --policy-arn arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
     aws iam attach-role-policy --role-name "${KARPENTER_NODE_ROLE}" --policy-arn arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
     aws iam attach-role-policy --role-name "${KARPENTER_NODE_ROLE}" --policy-arn arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+    aws iam attach-role-policy --role-name "${KARPENTER_NODE_ROLE}" --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
 fi
 
 
 echo "==============================================="
 echo "  Configure AWS Auth and Security Groups For Karpenter ......"
 echo "==============================================="
+# create tags for subnets
+for NODEGROUP in $(aws eks list-nodegroups --cluster-name "${CLUSTER_NAME}" --query 'nodegroups' --output text); do
+    aws ec2 create-tags \
+        --tags "Key=karpenter.sh/discovery,Value=${CLUSTER_NAME}" \
+        --resources $(aws eks describe-nodegroup --cluster-name "${CLUSTER_NAME}" \
+        --nodegroup-name "${NODEGROUP}" --query 'nodegroup.subnets' --output text )
+done
+
 
 # Tag security groups for Karpenter discovery
 SECURITY_GROUPS=$(aws eks describe-cluster \
@@ -455,15 +279,6 @@ for SG in ${SECURITY_GROUPS} ${CLUSTER_SG}; do
         --tags "Key=karpenter.sh/discovery,Value=${CLUSTER_NAME}" || true
 done
 
-
-# Get VPC ID
-VPC_ID=$(aws eks describe-cluster --name ${CLUSTER_NAME} --query "cluster.resourcesVpcConfig.vpcId" --output text)
-
-# Get subnets and clean output
-subnet_1_priv=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=${VPC_ID}" "Name=map-public-ip-on-launch,Values=false" --query 'Subnets[*].SubnetId' --output text | awk '{print $1}')
-subnet_2_priv=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=${VPC_ID}" "Name=map-public-ip-on-launch,Values=false" --query 'Subnets[*].SubnetId' --output text | awk '{print $2}')
-
-
 # Update aws-auth ConfigMap
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
@@ -480,111 +295,63 @@ data:
       username: system:node:{{EC2PrivateDNSName}}
 EOF
 
-sed -i='' 's|KarpenterControllerRole_ARN|arn:aws:iam::'$ACCOUNT_ID':role/'$KARPENTER_CONTROLLER_ROLE'|g' ./resources/karpenter-0.37.0.yaml
-sed -i='' 's|CLUSTER_NAME_VALUE|'$CLUSTER_NAME'|g' ./resources/karpenter-0.37.0.yaml
+helm template karpenter oci://public.ecr.aws/karpenter/karpenter --version "${KARPENTER_VERSION}" --namespace kube-system \
+    --set "settings.clusterName=${CLUSTER_NAME}" \
+    --set "settings.interruptionQueue=${CLUSTER_NAME}" \
+    --set "serviceAccount.annotations.eks\.amazonaws\.com/role-arn=arn:aws:iam::${ACCOUNT_ID}:role/KarpenterControllerRole-${CLUSTER_NAME}" \
+    --set controller.resources.requests.cpu=4 \
+    --set controller.resources.requests.memory=1Gi \
+    --set controller.resources.limits.cpu=4 \
+    --set controller.resources.limits.memory=1Gi \
+    --set nodeSelector.operational="true" > karpenter-${KARPENTER_VERSION}.yaml
 
-kubectl apply -f https://raw.githubusercontent.com/aws/karpenter-provider-aws/refs/tags/v0.37.0/pkg/apis/crds/karpenter.k8s.aws_ec2nodeclasses.yaml
-kubectl apply -f https://raw.githubusercontent.com/aws/karpenter-provider-aws/refs/tags/v0.37.0/pkg/apis/crds/karpenter.sh_nodeclaims.yaml
-kubectl apply -f https://raw.githubusercontent.com/aws/karpenter-provider-aws/refs/tags/v0.37.0/pkg/apis/crds/karpenter.sh_nodepools.yaml
-kubectl apply -f ./resources/karpenter-0.37.0.yaml
+sed -i='' 's|KarpenterControllerRole_ARN|arn:aws:iam::'$ACCOUNT_ID':role/'$KARPENTER_CONTROLLER_ROLE'|g' ./resources/karpenter/karpenter-1.6.1.yaml
+sed -i='' 's|CLUSTER_NAME_VALUE|'$CLUSTER_NAME'|g' ./resources/karpenter/karpenter-1.6.1.yaml
 
+kubectl create -f \
+    "https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.sh_nodepools.yaml"
+kubectl create -f \
+    "https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.k8s.aws_ec2nodeclasses.yaml"
+kubectl create -f \
+    "https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.sh_nodeclaims.yaml"
+kubectl apply -f karpenter.yaml
 
-echo "==============================================="
-echo "  Set up Karpenter Nodepools ......"
-echo "==============================================="
+echo "====================================================="
+echo "  Create Karpenter Nodepools ......"
+echo "====================================================="
 
 # Create NodePools for Karpenter:
-sed -i='' 's/${AWS_REGION}/'$AWS_REGION'/g' ./resources/karpenter-nodepool.yaml
-sed -i='' 's/${NODE_ROLE_NAME}/'$KARPENTER_NODE_ROLE'/g' ./resources/karpenter-nodepool.yaml
-sed -i='' 's/${CLUSTER_NAME}/'$CLUSTER_NAME'/g' ./resources/karpenter-nodepool.yaml
-sed -i='' 's/${private_subnet_1}/'$subnet_1_priv'/g' ./resources/karpenter-nodepool.yaml
-sed -i='' 's/${private_subnet_2}/'$subnet_2_priv'/g' ./resources/karpenter-nodepool.yaml
+sed -i='' 's/${NODE_ROLE_NAME}/'$KARPENTER_NODE_ROLE'/g' ./resources/karpenter/shared-nodeclass.yaml
+sed -i='' 's/${CLUSTER_NAME}/'$CLUSTER_NAME'/g' ./resources/karpenter/shared-nodeclass.yaml
 
-kubectl apply -f ./resources/karpenter-nodepool.yaml
-
-
+kubectl apply -f ./resources/karpenter/driver-nodepoolyaml
+kubectl apply -f ./resources/karpenter/executor-nodepool.yaml
+kubectl apply -f ./resources/karpenter/shared-nodeclass.yaml
 
 echo "==============================================="
 echo "  Set up Prometheus ServiceMonitor and PodMonitor ......"
 echo "==============================================="
-
-cat <<EOF | kubectl apply -f -
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: karpenter-monitor
-  namespace: prometheus
-  labels:
-    release: prometheus
-spec:
-  namespaceSelector:
-    matchNames:
-    - kube-system
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: karpenter
-  endpoints:
-    - port: http-metrics
-      interval: 15s
-      path: /metrics
-EOF
-
-cat <<EOF | kubectl apply -f -
-apiVersion: monitoring.coreos.com/v1
-kind: PodMonitor
-metadata:
-  name: aws-cni-metrics
-  namespace: prometheus
-spec:
-  jobLabel: k8s-app
-  namespaceSelector:
-    matchNames:
-    - kube-system
-  podMetricsEndpoints:
-  - interval: 30s
-    path: /metrics
-    port: metrics
-  selector:
-    matchLabels:
-      k8s-app: aws-node
-EOF
-
+# kubectl apply -f spark-podmonitor.yaml
+kubectl apply -f karpenter-srvmonitor
+kubectl apply -f aws-cni-podmonitor.yaml
 
 
 if [[ $USE_AMG == "true" ]]
 then 
-    # Create AMG
     echo "==============================================="
     echo "  Set up Amazon Managed Grafana ......"
     echo "==============================================="
-    # create grafana service role policy
-    aws iam create-policy --policy-name ${LOAD_TEST_PREFIX}-grafana-service-role-policy --policy-document file://./grafana/grafana-service-role-policy.json \
-    && export grafana_service_role_policy_arn=$(aws iam list-policies --query 'Policies[?PolicyName==`'${LOAD_TEST_PREFIX}-grafana-service-role-policy'`].Arn' --output text)
-    if [[ $$grafana_service_role_policy_arn != "" ]]
-    then 
-        echo "Create AWS Managed Grafana service role policy $grafana_service_role_policy_arn"
-    fi 
+    echo "Creating Grafana workspace: $CLUSTER_NAME-amg"
 
-    # create grafana service role
-    sed -i='' "s/\${ACCOUNT_ID}/$ACCOUNT_ID/g" ./grafana/grafana-service-role-assume-policy.json
-    sed -i='' "s/\${AWS_REGION}/$AWS_REGION/g" ./grafana/grafana-service-role-assume-policy.json
+    RESULT=$(aws grafana create-workspace \
+        --workspace-name "$CLUSTER_NAME-amg" \
+        --region $REGION \
+        --account-access-type "CURRENT_ACCOUNT" \
+        --permission-type "SERVICE_MANAGED" \
+        --authentication-providers "AWS_SSO" \
+        --output json 2>&1) \
+    && grafana_workspace_id=$(echo "$RESULT" | jq -r '.workspace.id')
 
-    aws iam create-role --role-name ${LOAD_TEST_PREFIX}-grafana-service-role \
-        --assume-role-policy-document file://./grafana/grafana-service-role-assume-policy.json \
-        --tags Key=Name,Value=${LOAD_TEST_PREFIX}-grafana-service-role && \
-        export grafana_service_role_arn=$(aws iam list-roles --query 'Roles[?RoleName==`'${LOAD_TEST_PREFIX}-grafana-service-role'`].Arn' --output text)
-    
-    if [[ $grafana_service_role_arn != "" ]]
-    then 
-        echo "Created AWS Managed Grafana service role $grafana_service_role_arn" 
-    fi
-
-    aws iam attach-role-policy --role-name  ${LOAD_TEST_PREFIX}-grafana-service-role --policy-arn $grafana_service_role_policy_arn \
-    && echo "Attached policy $grafana_service_role_policy_arn to role ${LOAD_TEST_PREFIX}-grafana-service-role"
-
-    # create grafana workspace in public network
-    aws grafana create-workspace --workspace-name ${LOAD_TEST_PREFIX} --account-access-type CURRENT_ACCOUNT --authentication-providers AWS_SSO --permission-type SERVICE_MANAGED --workspace-role-arn $grafana_service_role_arn --region $AWS_REGION \
-    && export grafana_workspace_id=$(aws grafana list-workspaces --query 'workspaces[?name==`'${LOAD_TEST_PREFIX}'`].id' --region $AWS_REGION --output text)
     if [[ $grafana_workspace_id != "" ]]
     then 
         echo "Created AWS Manged Grafana workspace $grafana_workspace_id"

@@ -1,0 +1,53 @@
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: executor-memorynodepool
+spec:
+  disruption:
+    budgets:
+    - nodes: 10%
+    consolidateAfter: 1m
+    consolidationPolicy: WhenEmptyOrUnderutilized
+  limits:
+    cpu: "5000"
+    # memory: 500Gi
+  template:
+    spec:
+      expireAfter: 720h
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: memoryec2
+      requirements:
+      - key: kubernetes.io/arch
+        operator: In
+        values:
+        - amd64
+      - key: kubernetes.io/os
+        operator: In
+        values:
+        - linux
+      - key: karpenter.sh/capacity-type
+        operator: In
+        values:
+        - on-demand
+        - spot
+      - key: karpenter.k8s.aws/instance-size
+        operator: In
+        values:
+        - large
+        - xlarge
+        - 2xlarge
+        - 4xlarge
+        - 8xlarge
+        - 12xlarge
+        - 16xlarge
+      - key: karpenter.k8s.aws/instance-category
+        operator: In
+        values:
+        - r
+        - m
+      - key: karpenter.k8s.aws/instance-generation
+        operator: Gt
+        values:
+        - "4"

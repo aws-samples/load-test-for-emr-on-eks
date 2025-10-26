@@ -1,5 +1,4 @@
 {
-    "Version": "2012-10-17",
     "Statement": [
         {
             "Action": [
@@ -37,13 +36,13 @@
         {
             "Effect": "Allow",
             "Action": "iam:PassRole",
-            "Resource": "arn:aws:iam::${ACCOUNT_ID}:role/${NODE_ROLE_NAME}",
+            "Resource": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/KarpenterNodeRole-${CLUSTER_NAME}",
             "Sid": "PassNodeIAMRole"
         },
         {
             "Effect": "Allow",
             "Action": "eks:DescribeCluster",
-            "Resource": "arn:aws:eks:${AWS_REGION}:${ACCOUNT_ID}:cluster/${CLUSTER_NAME}",
+            "Resource": "arn:aws:eks:${AWS_REGION}:${AWS_ACCOUNT_ID}:cluster/${CLUSTER_NAME}",
             "Sid": "EKSClusterEndpointLookup"
         },
         {
@@ -107,6 +106,13 @@
             "Effect": "Allow",
             "Resource": "*",
             "Action": "iam:GetInstanceProfile"
+        },
+        {
+            "Sid": "AllowUnscopedInstanceProfileListAction",
+            "Effect": "Allow",
+            "Resource": "*",
+            "Action": "iam:ListInstanceProfiles"
         }
-    ]
+    ],
+    "Version": "2012-10-17"
 }

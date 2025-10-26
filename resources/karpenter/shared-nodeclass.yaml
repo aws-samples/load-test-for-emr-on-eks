@@ -1,0 +1,31 @@
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: memoryec2
+spec:
+  role: "${NODE_ROLE_NAME}"
+  amiSelectorTerms:
+    - alias: "al2023@latest"
+  blockDeviceMappings:
+  - deviceName: /dev/xvda
+    ebs:
+      encrypted: true
+      volumeSize: 50Gi
+      volumeType: gp3
+  metadataOptions:
+    httpEndpoint: enabled
+    httpProtocolIPv6: disabled
+    httpPutResponseHopLimit: 1
+    httpTokens: required
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "${CLUSTER_NAME}"
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "${CLUSTER_NAME}"
+  tags:
+    Name: karpenter-node
+    environment: '{pod.metadata.labels.environment}'
+    executionId: '{pod.metadata.labels.executionid}'
+    jobName: '{pod.metadata.labels.jobname}'
+    timestamp: '{pod.metadata.labels.timestamp}'

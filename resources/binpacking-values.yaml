@@ -1,319 +1,159 @@
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: my-scheduler
-  namespace: kube-system
----
-kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: my-scheduler
-rules:
-- apiGroups:
-  - ""
-  - events.k8s.io
-  resources:
-  - events
-  verbs:
-  - create
-  - patch
-  - update
-- apiGroups:
-  - ""
-  resources:
-  - configmaps
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - coordination.k8s.io
-  resources:
-  - leases
-  verbs:
-  - create
-  - get
-  - list
-  - update
-- apiGroups:
-  - coordination.k8s.io
-  resourceNames:
-  - kube-scheduler
-  resources:
-  - leases
-  verbs:
-  - get
-  - update
-- apiGroups:
-  - ""
-  resources:
-  - endpoints
-  verbs:
-  - create
-- apiGroups:
-  - ""
-  resourceNames:
-  - kube-scheduler
-  resources:
-  - endpoints
-  verbs:
-  - get
-  - update
-- apiGroups:
-  - ""
-  resources:
-  - nodes
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - pods
-  verbs:
-  - delete
-  - get
-  - list
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - bindings
-  - pods/binding
-  verbs:
-  - create
-- apiGroups:
-  - ""
-  resources:
-  - pods/status
-  verbs:
-  - patch
-  - update
-- apiGroups:
-  - ""
-  resources:
-  - replicationcontrollers
-  - services
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - apps
-  - extensions
-  resources:
-  - replicasets
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - apps
-  resources:
-  - statefulsets
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - policy
-  resources:
-  - poddisruptionbudgets
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - persistentvolumeclaims
-  - persistentvolumes
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - authentication.k8s.io
-  resources:
-  - tokenreviews
-  verbs:
-  - create
-- apiGroups:
-  - authorization.k8s.io
-  resources:
-  - subjectaccessreviews
-  verbs:
-  - create
-- apiGroups:
-  - storage.k8s.io
-  resources:
-  - csinodes
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - namespaces
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - storage.k8s.io
-  resources:
-  - csidrivers
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - storage.k8s.io
-  resources:
-  - csistoragecapacities
-  verbs:
-  - get
-  - list
-  - watch
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: my-scheduler-as-kube-scheduler
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: my-scheduler
-subjects:
-- kind: ServiceAccount
-  name: my-scheduler
-  namespace: kube-system
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: my-scheduler-as-volume-scheduler
-subjects:
-- kind: ServiceAccount
-  name: my-scheduler
-  namespace: kube-system
-roleRef:
-  kind: ClusterRole
-  name: system:volume-scheduler
-  apiGroup: rbac.authorization.k8s.io
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: my-scheduler-config
-  namespace: kube-system
-data:
-  my-scheduler-config.yaml: |
-    apiVersion: kubescheduler.config.k8s.io/v1
-    kind: KubeSchedulerConfiguration
-    profiles:
-      - pluginConfig:
-          - args:
-              apiVersion: kubescheduler.config.k8s.io/v1
-              kind: NodeResourcesFitArgs
-              scoringStrategy:
-                  resources:
-                      - name: cpu
-                        weight: 1
-                      - name: memory
-                        weight: 1
-                  type: MostAllocated
-            name: NodeResourcesFit
-        plugins:
-          score:
-              enabled:
-                  - name: NodeResourcesFit
-                    weight: 1
-              disabled:
-                  - name: "*"
-          multiPoint:
-              enabled:
-                  - name: NodeResourcesFit
-                    weight: 1
-        schedulerName: my-scheduler
-    leaderElection:
-      leaderElect: true
-      resourceNamespace: kube-system
-      resourceName: my-scheduler
-    clientConnection:
-      burst: 400
-      qps: 300
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  labels:
-    component: scheduler
-    tier: control-plane
-  name: my-scheduler
-  namespace: kube-system
-spec:
-  selector:
-    matchLabels:
-      component: scheduler
-      tier: control-plane
-  replicas: 3
-  template:
-    metadata:
-      labels:
-        component: scheduler
-        tier: control-plane
-        version: second
-    spec:
-      nodeSelector: 
-        operational: "true"
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-            - matchExpressions:
-              - key: karpenter.sh/nodepool
-                operator: DoesNotExist
-        podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-          - labelSelector:
-              matchLabels:
-                component: scheduler
-                tier: control-plane
-            topologyKey: kubernetes.io/hostname
-      serviceAccountName: my-scheduler
-      containers:
-      - command:
-        - /usr/local/bin/kube-scheduler
-        - --bind-address=0.0.0.0
-        - --config=/etc/kubernetes/my-scheduler/my-scheduler-config.yaml
-        - --v=0
-        image: public.ecr.aws/eks-distro/kubernetes/kube-scheduler:v1.30.5-eks-1-30-latest
-        livenessProbe:
-          httpGet:
-            path: /healthz
-            port: 10259
-            scheme: HTTPS
-          initialDelaySeconds: 15
-        name: kube-second-scheduler
-        readinessProbe:
-          httpGet:
-            path: /healthz
-            port: 10259
-            scheme: HTTPS
-        resources:
-          requests:
-            cpu: '1'
-        securityContext:
-          privileged: false
-        volumeMounts:
-          - name: config-volume
-            mountPath: /etc/kubernetes/my-scheduler
-      hostNetwork: false
-      hostPID: false
-      volumes:
-        - name: config-volume
-          configMap:
-               name: my-scheduler-config
+# Default values for custom-scheduler-eks.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 2
+nameSpace: kube-system
+eksVersion: 1.34
+leaderElection:
+  enabled: true
+
+logLevel: 2
+schedulerName: custom-scheduler-eks
+
+image:
+  repository: public.ecr.aws/eks-distro/kubernetes/kube-scheduler
+  pullPolicy: IfNotPresent
+  tags:
+    1.24: "v1.24.17-eks-1-24-latest"
+    1.25: "v1.25.16-eks-1-25-latest"
+    1.26: "v1.26.15-eks-1-26-latest"
+    1.27: "v1.27.16-eks-1-27-latest"
+    1.28: "v1.28.15-eks-1-28-latest"
+    1.29: "v1.29.14-eks-1-29-latest"
+    1.30: "v1.30.10-eks-1-30-latest"
+    1.31: "v1.31.6-eks-1-31-latest"
+    1.32: "v1.32.2-eks-1-32-latest"
+    1.33: "v1.33.1-eks-1-33-latest"
+    1.34: "v1.34.1-eks-1-34-7"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: "custom-scheduler-eks"
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Automatically mount a ServiceAccount's API credentials?
+  automount: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: "custom-scheduler-eks"
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  runAsNonRoot: false
+  privileged: false
+  capabilities:
+    drop:
+      - ALL
+
+securityContext:
+  runAsNonRoot: true
+
+
+resources: {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  #requests:
+  #  cpu: '1'
+  #  memory: 1Gi
+  #limits:
+  #  cpu: '1'
+  #  memory: 1Gi
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 10259
+    scheme: HTTPS
+  initialDelaySeconds: 15
+readinessProbe:
+  httpGet:
+    path: /healthz
+    port: 10259
+    scheme: HTTPS
+
+
+# Additional volumes on the output Deployment definition.
+volumes:
+  - name: config-volume
+    configMap:
+      name: custom-scheduler-eks-config
+
+# Additional volumeMounts on the output Deployment definition.
+volumeMounts:
+  - name: config-volume
+    mountPath: /etc/kubernetes/custom-k8s-scheduler
+
+nodeSelector:
+  operational: "true"
+  monitor: "true"
+
+tolerations: []
+
+plugins:
+  score:
+    enabled:
+      - name: NodeResourcesFit
+        weight: 1
+    disabled:
+      - name: "*"
+  multiPoint:
+    enabled:
+      - name: NodeResourcesFit
+        weight: 1
+
+clientConnection:
+  burst: 200
+  qps: 100
+
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: karpenter.sh/nodepool
+          operator: DoesNotExist
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+    - labelSelector:
+        matchLabels:
+          app.kubernetes.io/name: binpack-scheduler
+      topologyKey: kubernetes.io/hostname
+
+# Monitoring configuration
+monitoring:
+  service:
+    # Annotations for the metrics service
+    annotations: {}
+    # Service type for metrics endpoint
+    type: ClusterIP
+    # Port for the metrics endpoint
+    port: 10259
+    # Target port for the metrics endpoint
+    targetPort: 10259
+  serviceMonitor:
+    # Enable ServiceMonitor resource
+    enabled: true
+    # Namespace where ServiceMonitor will be created
+    namespace: prometheus
+    # Additional labels for the ServiceMonitor
+    labels: {}
+    # Additional annotations for the ServiceMonitor
+    annotations: {}
+    # Scrape interval
+    interval: 30s
+    # Path for metrics endpoint
+    path: /metrics
+    # Scheme for metrics endpoint
+    scheme: https
+    # Skip TLS verification
+    insecureSkipVerify: false

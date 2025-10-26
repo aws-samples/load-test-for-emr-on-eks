@@ -63,7 +63,7 @@ prometheus:
     create: true
     name: amp-iamproxy-ingest-service-account
     annotations: 
-      eks.amazonaws.com/role-arn: arn:aws:iam::{ACCOUNTID}:role/{LOAD_TEST_PREFIX}-prometheus-ingest
+      eks.amazonaws.com/role-arn: arn:aws:iam::{ACCOUNTID}:role/{CLUSTER_NAME}-prometheus-ingest
   prometheusSpec:
     additionalArgs:
       - name: storage.tsdb.min-block-duration
@@ -175,7 +175,7 @@ prometheus:
 
       - job_name: 'locust'
         static_configs:
-          - targets: ['{LOCUST_IP_PRIV}:8000']
+          - targets: ['192.168.5.41:8000']
             labels:
               instance: 'ec2-instance'
       - job_name: 'kubernetes-pods'
