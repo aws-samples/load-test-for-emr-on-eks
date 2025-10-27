@@ -1,6 +1,6 @@
 autoDiscovery:
-  clusterName: load-test-cluster-10
-awsRegion: us-west-2
+  clusterName: ${CLUSTER_NAME}
+awsRegion: ${AWS_REGION}
 image:
   tag: v1.34.0
 nodeSelector:

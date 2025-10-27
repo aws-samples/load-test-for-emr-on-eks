@@ -1,93 +1,71 @@
 from locust import User, task, between, events
-from kubernetes import client, config
 from prometheus_client import start_http_server, Counter, Gauge
-import uuid, yaml, time
-from datetime import datetime
-import subprocess, sys, random, threading, signal
-import json
-import os
+import uuid, time, os, json, subprocess, random, threading
+from datetime import datetime, timedelta
+from emr_containers.job_common_config import EKS_CLUSTER_NAME,REGION,JOB_SCRIPT_NAME_PATH
+from emr_containers.virtual_cluster import virtual_cluster
+from emr_containers.shared import test_instance, setup_unique_test_id
+
+# Import virtual cluster management
+# sys.path.append('/Users/meloyang/Documents/sourcecode/OutlookForMac-mcp-server')
 
 # Global variables and events
 exit_event = threading.Event()
-
-config.load_kube_config()
-api_instance = client.CustomObjectsApi()
-
-k8s_client = client.ApiClient()
-group = "sparkoperator.k8s.io"
-version = "v1beta2"
-plural = "sparkapplications"
-
-ns_prefix = "spark-job"
-sa_prefix = "spark-job-sa"
-role_prefix = "spark-job-role"
-rb_prefix = "spark-job-rb"
-
-file_path = "./resources/spark-pi.yaml"
+test_start_time = time.perf_counter()
+virtual_clusters = {}  # Store namespace -> virtual_cluster_id mapping
+ns_prefix = "emr"
+# EMR job script path
+# emr_script_path = "./resources/emr-eks-benchmark-oom.sh"
 
 # Prometheus metrics
-success_counter = Counter('locust_spark_application_submit_success', 'Number of successful submitted spark application')
-failed_counter = Counter('locust_spark_application_submit_fail', 'Number of failed submitted spark application')
-execution_time_gauge = Gauge('locust_spark_application_submit_gauge', 'Execution time for submitting spark application')
-running_spark_application_gauge = Gauge('locust_running_spark_application_gauge', 'Number of concurrent running spark application calculated from locust')
-submitted_spark_application_gauge = Gauge('locust_submitted_spark_application_gauge', 'Number of submitted spark application calculated from locust')
-succeeding_spark_application_gauge = Gauge('locust_succeeding_spark_application_gauge', 'Number of succeeding spark application calculated from locust')
-new_spark_application_gauge = Gauge('locust_new_spark_application_gauge', 'Number of new spark application calculated from locust')
-completed_spark_application_gauge = Gauge('locust_completed_spark_application_gauge', 'Number of completed spark application calculated from locust')
-concurrent_user_gauge = Gauge('locust_concurrent_user', 'Number of concurrent locust user')
+success_counter = Counter('locust_emr_job_submit_success', 'Number of successful EMR job submissions')
+failed_counter = Counter('locust_emr_job_submit_fail', 'Number of failed EMR job submissions')
+execution_time_gauge = Gauge('locust_emr_job_submit_gauge', 'Execution time for EMR job submission')
+running_emr_jobs_gauge = Gauge('locust_running_emr_jobs_gauge', 'Number of concurrent running EMR jobs')
+submitted_emr_jobs_gauge = Gauge('locust_submitted_emr_jobs_gauge', 'Number of submitted EMR jobs')
+completed_emr_jobs_gauge = Gauge('locust_completed_emr_jobs_gauge', 'Number of completed EMR jobs')
+failed_emr_jobs_gauge = Gauge('locust_failed_emr_jobs_gauge', 'Number of failed EMR jobs')
+concurrent_user_gauge = Gauge('locust_concurrent_user', 'Number of concurrent locust users')
+virtual_clusters_gauge = Gauge('locust_virtual_clusters_count', 'Number of EMR virtual clusters created')
 
 @events.init_command_line_parser.add_listener
 def on_locust_init(parser):
-    parser.add_argument("--job-ns-count", type=int, default=10, help="Number of job namespaces")
-    parser.add_argument("--job-azs", type=json.loads, default=None, help="List of AZs for task allocation")
-    parser.add_argument("--kube-labels", type=json.loads, default=None, help="Kubernetes labels for node selection")
-    parser.add_argument("--karpenter", action="store_true", help="Use Karpenter for node selection")
-    parser.add_argument("--job-name", type=str, default="spark-job", help="Name for the Spark job")
-    parser.add_argument("--binpacking", type=lambda x: (str(x).lower() == 'true'), default=True, help="Enable or disable binpacking")
-    parser.add_argument("--karpenter_driver_not_evict", type=lambda x: (str(x).lower() == 'true'), default=False, help="Enable or disable driver not evict when using karpenter")
+    parser.add_argument("--emr-script-path", type=str, default=JOB_SCRIPT_NAME_PATH, help="EMR on EKS job submission shell script file name and path")
+    parser.add_argument("--job-ns-count", type=int, default=2, help="Number of job namespaces")
+    parser.add_argument("--job-azs", type=json.loads, default=f"{REGION}a", help="List of AZs for task allocation")
+    parser.add_argument("--emr-version", type=str, default=None, help="EMR release version")
+    # parser.add_argument("--wait-time", type=int, default="20", help="Submission delay per virtual cluster.")
 
 def printlog(log):
     now = str(datetime.now())
     print(f"[{now}] {log}")
 
-def get_current_cluster_name():
-    try:
-        result = subprocess.run(['kubectl', 'config', 'view', '--minify', '-o', 'jsonpath={.clusters[0].name}'], 
-                                capture_output=True, text=True, check=True)
-        return result.stdout.strip()
-    except subprocess.CalledProcessError as e:
-        printlog(f"Error getting current cluster name: {e}")
-        return None
-
-cluster_name = get_current_cluster_name()
-if cluster_name:
-    printlog(f"Current cluster name: {cluster_name}")
-else:
-    printlog("Unable to get current cluster name.")
-
-class KubernetesClientUser(User):
+class EMRJobUser(User):
     wait_time = between(20, 30)
 
     def __init__(self, environment):
         super().__init__(environment)
-        self.cluster_name = cluster_name
-        self.use_karpenter = environment.parsed_options.karpenter
-        self.karpenter_driver_not_evict = environment.parsed_options.karpenter_driver_not_evict
-        self.job_azs = environment.parsed_options.job_azs
-        self.kube_labels = environment.parsed_options.kube_labels
-        self.job_name = environment.parsed_options.job_name
-        self.binpacking = environment.parsed_options.binpacking
+        self.job_script = environment.parsed_options.emr_script_path
         self.ns_count = environment.parsed_options.job_ns_count
+        self.job_azs = environment.parsed_options.job_azs
+        self.emr_version = environment.parsed_options.emr_version
+        self.total_jobs_submitted = 0
 
     @events.test_start.add_listener
     def on_test_start(environment, **kwargs):
-        printlog("Start collecting thread")
-        thread = threading.Thread(target=count_running_spark_application, args=(environment,))
+
+        printlog(f"Start the load test against EKS Cluster {EKS_CLUSTER_NAME} in region {REGION}........")
+        printlog(f"Wait time is set between 20 -30 seconds")
+        printlog(f"EMR on EKS job submission script is set to [green]{environment.parsed_options.emr_script_path}")
+        printlog(
+            f"Monitor the test:[green on grey19]python3[/][white on grey19] monitor.py {test_instance.id}[/]")
+        printlog("Starting EMR job monitoring thread")
+        thread = threading.Thread(target=monitor_emr_jobs, args=(environment,))
         thread.start()
 
     @events.test_stop.add_listener
     def on_test_stop(environment, **kwargs):
-        printlog("Stop collecting thread")
+        printlog("Stopping EMR job monitoring thread")
         exit_event.set()
 
     @task
@@ -95,182 +73,134 @@ class KubernetesClientUser(User):
         concurrent_user_gauge.set(self.environment.runner.user_count)
 
     @task
-    def submit_spark_operator_job(self):
-        printlog("Submitting spark-operator job")
-
-        index = random.randint(0, self.ns_count-1)
-
-        spark_sa = sa_prefix + str(index)
-        spark_ns = ns_prefix + str(index)
-
-        yaml_content = self.read_yaml_file(file_path)
-        unique_id = str(uuid.uuid4())
-        unique_yaml_content = self.modify_yaml_file(yaml_content, unique_id, spark_ns, spark_sa)
-
-        start_time = time.time()
-
-        try:
-            api_response = api_instance.create_namespaced_custom_object(
-                group = group,
-                version = version,
-                namespace = spark_ns,
-                plural = plural,
-                body = unique_yaml_content
-            )
-            success_counter.inc()
-            execution_time_gauge.set(time.time() - start_time)
-
-            print(f"Sparkapplication created successfully with name: {api_response['metadata']['name']} in namespace {api_response['metadata']['namespace']}")
-        except client.exceptions.ApiException as e:
-            failed_counter.inc()
-            print(f"Exception when creating SparkApplication: {e}")
-        finally:
-            print(f"Submitting time finished in {time.time() - start_time} seconds")
-
-    def read_yaml_file(self, file_path):
-        try:
-            with open(file_path, 'r') as file:
-                yaml_content = yaml.safe_load(file)
-            # printlog(f"Loaded YAML content: {yaml_content}")
-            return yaml_content
-        except Exception as e:
-            printlog(f"Error reading YAML file: {e}")
-            return None
-
-    def modify_yaml_file(self, yaml_content, unique_id, spark_ns, spark_sa):
-        if yaml_content is None:
-            printlog("Error: YAML content is None")
-            return None
-
-        if 'metadata' in yaml_content and 'name' in yaml_content['metadata']:
-            yaml_content['metadata']['name'] = f"{self.job_name}-{unique_id}"
-            yaml_content['metadata']['namespace'] = spark_ns
-            yaml_content['spec']['driver']['serviceAccount'] = spark_sa
+    def submit_emr_job(self):
+        printlog("Submitting EMR on EKS job")
         
-        default_image = "895885662937.dkr.ecr.us-west-2.amazonaws.com/spark/emr-6.11.0:latest"
-        yaml_content['spec']['image'] = os.environ.get('EMR_IMAGE_URL', default_image)
+        # Randomly choose a namespace and its virtual cluster
+        index = random.randint(1, self.ns_count)
+        namespace = f"{ns_prefix}{index}"
+        
+        if namespace not in virtual_clusters:
+            printlog(f"No virtual cluster found in the namespace {namespace}")
+            failed_counter.inc()
+            return
+            
+        emr_cluster_name = f"emr-on-{EKS_CLUSTER_NAME}"
+        virtual_cluster_id = virtual_clusters[namespace]
+        job_unique_id = setup_unique_test_id()
+        selected_az = random.choice(self.job_azs) if self.job_azs else None
+        emr_version = self.emr_version if self.emr_version else None
+        start_time = time.time()
+        
+        try:
+            # Execute EMR job script with environment variables
+            env = os.environ.copy()
+            env.update({
+                'EMRCLUSTER_NAME': emr_cluster_name,
+                'VIRTUAL_CLUSTER_ID': virtual_cluster_id,
+                'AWS_REGION': REGION,
+                'JOB_UNIQUE_ID': job_unique_id,
+                'SELECTED_AZ': selected_az,
+                'EMR_VERSION': emr_version
+            })
 
-        if 'spec' in yaml_content:
-            # Select a single AZ for both driver and executor
-            selected_az = random.choice(self.job_azs) if self.job_azs else None
+            # Make script executable and run it
+            subprocess.run(['chmod', '+x', self.job_script], check=True)
+            result = subprocess.run(
+                ['bash', self.job_script],
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=300
+            )
+            
+            if result.returncode == 0:
+                success_counter.inc()
+                self.total_jobs_submitted += 1
+                printlog(f"EMR job submitted successfully: {job_unique_id} to VC: {virtual_cluster_id}")
+            else:
+                failed_counter.inc()
+                printlog(f"EMR job submission failed: {result.stderr}")
+                
+        except subprocess.TimeoutExpired:
+            failed_counter.inc()
+            printlog(f"EMR job submission timed out for: {job_unique_id}")
+        except Exception as e:
+            failed_counter.inc()
+            printlog(f"Exception during EMR job submission: {e}")
+        finally:
+            execution_time_gauge.set(time.time() - start_time)
+            elapsed_time = time.perf_counter() - test_start_time
+            printlog(f"Submitted {self.total_jobs_submitted} jobs. Elapsed time: {str(timedelta(seconds=elapsed_time))}")
 
-            for component in ['driver', 'executor']:
-                if component in yaml_content['spec']:
-                    # Ensure nodeSelector exists and is a dictionary
-                    if 'nodeSelector' not in yaml_content['spec'][component] or yaml_content['spec'][component]['nodeSelector'] is None:
-                        yaml_content['spec'][component]['nodeSelector'] = {}
-
-                    # Common logic: AZ selection
-                    if selected_az:
-                        yaml_content['spec'][component]['nodeSelector']['topology.kubernetes.io/zone'] = selected_az
-                    
-                    # Binpacking configuration
-                    if self.binpacking:
-                        yaml_content['spec'][component]['schedulerName'] = "my-scheduler"
-
-                    # Karpenter-specific logic
-                    if self.use_karpenter:
-                        yaml_content['spec'][component]['nodeSelector']['provisioner'] = f"spark-{component}-provisioner"
-                    
-                    # Driver karpenter.sh/do-not-evict: "true"
-                    if self.karpenter_driver_not_evict and component == 'driver':
-                        if 'annotations' not in yaml_content['spec']['driver']:
-                            yaml_content['spec']['driver']['annotations'] = {}
-                        yaml_content['spec']['driver']['annotations']['karpenter.sh/do-not-evict'] = "true"
-                    
-                    # Node group logic for multiple labels
-                    if self.kube_labels:
-                        # merge all label dicts
-                        merged_labels = {}
-                        for label_dict in self.kube_labels:
-                            merged_labels.update(label_dict)
-                        yaml_content['spec'][component]['nodeSelector'].update(merged_labels)
-
-        return yaml_content
-
-def count_running_spark_application(environment):
-    next_time = time.time() + 30
-    while True: 
+def monitor_emr_jobs(environment):
+    """Monitor EMR job runs across all virtual clusters"""
+    next_time = time.time() + 60
+    
+    while True:
         if exit_event.is_set():
             break
         current_time = time.time()
         if current_time > next_time:
-            printlog("Collect running application count")
-            running_app_count = 0
-            submitted_app_count = 0
-            succeeding_app_count = 0
-            new_app_count = 0
-            completed_app_count = 0
-            for index in range(0, environment.parsed_options.job_ns_count):
-                spark_ns = ns_prefix + str(index)
-                spark_apps = api_instance.list_namespaced_custom_object(
-                    group = group,
-                    version = version,
-                    namespace = spark_ns,
-                    plural = plural
-                )
-                for app in spark_apps['items']:
-                    if 'status' in app:
-                        app_state = app['status']['applicationState']['state']
-                        if app_state == 'RUNNING':
-                            running_app_count += 1
-                        elif app_state == "SUBMITTED":
-                            submitted_app_count += 1
-                        elif app_state == "SUCCEEDING":
-                            succeeding_app_count += 1
-                        elif app_state == "COMPLETED":
-                            completed_app_count += 1
-                    if 'status' not in app:
-                            new_app_count += 1
-
-            running_spark_application_gauge.set(running_app_count)
-            submitted_spark_application_gauge.set(submitted_app_count)
-            succeeding_spark_application_gauge.set(succeeding_app_count)
-            new_spark_application_gauge.set(new_app_count)
-            completed_spark_application_gauge.set(completed_app_count)
-
-            next_time = current_time + 30
-        time.sleep(1)
+            printlog("Collecting EMR job metrics across all virtual clusters")
+            
+            running_count = 0
+            submitted_count = 0
+            completed_count = 0
+            failed_count = 0
+            
+            try:
+                # Monitor jobs across all virtual clusters using library
+                for namespace, vc_id in virtual_clusters.items():
+                    job_runs = virtual_cluster.list_job_runs(vc_id, ['PENDING', 'SUBMITTED', 'RUNNING', 'COMPLETED', 'FAILED'])
+                    
+                    for job_run in job_runs:
+                        state = job_run['state']
+                        if state == 'RUNNING':
+                            running_count += 1
+                        elif state in ['PENDING', 'SUBMITTED']:
+                            submitted_count += 1
+                        elif state in ['COMPLETED']:
+                            completed_count += 1
+                        elif state in ['FAILED', 'CANCELLED']:
+                            failed_count += 1
+                
+                # Update metrics
+                running_emr_jobs_gauge.set(running_count)
+                submitted_emr_jobs_gauge.set(submitted_count)
+                completed_emr_jobs_gauge.set(completed_count)
+                failed_emr_jobs_gauge.set(failed_count)
+                virtual_clusters_gauge.set(len(virtual_clusters))
+                
+                printlog(f"EMR Jobs - Running: {running_count}, Submitted: {submitted_count}, "
+                        f"Completed: {completed_count}, Failed: {failed_count}, VCs: {len(virtual_clusters)}")
+                
+            except Exception as e:
+                printlog(f"Error monitoring EMR jobs: {e}")
+            
+            next_time = current_time + 60
+        
+        time.sleep(5)
 
 class LoadTestInitializer():
     def __init__(self, ns_count):
-        self.create_namespace_and_rbac(ns_prefix=ns_prefix, sa_prefix=sa_prefix, role_prefix=role_prefix, rb_prefix=rb_prefix, ns_count=ns_count)
-
-    def create_namespace_and_rbac(self, ns_prefix, sa_prefix, role_prefix, rb_prefix, ns_count):
-        rbac_path = "./resources/ns_rbac.yaml"
-        v1_api = client.CoreV1Api()
+        printlog(f"Creating No.{ns_count} virtual cluster...")
+        """Create virtual cluster and namespace mapping"""
+        global virtual_clusters
         for i in range(ns_count):
-            spark_ns = ns_prefix + str(i)
-            try:
-                v1_api.read_namespace(spark_ns)
-                print(f"Found namespace {spark_ns}")
-            except client.exceptions.ApiException as e:
-                if e.status == 404:
-                    replacements = {
-                        '{spark_ns}': ns_prefix + str(i),
-                        '{spark_sa}': sa_prefix + str(i),
-                        '{spark_role}': role_prefix + str(i),
-                        '{spark_rb}': rb_prefix + str(i)
-                    }
-
-                    with open(rbac_path, 'r') as file:
-                        data = file.read()
-                    for placeholder, value in replacements.items():
-                        data = data.replace(placeholder, value)
-
-                    documents = yaml.safe_load_all(data)
-                    for doc in documents:
-                        updated_yaml = yaml.dump(doc)
-                        print(updated_yaml)
-
-                        p = subprocess.run(['kubectl', 'apply', '-f', '-'], input=updated_yaml.encode('utf-8'), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                        print(p.stdout.decode())
-                        if p.stderr:
-                            print(p.stderr.decode(), file=sys.stderr)
-                else:
-                    print(f"Checking namespace failed: {e}")
+            namespace = f"{ns_prefix}{i}"  
+            self.virtual_cluster_name = f"emr-on-{EKS_CLUSTER_NAME}-{i}"
+            self.vc_id = virtual_cluster.create_namespace_and_virtual_cluster(namespace,EKS_CLUSTER_NAME,self.virtual_cluster_name)
+            if self.vc_id:
+                virtual_clusters[namespace] = self.vc_id
+                printlog(f"Virtual cluster {self.vc_id} mapped to namespace {namespace}")
+            else:
+                printlog(f"Failed to create virtual cluster for namespace {namespace}")
+        
+        printlog(f"Created {len(virtual_clusters)} virtual clusters successfully")
 
 @events.init.add_listener
 def on_locust_init(environment, **kwargs):
     LoadTestInitializer(environment.parsed_options.job_ns_count)
     start_http_server(8000)
+    printlog("EMR on EKS Locust load test with virtual_cluster.py library initialized")

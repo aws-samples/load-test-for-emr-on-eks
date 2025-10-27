@@ -6,6 +6,7 @@
 # Load environment variables
 source env.sh
 
+
 echo "Starting cleanup process..."
 
 echo "Finding EMR virtual clusters for EKS cluster: $CLUSTER_NAME"
@@ -52,13 +53,58 @@ then
     then 
         aws iam delete-policy --policy-arn $grafana_service_role_policy_arn && echo "Deleted AWS Deleted AWS Managed Grafana service role policy $grafana_service_role_policy_arn"
     fi 
-fi
+fi 
+
+
+# Delete Karpenter resources
+echo "Deleting Karpenter nodepools..."
+kubectl delete -f "./resources/karpenter/*.yaml"
+kubectl delete nodeclaims --all
+# Delete Custom Resource Definitions
+kubectl get crd | grep karpenter | awk '{print $1}' | xargs kubectl delete crd
+
+instance_profiles=$(aws iam list-instance-profiles-for-role --role-name $KARPENTER_NODE_ROLE --query 'InstanceProfiles[*].InstanceProfileName' --output text)
+for profile in $instance_profiles; do
+    echo "Removing role from instance profile: $profile"
+    aws iam remove-role-from-instance-profile \
+        --instance-profile-name $profile \
+        --role-name $KARPENTER_NODE_ROLE
+
+    echo "Deleting instance profile: $profile"
+    aws iam delete-instance-profile --instance-profile-name $profile
+done
+echo "Detaching policies from ${KARPENTER_NODE_ROLE}..."
+# Get all attached policies and detach them
+POLICY_ARNS=$(aws iam list-attached-role-policies --role-name "$KARPENTER_NODE_ROLE" --query 'AttachedPolicies[*].PolicyArn' --output text)
+
+for POLICY_ARN in $POLICY_ARNS; do
+    echo "Detaching policy: $POLICY_ARN"
+    aws iam detach-role-policy \
+        --role-name "$KARPENTER_NODE_ROLE" \
+        --policy-arn "$POLICY_ARN" || true
+done
+aws iam delete-role --role-name "${KARPENTER_NODE_ROLE}" || true
+
+aws iam detach-role-policy --role-name "${KARPENTER_CONTROLLER_ROLE}" --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${KARPENTER_CONTROLLER_POLICY}" || true
+aws iam delete-role --role-name "${KARPENTER_CONTROLLER_ROLE}" || true
+aws iam delete-policy --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${KARPENTER_CONTROLLER_POLICY}" || true
+
+# Delete Prometheus resources
+echo "Deleting Prometheus resources..."
+helm uninstall prometheus -n prometheus || true
+kubectl delete namespace prometheus || true
+
+aws iam detach-role-policy --role-name "${AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE}" --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY}" || true
+aws iam delete-role --role-name "${AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE}" || true
+aws iam delete-policy --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY}" || true
+
 # Delete AMP workspace
-echo "Deleting AMP workspace..."
 amp=$(aws amp list-workspaces --query "workspaces[?alias=='${CLUSTER_NAME}'].workspaceId" --output text)
 if [ ! -z "$amp" ]; then
     aws amp delete-workspace --workspace-id $amp
 fi
+
+
 # Delete S3 bucket
 echo "Deleting S3 bucket..."
 aws s3 rm s3://${BUCKET_NAME} --recursive
