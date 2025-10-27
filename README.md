@@ -5,23 +5,16 @@ This repository provides a general tool to benchmark EMR Spark Operator & EKS pe
 Enjoy! ^.^
 
 # Table of Contents
-- [EMR Spark Operator on EKS Benchmark Utility](#emr-spark-operator-on-eks-benchmark-utility)
 - [Prerequisite](#prerequisite)
 - [Set up Test Environment](#set-up-test-environment)
   - [Create the EKS Cluster with Necessary Services](#1-create-the-eks-cluster-with-necessary-services)
   - [Using Locust to Submit Testing Jobs (Optional)](#2-using-locust-to-submit-testing-jobs-optional)
 - [Run Load Testing with Locust](#run-load-testing-with-locust)
 - [Best Practice Guide](#best-practice-guide)
-  - [Spark Operator](#1-spark-operator)
-  - [Spark Job Configuration](#2-spark-job-configuration)
-  - [Binpacking](#3-binpacking)
-  - [Cluster Scalability](#4-cluster-scalability)
-  - [Best Practices for Networking](#5-best-practices-for-networking)
 - [Monitoring](#monitoring)
 - [Clean up](#clean-up)
 
 ## Prerequisite
-
 - eksctl is installed in latest version ( >= 0.194.)
 ```bash
 curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
@@ -50,174 +43,87 @@ helm version --short
 [^ back to top](#table-of-contents)
 
 ## Set up Test Environment
-### 1. Create the EKS Cluster with Necessary Services 
-This script creates a new EKS cluster with [Auto Scaler](https://aws.github.io/aws-emr-containers-best-practices/troubleshooting/docs/eks-cluster-auto-scaler/), [Karpenter](https://aws.github.io/aws-emr-containers-best-practices/troubleshooting/docs/karpenter/), and [BinPacking](https://awslabs.github.io/data-on-eks/docs/resources/binpacking-custom-scheduler-eks) enabled. The monitoring tool by default uses [Amazon Managed Prometheus](https://aws.amazon.com/prometheus/) and [Amazon Managed Grafana](https://aws.amazon.com/grafana/).
 
-#### 1.1 Update the Environment Variables
-Please update the values in `./env.sh` or use the default configurations as shown below:
-
-
+### Prerequisite - Set Environment Variables
+Please update the values in `./env.sh` based on your environment settings.
+Alternatively, use the default configurations shown as below:
 
 <details>
 <summary>Default Environment Variables</summary>
 
 ```bash
 # General Configuration
-export LOAD_TEST_PREFIX=eks-operator-test
+export LOAD_TEST_PREFIX=load-test-cluster
+export CLUSTER_NAME=${LOAD_TEST_PREFIX}-100
 export AWS_REGION=us-west-2
-export ECR_REGISTRY_ACCOUNT=895885662937
-export EKS_VPC_CIDR=172.16.0.0/16
-
-# Note: For ECR_REGISTRY_ACCOUNT in different regions, please refer to:
+# Note: For PUB_ECR_REGISTRY_ACCOUNT in different regions, please refer to:
 # https://docs.aws.amazon.com/emr/latest/EMR-on-EKS-DevelopmentGuide/docker-custom-images-tag.html
+export PUB_ECR_REGISTRY_ACCOUNT=895885662937
+export EKS_VPC_CIDR=172.16.0.0/16
+export EKS_VERSION=1.34
 
-# AWS Resource Identifiers
+# Utility
 export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-export CLUSTER_NAME=${LOAD_TEST_PREFIX}-eks-cluster
-export BUCKET_NAME=${LOAD_TEST_PREFIX}-bucket-01  
-
-# Spark Operator Configuration
-# Test Mode Options:
-# - "multiple": Creates multiple operators (one per job namespace)
-# - "single": Creates one operator monitoring all job namespaces
-#
-# Examples:
-# 1. multiple mode (for example, OPERATOR_TEST_MODE="multiple" && SPARK_JOB_NS_NUM=2):
-#    - Creates 2 job namespaces and 2 operators
-#    - spark-operator0 monitors spark-job0
-#    - spark-operator1 monitors spark-job1
-#
-# 2. single mode (for example, OPERATOR_TEST_MODE="single" && SPARK_JOB_NS_NUM=2):
-#    - Creates 2 job namespaces but only 1 operator
-#    - spark-operator0 monitors both spark-job0 and spark-job1
-
-export OPERATOR_TEST_MODE="multiple"
+export BUCKET_NAME=emr-on-${CLUSTER_NAME}-$ACCOUNT_ID-$AWS_REGION
+export EXECUTION_ROLE=emr-on-${CLUSTER_NAME}-execution-role
+export EXECUTION_ROLE_POLICY=${CLUSTER_NAME}-SparkJobS3AccessPolicy
 export SPARK_JOB_NS_NUM=2
-export SPARK_OPERATOR_VERSION=6.11.0
-export EMR_IMAGE_VERSION=6.11.0
-export EMR_IMAGE_URL="${ECR_REGISTRY_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/spark/emr-${EMR_IMAGE_VERSION}:latest"
+export EMR_IMAGE_VERSION=7.9.0
+export ECR_URL="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 
-# IAM Roles and Policies
-export SPARK_OPERATOR_ROLE=${LOAD_TEST_PREFIX}-SparkJobS3AccessRole
-export SPARK_OPERATOR_POLICY=${LOAD_TEST_PREFIX}-SparkJobS3AccessPolicy
+# Karpenter
+export KARPENTER_VERSION="1.6.1"
+export KARPENTER_CONTROLLER_ROLE="KarpenterControllerRole-${CLUSTER_NAME}"
+export KARPENTER_CONTROLLER_POLICY="KarpenterControllerPolicy-${CLUSTER_NAME}"
+export KARPENTER_NODE_ROLE="KarpenterNodeRole-${CLUSTER_NAME}"
 
-# Prometheus Configuration
-export AMP_SERVICE_ACCOUNT_INGEST_NAME=amp-iamproxy-ingest-service-account
-export AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE=${LOAD_TEST_PREFIX}-prometheus-ingest
-export AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY=${LOAD_TEST_PREFIX}-AMPIngestPolicy
-
-# Karpenter Configuration
-export KARPENTER_CONTROLLER_ROLE="KarpenterControllerRole-${LOAD_TEST_PREFIX}"
-export KARPENTER_CONTROLLER_POLICY="KarpenterControllerPolicy-${LOAD_TEST_PREFIX}"
-export KARPENTER_NODE_ROLE="KarpenterNodeRole-${LOAD_TEST_PREFIX}"
-
-# Monitoring Configuration
-export USE_AMG="true"  # Enable Amazon Managed Grafana
+# Create Amazon Managed Grafana Workspace
+# If reuse a Grafana workspace, set it to false
+export USE_AMG="true"
 ```
-
 </details>
+
+### Create an EKS Cluster with components needed (OPTIONAL)
+A `infra-provision.sh` script is provided by the project, which creates a brand new EKS cluster with the following components. 
+
+Skip this step if your EKS environment exists. If required, install missing components individually based on the infra provision script. 
+
+- [Auto Scaler](https://aws.github.io/aws-emr-containers-best-practices/troubleshooting/docs/eks-cluster-auto-scaler/)
+- [Load Balancer Controler](https://docs.aws.amazon.com/eks/latest/userguide/lbc-helm.html)
+- [EBS CSI Driver Addon](https://docs.aws.amazon.com/eks/latest/userguide/ebs-csi.html)
+- [Karpenter](https://aws.github.io/aws-emr-containers-best-practices/troubleshooting/docs/karpenter/)
+- [BinPacking](https://awslabs.github.io/data-on-eks/docs/resources/binpacking-custom-scheduler-eks) enabled. Monitoring by default uses managed services:
+- [Amazon Managed Prometheus](https://aws.amazon.com/prometheus/)
+- [Amazon Managed Grafana](https://aws.amazon.com/grafana/)
 
 [^ back to top](#table-of-contents)
 
 
-#### 1.2 To modify the EKS cluster yaml file for Cluster / NodeGroups:
-- For eks cluster & NodeGroups, please update `./resources/eks-cluster-values.yaml`
-- For Karpenter NodePools, please update `./resources/karpenter-nodepool.yaml`
-- If you wants to modify the default of the templates, please update `./resources/template-backups/` accordingly, these templates/yaml files will be restoring during `./clean-up.sh` execution.
+#### 1. Modify EKS cluster and components' configurations before the creation
+- For eks cluster, update [./resources/eks-cluster-values.yaml](./resources/eks-cluster-values.yaml)
+- For autoscaler, modify [./resources/autoscaler-values.yaml](./resources/autoscaler-values.yaml)
+- For custom k8s scheduler, update [./resources/binpacking-values.yaml](./resources/binpacking-values.yaml)
+- For Karpenter, update yaml files under the [./resources/karpenter/](./resources/karpenter/)
+- For Prometheus, update [./resources/prometheus-values.yaml](./resources/prometheus-values.yaml)
+- For Prometheus's podmonitor and servicemonitor settings, update files under the [./resources/monitor](./resources/monitor)
 
-
-#### 1.3 To build the infrastructure, please execute the below cmd:
+#### 2. To build the infrastructure, please execute the below cmd:
 ```bash
 bash ./infra-provision.sh
 ```
 
-#### 1.4 Infrastructure Inclusions:
-
-<details>
-<summary>Here are the inclusions of the <b>infra-provision.sh</b> script </summary>
-
-- S3 Bucket for storing assets, eg: job script.
-- EKS cluster (v 1.30) with following set ups
-    - VPC CNI Addon
-    - EBS CSI Addon
-    - Binpacking Pod Scheduler
-    - EKS Cluster Autoscaler
-        - NodeGroup for Operational & Monitoring Purposes
-            - labels: 
-            - `operational=true`, `monitor=true`
-        - NodeGroup for Spark Operators.
-            - labels: 
-            - `operational=true`, `monitor=false`
-        - NodeGroups for Spark Jobs Execution in 2 AZs accordingly:
-            - labels: 
-            - `operational=false`, `monitor=false`
-            - eg: `us-west-2a`, `us-west-2b`
-    - Karpenter Scaler
-        - NodePool for Spark Driver Pods:
-            - labels:
-                - `cluster-worker: "true"`
-                - `provisioner: "spark-driver-provisioner"`
-        - NodePool for Spark Executor Pods:
-            - labels:
-                - `cluster-worker: "true"`
-                - `provisioner: "spark-executor-provisioner"`
-        - EC2 Node Class: `spark-worker-nc`
-            - Across 2 AZs/Subnets by default.
-        - Please modify `./resources/karpenter-nodepool.yaml` to change instance family and sizes, NP and NC Configs.
-    - Prometheus on EKS
-        - @XI TO DO.
-    - Spark Operators & Job Namespaces
-        - Number of Spark Operators will be created in `-n spark-operator` by default, eg: `spark-operator0`, `spark-operator1`, etc.
-        - Number of Job Namespaces will be created, eg: `-n spark-job0`, `-n sparkjob1`, etc.
-        - Please update the `./env.sh` to configure Spark Operator & job namespace numbers.
-- Amazon Managed Prometheus Workspace
-
-
-
-</details>
-
-
-### 2. Using [Locust](https://github.com/locustio/locust) to Submit Testing Jobs (Optional)
-Locust is a Open source load testing tool based on the Python.
-
-This script creates an EC2 as the load testing client which is using Locust to submit spark testing jobs to EKS cluster. 
-
-#### 2.1 To build the Locust on EC2, please execute the below cmd:
-
+### Install Locust cluster in EKS
+[Locust](https://github.com/locustio/locust) is an Open source load testing tool based on Python. This section demostrates how to setup Locust via a helm chart in a new or existing EKS, with a main pod + 2 worker pods installed by default. 
 
 ```bash
 bash ./locust-provision.sh
-
-# You have to ensure that an EKS cluster is created by the script above (`./infra-provision.sh`) and is ready to use, or modify the script with your own EKS cluster.
 ```
-
-With this script implementation, you don't need to have extra settings to play around the load testing, but just choose the volume of workload to mimick your real production.
-
-#### 2.2 Locust EC2 Inclusions:
-
-<details>
-<summary>Here are the inclusions of the <b>locust-provision.sh</b> script </summary>
-
-- EC2 Instance with Instance Profile
-    - A ssh key will be available to use to access the EC2 instance.
-    - You should be able to see the below once the script is executed successfully.
-    ```
-    To connect to the instance use: ssh -i eks-operator-test-locust-key.pem ec2-user@xxx.xxx.xxx.xxx
-    ```
-    - The security group is attached for "My IP" to access the Instance
-    - The security group on EKS cluster is attached to allow 443 access for the instance.
-    - Some necessary IAM policies have been attached to the Instance Profile.
-- Locust service have been installed
-    - The assets under `./locust` will be uploaded to S3 bucket, and then cp to the instance.
-        - The `./env.sh` will be copied before uploading to S3, the path in EC2 will be: `./load-test/locust/env.sh`
-        - Please see below how to start the Load testing with Locust.
-
-</details>
+With this script implementation, you don't need to have extra settings to play around the load testing, just choose the volume of workload to mimick your real production.
 
 [^ back to top](#table-of-contents)
 
 
-## Run Load Testing with Locust
+## Get Started with Load Test
 ### 1. Submit Jobs to Cluster Autoscaler (CAS)
 
 ```bash
@@ -261,89 +167,62 @@ locust -f ./locustfile.py -u 2 -t 10m --headless --skip-log-setup \
 ```
 [^ back to top](#table-of-contents)
 
-## Best Practice Guide
+## Best Practices Learned from Load Test
 
-### 1. Spark Operator
+### 1. How to Allocate Spark Driver & Executor Pods Matters
+To minimise the cross-node DataIO and networkIO penalty in a single Spark job, it is recommended trying to allocate the Spark executor pods into the same node as much as possible.
 
-#### 1.1 Spark Operator Numbers
-For the single Spark Operator, the max performance for submission rate would be around 30 jobs per min (`SparkOperator version: emr-6.11.0 (v1beta2-1.3.8-3.1.1)`), and the performance tune on a single operator is very limited in the current version. 
-- To handle the large volume of workload, to horizontally scale up by using multiple Spark Operator would be the recommended solution. 
-- The operators will be not impacted from each other on eks cluster side, but higher number of operators will increase the overhead on apiserver/etcd side.
+However, to reduce the compute cost, executor's node pool has aggressive node consolidation rule. To remove the eviction impact on Driver pod, we run it in a seperate node pool in Karpenter.
 
-#### 1.2 Isolation of Spark Operators
-For Spark Operator(s), to minimise the performance impacts caused by other services, eg.: spark job pods, prometheus pods, etc, it is recommended to allocate the Spark Operator(s), Prometheus operators in the dedicated operational NodeGroups accordingly.
-<details>
-<summary> Spark Operator Best Practice </summary>
+Additionally, to avoid the cross-AZ data transfer fee, utilize the `spark.kubernetes.node.selector.topology.kubernetes.io/zone` config to tight all pods within a Spark job to a specified single AZ. If your managed node group or Karpenter nodepool is configured as a single-AZ node provisoners, you can simply use a nodegroup/nodepool name as the nodeSelector to ensure your job's pods are in a single AZ.
 
-- To use `podAntiAffinity` to ensure ***One-Node-One-Operator*** pattern
-```yaml
-affinity:
-  podAntiAffinity:
-    requiredDuringSchedulingIgnoredDuringExecution:
-    - labelSelector:
-        matchExpressions:
-        - key: app.kubernetes.io/name
-          operator: Exists
-      topologyKey: "kubernetes.io/hostname"
-```
-- Increase `controllerThreads`
-The default number of Spark Operator workers(controllerThreads) is `10`, to increase it to get a better performance for job submission. 
-    - However, as the qps and bucket size is hardcoded in SparkOperator V1, thus, increase this to very large number, eg: 100, may `NOT` benefit from it as expected.
-    - In addition, it would be vary in the different spark job submission object size. As large object size of each job will take more space in the bucket of operator internally.
-
-</details>
-
-[^ back to top](#table-of-contents)
-
-
-### 2. Spark Job Configuration
-#### 2.1 Allocate the Spark Job Pods (Driver & Executors) into the Node
-To minimise the cross node overhead for a single spark job, it is recommended trying to allocate the spark job pods into the same node as much as possible.
-
-- Similar as operational pods, when using CAS as node scaler solution:
-    - utilizing `nodeSelector` with `kubernetes label` feature on the spark job yaml file, to ensure the spark job pods will be allocated to the same worker NodeGroup:
-    - As an alternative, to utilize the `topology.kubernetes.io/zone` tag, to ensure all pods of a single job will be allocated into the same AZ, it depends on your NodeGroup Settings.
 ```yaml
 # nodeSelector sample as below:
-    driver:
-      nodeSelector:
-      cluster-worker: "true" 
-# This label needs to match with EKS nodegroup kubernetes label or kapenter nodepool
+"spark.kubernetes.node.selector.topology.kubernetes.io/zone": "us-west-2a"
 
-    executor:
-      nodeSelector:
-      cluster-worker: "true" 
-# This label needs to match with EKS nodegroup kubernetes label or kapenter nodepool
+# Or match by a kapenter nodepool name
+"spark.kubernetes.node.selector.karpenter.sh/nodepool": "single-az-nodepool"
+
+# Or match by a nodegroup name
+"spark.kubernetes.driver.node.selector.eks.amazonaws.com/nodegroup": "m5-ng-uw2a",
 ```
-
-
-- To utilize `Binpacking` while submitting a Spark Job, please see details at below - `3. Binpacking`
-
-- Try to NOT use `initContainers`.
-we have found, with `initContainers` enabled, the events of a single spark job increased significantly. As a result, the eks api server and etcd DB size will be filling up faster than disabling the `initContainers`. Thus, try to avoid to use with large scale workload in a single EKS cluster, or split the jobs into multiple eks cluster.
-
 [^ back to top](#table-of-contents)
 
+### 2. TRY NOT to Use `initContainers`or Custom Sidecar.
+k8s events in EKS emitted by a Spark job increased significantly, as soon as we enable the `initContainers`. As a result, EKS API Server and ETCD DB size will be filled up quicker than normal. It is recommended to avoid the `initContainers` or any sidecars in a large scale workload on an EKS cluster. Otherwise, try to split your workload to multiple EKS clusters.
 
-### 3. Binpacking
+### 3. Binpacking Application Pods
 
-Binpacking could efficiently allocate pods to available nodes within a Kubernetes cluster. Its primary goal is to optimize resource utilization by packing pods as tightly as possible onto nodes, while still meeting resource requirements and constraints. 
-- This approach aims to maximize cluster efficiency, reduce costs, and improve overall performance by minimizing the number of active nodes required to run the workload. 
-- With Binpacking enabled, the overall workload can minimise the resources used on network traffic between physical nodes, as most of pods will be allocated in a single node at its launch time. 
-- However, we use Karpenter's consolidation feature to maximize pods density when node's utilization starts to drop.
-- Please learn more about Binpacking via link: https://awslabs.github.io/data-on-eks/docs/resources/binpacking-custom-scheduler-eks
+There are two types of binpackings:
+- Custom k8s scheduler - binpack pods at job launch time
+- Karpenter's consolidation feature - binpack pods or replace underutilized nodes at job run time
+
+**Binpack at Launch Time** - a custom k8s scheduler can efficiently assign pods to the least allocated nodes before a new node is requested. The goal is to optimize resource utilization by packing pods as tightly as possible onto a single node, while still meeting resource requirements and constraints. 
+
+This approach aims to maximize cluster efficiency, reduce costs, and improve overall Spark job's shuffle IO performance by minimizing the number of active nodes required to run the workload. Becuase with Binpacking enabled, workloads can minimise the resources used on network traffic between physical nodes, as most of pods will be allocated in a single node at its launch time. The Spark configuration at job submission looks like this:
+```bash
+  "spark.kubernetes.scheduler.name": "custom-scheduler-eks"
+```
+
+**Binpack at Run Time** - the launch-time binpacking doesn't solve the resources wastage or cost spike caused by frequent pod terminations, such as by Spark's Dynamic Resource Allocation (DRA). That's why another binpack feature needs to co-exist in our use case, ie. enable Karpenter's consolidation feature for ( only for) executor's nodepool, in order to maximize pods density at job's run time.
+
+Learn more about Binpacking via link: https://aws.github.io/aws-emr-containers-best-practices/performance/docs/binpack/
 
 [^ back to top](#table-of-contents)
 
 
 ### 4. Cluster Scalability
-#### 4.1 EKS Cluster Autoscaler (CAS)
-- To utilize the Kubernetes Labels for operational services with CAS:
-    -  With `podAntiAffinity` enabled followed by `2.1 Allocate the Spark Job Pods (Driver & Executors) into the Node` above, and enable CAS for Operational service, eg: Spark Operators, to scale up and down the Spark Operator Node by CAS automatically.
-- To schedule the large volume of pods, need to increase the qps and burst for `NodeScaler`, to avoid CAS self throttling issue:
+
+EKS Cluster autoscaling contains two main types:
+  - [EKS Cluster Autoscaler (CAS)](https://docs.aws.amazon.com/eks/latest/best-practices/cas.html)
+  - [Karpenter (default)](https://docs.aws.amazon.com/eks/latest/best-practices/karpenter.html)
+
+**EKS Cluster Autoscaler (CAS)** - This project's EKS cluster is configured with three managed node groups: 
+- 1/ Operational CAS for operational services ( fixed size: 2 nodes). It is used to host Prometheus, Load Balancer, Karpenter etc. operational pods
+- 2/ Two Application managed nodegroups ( one per AZ) to scale between 1 and 350 m5.xlarge EC2 nodes for load test jobs.
+
+To schedule a large volume of nodes, the qps and burst rate in the [CAS configuration](./resources/autoscaler-values.yaml) needs to increase, to avoid its throttling:
 ```yaml
-nodeSelector:
- ## Kubernetes label for pod allocation.
 podAnnotations:
   cluster-autoscaler.kubernetes.io/safe-to-evict: 'false'
 ...
@@ -352,43 +231,27 @@ extraArgs:
   kube-client-qps: 300
   kube-client-burst: 400
 ```
-[^ back to top](#table-of-contents)
 
-#### 4.2 Karpenter Scaler:
+**Karpenter** - In this project, we only provision load test jobs by Karpenter, the rest of operational pods, eg: Prometheus, Karpenter, Binpacking etc. are still scheduled in the fix-sized opertional NodeGroup, which is out of controll by Karpenter.
 
-- To allocate the operational pods, eg: Spark Operator, Prometheus, Karpenter, Binpacking, etc in the Operational EKS NodeGroup, which are NOT controlled by Karpenter via setting up nodeSelector on the operational pods, please see details explained in `4.1 EKS Cluster Autoscaler (CAS)`
-- Karpenter Nodepool configs:
-    - Utilize the provisioner label to separate the spark driver pods and spark executor pods. As the driver pods will be creating earlier than executor pods, and then each driver pod will create 10 executors, which can improve the pending pods in short period of time.
-    - To align with NodeGroup on CAS, and also minimise the networking level noise, to utilize the `topology.kubernetes.io/zone` when submitting karpenter spark jobs, to ensure all pods of a single job will be allocated into the same AZ.
-```yaml
-apiVersion: karpenter.sh/v1beta1
-kind: NodePool
-metadata:
-  name: spark-driver-provisioner
-spec:
-  template:
-    metadata:
-      labels:
-        cluster-worker: "true"
-        provisioner: "spark-driver-provisioner"
-    spec:
-      requirements:
-...
-        - key: "topology.kubernetes.io/zone"
-          operator: In
-          values: ["${AWS_REGION}a", "${AWS_REGION}b"]
+- Karpenter Nodepool configs
+    - To align with NodeGroup's configs by CAS, we can utilize the `topology.kubernetes.io/zone` when submitting karpenter spark jobs, to ensure all pods in a single job will be allocated into the same AZ.
+
+```bash
+  "spark.kubernetes.executor.node.selector.karpenter.sh/nodepool": "executor-nodepool",
+  "spark.kubernetes.driver.node.selector.karpenter.sh/nodepool": "driver-nodepool",
+  "spark.kubernetes.node.selector.topology.kubernetes.io/zone": "ua-west-2a",
 ```
 
 [^ back to top](#table-of-contents)
 
-
-### 5 Best Practices for Networking
-With large volume of workload, if the IP addresses of the eks cluster resided subnets may be exhausted. To solve this here are tips to address this issue:
-- To use AWS VPC CNI, to set up the 2nd or more CIDRs for your eks cluster, instead of utilizing the primary subnet. Please learn more about this via: https://aws.github.io/aws-eks-best-practices/networking/custom-networking/
-- To minimise IP wastage on the existing subnets, you may try to fine tune the below set up: 
+### 5. Best Practices for Networking
+With large volume of workloads, IP addresses often exhaustes. To solve this, we have some tips to address the network problem:
+- Use `AWS VPC CNI` - to set up a 2nd or more CIDRs for your EKS cluster, instead of utilizing the primary subnet. Please learn more about this technique here: https://aws.github.io/aws-eks-best-practices/networking/custom-networking/
+- To minimise IP wastage per existing subnet, you should try to fine tune the following VPC CNI configs: 
     - `WARM_ENI_TARGET`, `MAX_ENI`
     - `WARM_IP_TARGET`, `MINIMUM_IP_TARGET`
-    - Please learn more details from here: https://aws.github.io/aws-eks-best-practices/networking/vpc-cni/
+More details can be found: https://aws.github.io/aws-eks-best-practices/networking/vpc-cni/
 https://docs.aws.amazon.com/eks/latest/best-practices/networking.html
 
 

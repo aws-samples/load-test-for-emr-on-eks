@@ -12,6 +12,7 @@ extraArgs:
   skip-nodes-with-system-pods: false
   scale-down-unneeded-time: 30s
   scale-down-unready-time: 1m
+  # for large scale workload
   kube-client-qps: 300
   kube-client-burst: 400
 rbac:

@@ -43,7 +43,7 @@ iam:
     roleOnly: true    
 addons:
   - name: aws-ebs-csi-driver
-    version: latest
+    version: v1.48.0-eksbuild.2
     wellKnownPolicies:
       ebsCSIController: true
     serviceAccountRoleARN: arn:aws:iam::${ACCOUNT_ID}:role/${CLUSTER_NAME}-AWSLoadBalancerControllerRole
@@ -52,9 +52,9 @@ cloudWatch:
     enableTypes: ["*"]
     logRetentionInDays: 30     
 managedNodeGroups:
-  - name: ${CLUSTER_NAME}-operational-ng
-    instanceType: r5.4xlarge
-    desiredCapacity: 1
+  - name: ng-10
+    instanceType: r5.8xlarge
+    desiredCapacity: 2
     privateNetworking: true
     labels:
       operational: "true"

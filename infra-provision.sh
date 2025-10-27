@@ -175,7 +175,7 @@ else
     sed -i='' 's/${AWS_REGION}/'$AWS_REGION'/g' ./resources/karpenter/karpenter-controller-policy.json
     sed -i='' 's/${CLUSTER_NAME}/'$CLUSTER_NAME'/g' ./resources/karpenter/karpenter-controller-policy.json
 
-    aws iam create-policy --policy-name "${KARPENTER_CONTROLLER_POLICY}" --policy-document file://resources/karpenter-controller-policy.json
+    aws iam create-policy --policy-name "${KARPENTER_CONTROLLER_POLICY}" --policy-document file://resources/karpenter/karpenter-controller-policy.json
 fi
 sleep 5
 
@@ -252,7 +252,7 @@ SECURITY_GROUPS=$(aws eks describe-cluster \
 SECURITY_GROUPS2="$(aws ec2 describe-launch-template-versions \
     --launch-template-id "${LAUNCH_TEMPLATE%,*}" --versions "${LAUNCH_TEMPLATE#*,}" \
     --query 'LaunchTemplateVersions[0].LaunchTemplateData.[NetworkInterfaces[0].Groups||SecurityGroupIds]' \
-    --output text)"
+    --output text)" || true
 
 aws ec2 create-tags \
     --tags "Key=karpenter.sh/discovery,Value=${CLUSTER_NAME}" \
@@ -269,8 +269,7 @@ helm template karpenter oci://public.ecr.aws/karpenter/karpenter --version "${KA
     --set controller.resources.requests.cpu=4 \
     --set controller.resources.requests.memory=1Gi \
     --set controller.resources.limits.cpu=4 \
-    --set controller.resources.limits.memory=1Gi \
-    --set nodeSelector.operational="true" > ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml
+    --set controller.resources.limits.memory=1Gi > ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml
 
 kubectl create -f \
     "https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.sh_nodepools.yaml"
@@ -284,7 +283,7 @@ echo "====================================================="
 echo "  Create Karpenter Nodepools and nodeclass ......"
 echo "====================================================="
 echo "Create Karpenter nodepools ......"
-sed -i='' 's/${NODE_ROLE_NAME}/'$KARPENTER_NODE_ROLE'/g' ./resources/karpenter/shared-nodeclass.yaml
+sed -i='' 's/${KARPENTER_NODE_ROLE}/'$KARPENTER_NODE_ROLE'/g' ./resources/karpenter/shared-nodeclass.yaml
 sed -i='' 's/${CLUSTER_NAME}/'$CLUSTER_NAME'/g' ./resources/karpenter/shared-nodeclass.yaml
 
 kubectl apply -f "./resources/karpenter/*.yaml"

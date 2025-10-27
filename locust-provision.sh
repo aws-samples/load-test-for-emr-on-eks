@@ -39,6 +39,6 @@ helm upgrade --install locust deliveryhero/locust \
     --set loadtest.locust_locustfile=locustfile.py \
     --set worker.hpa.enabled=true \
     --set worker.hpa.minReplicas=2 \
-    --set master.nodeselector."eks\.amazonaws\.com/nodegroup"=${CLUSTER_NAME}-operational-ng
+    --set master.nodeselector."eks\.amazonaws\.com/nodegroup"=ng-10
 
 # helm uninstall locust

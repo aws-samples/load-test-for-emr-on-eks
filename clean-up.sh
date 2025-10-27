@@ -65,7 +65,7 @@ aws s3 rm s3://${BUCKET_NAME} --recursive
 aws s3api delete-bucket --bucket ${BUCKET_NAME} --region ${AWS_REGION}
 
 # Delete EKS cluster 
-# eksctl automatically deletes managed nodegroups,addons, iam roles,vpc,CFN stacks created by eksctl)
+# eksctl automatically deletes managed nodegroups,addons,iam,vpc,CFN stacks created by eksctl)
 echo "Deleting EKS cluster..."
 eksctl delete cluster -f ./resources/eks-cluster-values.yaml --region ${AWS_REGION}
 
