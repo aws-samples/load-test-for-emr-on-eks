@@ -7,10 +7,16 @@ Enjoy! ^.^
 # Table of Contents
 - [Prerequisite](#prerequisite)
 - [Set up Test Environment](#set-up-test-environment)
-  - [Create the EKS Cluster with Necessary Services](#1-create-the-eks-cluster-with-necessary-services)
-  - [Using Locust to Submit Testing Jobs (Optional)](#2-using-locust-to-submit-testing-jobs-optional)
-- [Run Load Testing with Locust](#run-load-testing-with-locust)
-- [Best Practice Guide](#best-practice-guide)
+  - [Prerequisite](#prerequisite---set-environment-variables)
+  - [Create the EKS Cluster with Necessary Components(Optional)](#create-an-eks-cluster-with-components-needed-optional)
+  - [Install Locust Cluster in EKS](#install-locust-cluster-in-eks)
+- [Run Load Testing with Locust](#get-started-with-load-test)
+- [Best Practice Guide](#best-practices-learned-from-load-test)
+  - [How to Allocate Pods](#1-how-to-allocate-spark-driver--executor-pods)
+  - [DONOT Use Sidecars Whenever Possible](#2-try-not-to-use-initcontainersor-custom-sidecar)
+  - [Binpacking pods](#3-binpacking-application-pods)
+  - [Cluster Scalability](#4-cluster-scalability)
+  - [Networking in EKS](#5-best-practices-for-networking)
 - [Monitoring](#monitoring)
 - [Clean up](#clean-up)
 
@@ -52,34 +58,37 @@ Alternatively, use the default configurations shown as below:
 <summary>Default Environment Variables</summary>
 
 ```bash
-# General Configuration
-export LOAD_TEST_PREFIX=load-test-cluster
-export CLUSTER_NAME=${LOAD_TEST_PREFIX}-100
+# General
 export AWS_REGION=us-west-2
-# Note: For PUB_ECR_REGISTRY_ACCOUNT in different regions, please refer to:
-# https://docs.aws.amazon.com/emr/latest/EMR-on-EKS-DevelopmentGuide/docker-custom-images-tag.html
-export PUB_ECR_REGISTRY_ACCOUNT=895885662937
-export EKS_VPC_CIDR=172.16.0.0/16
-export EKS_VERSION=1.34
-
-# Utility
 export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-export BUCKET_NAME=emr-on-${CLUSTER_NAME}-$ACCOUNT_ID-$AWS_REGION
+export LOAD_TEST_PREFIX=load-test-cluster
+export CLUSTER_NAME=${LOAD_TEST_PREFIX}-10
+export BUCKET_NAME=emr-on-${CLUSTER_NAME}-$ACCOUNT_ID-${AWS_REGION}
+# Locust
+export EMR_IMAGE_VERSION=7.9.0
+export SPARK_JOB_NS_NUM=2 # number of namespaces to test. SF/feature:20
+export LOCUST_EKS_ROLE="${CLUSTER_NAME}-locust-eks-role"
+export JOB_SCRIPT_NAME="emr-job-run.sh"
+
+# ======================================================================
+# Required variables for infra-provision.sh. 
+# If skip the infra setup step, remove this unnecessary section
+# ================================================
+# EKS
+export EKS_VPC_CIDR=192.168.0.0/16
+export EKS_VERSION=1.34
+# EMR on EKS
+export PUB_ECR_REGISTRY_ACCOUNT=895885662937
 export EXECUTION_ROLE=emr-on-${CLUSTER_NAME}-execution-role
 export EXECUTION_ROLE_POLICY=${CLUSTER_NAME}-SparkJobS3AccessPolicy
-export SPARK_JOB_NS_NUM=2
-export EMR_IMAGE_VERSION=7.9.0
-export ECR_URL="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-
 # Karpenter
 export KARPENTER_VERSION="1.6.1"
 export KARPENTER_CONTROLLER_ROLE="KarpenterControllerRole-${CLUSTER_NAME}"
 export KARPENTER_CONTROLLER_POLICY="KarpenterControllerPolicy-${CLUSTER_NAME}"
 export KARPENTER_NODE_ROLE="KarpenterNodeRole-${CLUSTER_NAME}"
-
-# Create Amazon Managed Grafana Workspace
-# If reuse a Grafana workspace, set it to false
+# Create Amazon Managed Grafana workspace or not
 export USE_AMG="true"
+# =======================================================================
 ```
 </details>
 
@@ -92,7 +101,9 @@ Skip this step if your EKS environment exists. If required, install missing comp
 - [Load Balancer Controler](https://docs.aws.amazon.com/eks/latest/userguide/lbc-helm.html)
 - [EBS CSI Driver Addon](https://docs.aws.amazon.com/eks/latest/userguide/ebs-csi.html)
 - [Karpenter](https://aws.github.io/aws-emr-containers-best-practices/troubleshooting/docs/karpenter/)
-- [BinPacking](https://awslabs.github.io/data-on-eks/docs/resources/binpacking-custom-scheduler-eks) enabled. Monitoring by default uses managed services:
+- [BinPacking](https://awslabs.github.io/data-on-eks/docs/resources/binpacking-custom-scheduler-eks) 
+
+Monitoring by default uses managed services:
 - [Amazon Managed Prometheus](https://aws.amazon.com/prometheus/)
 - [Amazon Managed Grafana](https://aws.amazon.com/grafana/)
 
@@ -112,64 +123,58 @@ Skip this step if your EKS environment exists. If required, install missing comp
 bash ./infra-provision.sh
 ```
 
-### Install Locust cluster in EKS
-[Locust](https://github.com/locustio/locust) is an Open source load testing tool based on Python. This section demostrates how to setup Locust via a helm chart in a new or existing EKS, with a main pod + 2 worker pods installed by default. 
+### Install Locust Cluster in EKS
+[Locust](https://github.com/locustio/locust) is an Open source load testing tool based on Python. This section demostrates how to setup Locust via a helm chart in a new or existing EKS, with one main pod + 2 worker pods installed by default. Modify the default settings in [./locust/resources/eks-cluster-values.yaml](./resources/eks-cluster-values.yaml) if needed.
 
 ```bash
+# install locaust
 bash ./locust-provision.sh
 ```
-With this script implementation, you don't need to have extra settings to play around the load testing, just choose the volume of workload to mimick your real production.
 
 [^ back to top](#table-of-contents)
 
 
 ## Get Started with Load Test
-### 1. Submit Jobs to Cluster Autoscaler (CAS)
 
+You can assign compute environment for your load test via Spark configs in job scripts, see details in the best practice section: [How to Allocate Pods](#1-how-to-allocate-spark-driver--executor-pods).
+
+### 1. Submit Jobs locally
+Firstly, let's run a small test from a local terminal window. The following parameters are avaiable to adjust:
 ```bash
-# SSH to Locust EC2
-ssh -i eks-operator-test-locust-key.pem ec2-user@xxx.xxx.xxx.xxx
-cd load-test/locust
+# -u, How many users are going to submit the jobs concurrently.
+#     Used a default wait interval (between 20s-30s per user) before submit the next job. 
+# -t, The total load test period.
+# --emr-script-path, Set by env.sh. Load test job's shell script name. 
+# --job-azs, Default: None. a list of AZs available in the EKS's VPC. It means pods in a single job will be scheduled to multiple AZs which could cause data transfer fee and performance downgrade. If it's set (see below), all pods of a job will be scheduled to a single AZ. NOTE: The AZ selection is random not round robin.
+# --job-ns-count, Default: 2 namespaces. Total number of namespaces/VCs that jobs will be submitting to.
 
-# -u, how many users are going to submit the testing jobs to eks cluster via Spark Operator.
-#     The default wait interval for each user to submit jobs is between 20 - 30s in this testing tool.
-# -t, the time of submitting jobs.
-# --job-azs, customized api, let jobs to be submitted into 2 AZs randomly.
-# --kube-labels, kubernetes labls, matching NodeGroups.
-# --job-name, spark job prefix. 
-# --job-ns-count, the testing jobs will be submitting to 2 Namespaces, `spark-job0`, `spark-job1`.
+cd load-test-for-emr-on-eks/locust
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 
-locust -f ./locustfile.py -u 2 -t 10m --headless --skip-log-setup \
+locust -f ./locustfile.py -u 2 -t 10m \
 --job-azs '["us-west-2a", "us-west-2b"]' \
---kube-labels '[{"operational":"false"},{"monitor":"false"}]' \
---job-name cas-job \
 --job-ns-count 2
-
 ```
-[^ back to top](#table-of-contents)
 
-### 2. Submit Jobs to Karpenter
-
+Cancel jobs and delete EMR-on-EKS virtual clusters (not namespace) from EKS after each load test session.
+A re-used namespace only can map to a single active VC, so the old VC created by the previously session must be terminated first. 
 ```bash
-# --karpenter, to enable karpenter, instead of CAS.
-# --kube-labels, in Karpenter test case, the labels should match with NodePool labels.
-# --binpacking true, enable binpacking pod scheduler.
-# --karpenter_driver_not_evict, enable driver pod not be evicting in Karpenter test case.
-
-locust -f ./locustfile.py -u 2 -t 10m --headless --skip-log-setup \
---job-azs '["us-west-2a", "us-west-2b"]' \
---kube-labels '[{"cluster-worker": "true"}]' \
---job-name karpenter-job \
---job-ns-count 2 \
---karpenter \
---binpacking true \
---karpenter_driver_not_evict true
+# Clean up EMR-EKS's Virtual Clsuters, jobs and namespaces created by Locust
+# --id, remove by a test instance id')
+# --cluster, or remove by the eks cluster name'
+python3 stop_test.py --cluster $CLUSTER_NAME  
 ```
+
 [^ back to top](#table-of-contents)
+
+### 2. Submit Jobs from EKS
+
 
 ## Best Practices Learned from Load Test
 
-### 1. How to Allocate Spark Driver & Executor Pods Matters
+### 1. How to Allocate Spark Driver & Executor Pods
 To minimise the cross-node DataIO and networkIO penalty in a single Spark job, it is recommended trying to allocate the Spark executor pods into the same node as much as possible.
 
 However, to reduce the compute cost, executor's node pool has aggressive node consolidation rule. To remove the eviction impact on Driver pod, we run it in a seperate node pool in Karpenter.
@@ -183,7 +188,7 @@ Additionally, to avoid the cross-AZ data transfer fee, utilize the `spark.kubern
 # Or match by a kapenter nodepool name
 "spark.kubernetes.node.selector.karpenter.sh/nodepool": "single-az-nodepool"
 
-# Or match by a nodegroup name
+# Or match by a nodegroup name managed by cluster autoscaler
 "spark.kubernetes.driver.node.selector.eks.amazonaws.com/nodegroup": "m5-ng-uw2a",
 ```
 [^ back to top](#table-of-contents)
@@ -254,6 +259,7 @@ With large volume of workloads, IP addresses often exhaustes. To solve this, we 
 More details can be found: https://aws.github.io/aws-eks-best-practices/networking/vpc-cni/
 https://docs.aws.amazon.com/eks/latest/best-practices/networking.html
 
+[^ back to top](#table-of-contents)
 
 ## Monitoring:
 
@@ -338,9 +344,6 @@ Please refer to the [Grafana README](./grafana/README.md) document for detailed 
 
 ## Clean up
 ```bash
-# To remove the Locust EC2 from infrastructure. You can ignore if you did not execute bash ./locust-provision.sh before.
-bash ./locust-provision.sh -action delete
-
 # To remove the resources that created by ./infra-provision.sh.
 bash ./clean-up.sh 
 ```

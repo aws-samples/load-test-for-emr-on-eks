@@ -25,7 +25,3 @@ spec:
         karpenter.sh/discovery: "${CLUSTER_NAME}"
   tags:
     Name: karpenter-node
-    environment: '{pod.metadata.labels.environment}'
-    executionId: '{pod.metadata.labels.executionid}'
-    jobName: '{pod.metadata.labels.jobname}'
-    timestamp: '{pod.metadata.labels.timestamp}'

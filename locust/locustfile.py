@@ -1,21 +1,23 @@
+
+import time, json, subprocess, random, threading
+from os import environ, path
+from datetime import datetime, timedelta
+environ["LOCUST_SKIP_MONKEY_PATCH"] = "1"
+
 from locust import User, task, between, events
 from prometheus_client import start_http_server, Counter, Gauge
-import uuid, time, os, json, subprocess, random, threading
-from datetime import datetime, timedelta
-from emr_containers.job_common_config import EKS_CLUSTER_NAME,REGION,JOB_SCRIPT_NAME_PATH
-from emr_containers.virtual_cluster import virtual_cluster
-from emr_containers.shared import test_instance, setup_unique_test_id
-
-# Import virtual cluster management
-# sys.path.append('/Users/meloyang/Documents/sourcecode/OutlookForMac-mcp-server')
+from lib.virtual_cluster import virtual_cluster
+from lib.shared import test_instance, setup_unique_user_id
 
 # Global variables and events
 exit_event = threading.Event()
 test_start_time = time.perf_counter()
 virtual_clusters = {}  # Store namespace -> virtual_cluster_id mapping
-ns_prefix = "emr"
-# EMR job script path
-# emr_script_path = "./resources/emr-eks-benchmark-oom.sh"
+unique_id = f"{test_instance.id}"
+ns_prefix = f"{unique_id}-ns"
+
+EKS_CLUSTER_NAME = environ["CLUSTER_NAME"]
+REGION = environ["AWS_REGION"]
 
 # Prometheus metrics
 success_counter = Counter('locust_emr_job_submit_success', 'Number of successful EMR job submissions')
@@ -30,10 +32,11 @@ virtual_clusters_gauge = Gauge('locust_virtual_clusters_count', 'Number of EMR v
 
 @events.init_command_line_parser.add_listener
 def on_locust_init(parser):
-    parser.add_argument("--emr-script-path", type=str, default=JOB_SCRIPT_NAME_PATH, help="EMR on EKS job submission shell script file name and path")
-    parser.add_argument("--job-ns-count", type=int, default=2, help="Number of job namespaces")
-    parser.add_argument("--job-azs", type=json.loads, default=f"{REGION}a", help="List of AZs for task allocation")
-    parser.add_argument("--emr-version", type=str, default=None, help="EMR release version")
+    JOB_SHELL_SCRIPT = environ["JOB_SCRIPT_NAME"]
+    NAMESPACE_COUNT = int(environ.get("SPARK_JOB_NS_NUM", "2"))
+    parser.add_argument("--emr-script-name", type=str, default=JOB_SHELL_SCRIPT, help="EMR on EKS job submission shell script file name and path")
+    parser.add_argument("--job-ns-count", type=int, default=NAMESPACE_COUNT, help="Number of job namespaces")
+    parser.add_argument("--job-azs", type=json.loads, default=None, help="List of AZs for task allocation")
     # parser.add_argument("--wait-time", type=int, default="20", help="Submission delay per virtual cluster.")
 
 def printlog(log):
@@ -45,27 +48,27 @@ class EMRJobUser(User):
 
     def __init__(self, environment):
         super().__init__(environment)
-        self.job_script = environment.parsed_options.emr_script_path
+        self.user_id = setup_unique_user_id()
+        self.job_script = environment.parsed_options.emr_script_name
         self.ns_count = environment.parsed_options.job_ns_count
         self.job_azs = environment.parsed_options.job_azs
-        self.emr_version = environment.parsed_options.emr_version
         self.total_jobs_submitted = 0
 
     @events.test_start.add_listener
     def on_test_start(environment, **kwargs):
-
         printlog(f"Start the load test against EKS Cluster {EKS_CLUSTER_NAME} in region {REGION}........")
-        printlog(f"Wait time is set between 20 -30 seconds")
-        printlog(f"EMR on EKS job submission script is set to [green]{environment.parsed_options.emr_script_path}")
+        printlog(f"Wait time is set between 20-30 seconds")
+        printlog(f"EMR on EKS job submission script is set to [green]{environment.parsed_options.emr_script_name}")
         printlog(
-            f"Monitor the test:[green on grey19]python3[/][white on grey19] monitor.py {test_instance.id}[/]")
+            f"Monitor the test:[green on grey19]python3[/][white on grey19] python monitor.py {unique_id}[/]")
         printlog("Starting EMR job monitoring thread")
         thread = threading.Thread(target=monitor_emr_jobs, args=(environment,))
         thread.start()
 
     @events.test_stop.add_listener
     def on_test_stop(environment, **kwargs):
-        printlog("Stopping EMR job monitoring thread")
+        printlog(f"Test [green]{unique_id}[/green] has stopped ramping up. Jobs are still running")
+        printlog(f"To stop the test: [green on grey27]python3[/][white on grey27] python stop_test.py --id {unique_id}[/]")
         exit_event.set()
 
     @task
@@ -74,9 +77,9 @@ class EMRJobUser(User):
 
     @task
     def submit_emr_job(self):
-        printlog("Submitting EMR on EKS job")
+        printlog(f"Submitting EMR on EKS job for the test session {unique_id} by user {self.user_id}")
         
-        # Randomly choose a namespace and its virtual cluster
+        # Randomly pick up a namespace to submit the job
         index = random.randint(1, self.ns_count)
         namespace = f"{ns_prefix}{index}"
         
@@ -85,56 +88,57 @@ class EMRJobUser(User):
             failed_counter.inc()
             return
             
-        emr_cluster_name = f"emr-on-{EKS_CLUSTER_NAME}"
+        # emr_cluster_name = f"{unique_id}-{EKS_CLUSTER_NAME}-{index}"
         virtual_cluster_id = virtual_clusters[namespace]
-        job_unique_id = setup_unique_test_id()
+        job_unique_id = setup_unique_user_id()
         selected_az = random.choice(self.job_azs) if self.job_azs else None
-        emr_version = self.emr_version if self.emr_version else None
         start_time = time.time()
         
         try:
+            # Build script path and validate
+            script_path = path.join(path.dirname(__file__), "resources", self.job_script)
+            if not path.exists(script_path):
+                printlog(f"ERROR: Script not found at {script_path}")
+                failed_counter.inc()
+                return
+            
             # Execute EMR job script with environment variables
-            env = os.environ.copy()
+            env = environ.copy()
             env.update({
-                'EMRCLUSTER_NAME': emr_cluster_name,
+                'CLUSTER_NAME': EKS_CLUSTER_NAME,
                 'VIRTUAL_CLUSTER_ID': virtual_cluster_id,
                 'AWS_REGION': REGION,
                 'JOB_UNIQUE_ID': job_unique_id,
-                'SELECTED_AZ': selected_az,
-                'EMR_VERSION': emr_version
+                'SELECTED_AZ': selected_az
             })
 
-            # Make script executable and run it
-            subprocess.run(['chmod', '+x', self.job_script], check=True)
-            result = subprocess.run(
-                ['bash', self.job_script],
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=300
-            )
+            subprocess.run(['chmod', '+x', script_path], check=True)
+            result = subprocess.run(['sh', script_path],env=env,
+                capture_output=True,text=True,timeout=300)
             
             if result.returncode == 0:
                 success_counter.inc()
                 self.total_jobs_submitted += 1
-                printlog(f"EMR job submitted successfully: {job_unique_id} to VC: {virtual_cluster_id}")
+                printlog(f"EMR job {job_unique_id} is submitted successfully to VC: {virtual_cluster_id}, namespace: {namespace}")
             else:
                 failed_counter.inc()
-                printlog(f"EMR job submission failed: {result.stderr}")
+                # printlog(f"EMR job submission failed: {result.stderr}")
+                printlog(f"Debug info: EMR job submission failed (exit code {result.returncode}): {result.stderr}")
                 
         except subprocess.TimeoutExpired:
             failed_counter.inc()
-            printlog(f"EMR job submission timed out for: {job_unique_id}")
+            printlog(f"ERROR: EMR job submission timed out for: {job_unique_id}")
         except Exception as e:
             failed_counter.inc()
-            printlog(f"Exception during EMR job submission: {e}")
+            # printlog(f"Exception during EMR job submission: {e}")
+            printlog(f"ERROR: Exception during EMR job submission: {type(e).__name__}: {e}")
         finally:
             execution_time_gauge.set(time.time() - start_time)
             elapsed_time = time.perf_counter() - test_start_time
             printlog(f"Submitted {self.total_jobs_submitted} jobs. Elapsed time: {str(timedelta(seconds=elapsed_time))}")
 
 def monitor_emr_jobs(environment):
-    """Monitor EMR job runs across all virtual clusters"""
+    """Monitor EMR job runs across all virtual clusters, emit job counts per 1 minute"""
     next_time = time.time() + 60
     
     while True:
@@ -142,7 +146,7 @@ def monitor_emr_jobs(environment):
             break
         current_time = time.time()
         if current_time > next_time:
-            printlog("Collecting EMR job metrics across all virtual clusters")
+            printlog("Collecting EMR job metrics across all virtual clusters at 1 minute interval...")
             
             running_count = 0
             submitted_count = 0
@@ -151,8 +155,8 @@ def monitor_emr_jobs(environment):
             
             try:
                 # Monitor jobs across all virtual clusters using library
-                for namespace, vc_id in virtual_clusters.items():
-                    job_runs = virtual_cluster.list_job_runs(vc_id, ['PENDING', 'SUBMITTED', 'RUNNING', 'COMPLETED', 'FAILED'])
+                for ns_id, vc_id in virtual_clusters.items():
+                    job_runs = virtual_cluster.list_job_runs(vc_id)
                     
                     for job_run in job_runs:
                         state = job_run['state']
@@ -184,13 +188,13 @@ def monitor_emr_jobs(environment):
 
 class LoadTestInitializer():
     def __init__(self, ns_count):
-        printlog(f"Creating No.{ns_count} virtual cluster...")
+        printlog(f"Creating {ns_count} virtual cluster(s) for the test instance {unique_id}...")
         """Create virtual cluster and namespace mapping"""
         global virtual_clusters
-        for i in range(ns_count):
+        for i in range(1, ns_count + 1):
             namespace = f"{ns_prefix}{i}"  
-            self.virtual_cluster_name = f"emr-on-{EKS_CLUSTER_NAME}-{i}"
-            self.vc_id = virtual_cluster.create_namespace_and_virtual_cluster(namespace,EKS_CLUSTER_NAME,self.virtual_cluster_name)
+            self.virtual_cluster_name = f"{unique_id}-{EKS_CLUSTER_NAME}-{i}"
+            self.vc_id = virtual_cluster.create_namespace_and_virtual_cluster(self.virtual_cluster_name,namespace,EKS_CLUSTER_NAME)
             if self.vc_id:
                 virtual_clusters[namespace] = self.vc_id
                 printlog(f"Virtual cluster {self.vc_id} mapped to namespace {namespace}")

@@ -1,6 +1,6 @@
-kubernetes==30.1.0
-locust==2.26.0
-prometheus_client==0.17.1
-urllib3==1.26.15
+locust==2.42.1
+prometheus_client==0.21.0
+urllib3==2.2.1
 boto3==1.34.89
+botocore==1.34.89
 rich==13.7.1

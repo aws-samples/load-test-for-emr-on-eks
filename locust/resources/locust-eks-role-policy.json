@@ -1,0 +1,71 @@
+{
+  "Version":"2012-10-17",		 	 	 
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateServiceLinkedRole"
+      ],
+      "Resource": [
+        "*"
+      ],
+      "Condition": {
+        "StringLike": {
+          "iam:AWSServiceName": "emr-containers.amazonaws.com"
+        }
+      },
+      "Sid": "AllowIAMCreateservicelinkedrole"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "emr-containers:CreateVirtualCluster",
+        "emr-containers:ListVirtualClusters",
+        "emr-containers:DescribeVirtualCluster",
+        "emr-containers:DeleteVirtualCluster"
+      ],
+      "Resource": [
+        "*"
+      ],
+      "Sid": "AllowEMRCONTAINERSCreatevirtualcluster"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "emr-containers:StartJobRun",
+        "emr-containers:ListJobRuns",
+        "emr-containers:DescribeJobRun",
+        "emr-containers:CancelJobRun"
+      ],
+      "Resource": [
+        "*"
+      ],
+      "Sid": "AllowEMRCONTAINERSStartjobrun"
+    },
+    {
+        "Sid": "s3FullAccessForTestingBucket",
+        "Effect": "Allow",
+        "Action": [
+            "s3:GetObject",
+            "s3:PutObject",
+            "s3:ListBucket" 
+        ],
+        "Resource": [
+            "arn:aws:s3:::${BUCKET_NAME}",
+            "arn:aws:s3:::${BUCKET_NAME}/*"
+        ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "logs:Get*",
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams"
+      ],
+      "Resource": [
+        "*"
+      ],
+      "Sid": "AllowLOGSGet"
+    }
+  ]
+}

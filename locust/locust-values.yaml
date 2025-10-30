@@ -1,0 +1,29 @@
+loadtest:
+  name: ${CLUSTER_NAME}-locust
+  namespace: locust
+  locust_locustfile: locustfile.py
+  locust_locustfile_configmap: emr-loadtest-locustfile
+  locust_lib_configmap: emr-loadtest-lib
+  locust_host: ""
+  # # pip_packages: ["prometheus_client","boto3"]
+  # environment:
+  #   REGION: "us-west-2"
+  #   EKS_CLUSTER_NAME: "load-test-cluster-10"
+  #   JOB_SCRIPT_NAME: "emr-job-run.sh"
+
+image:
+  repository: ${ECR_URL}/locust
+  tag: latest
+  pullPolicy: Always
+ 
+master:
+  serviceAccountAnnotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::${ACCOUNT_ID}:role/${LOCUST_EKS_ROLE}"
+  nodeSelector:
+    "eks.amazonaws.com/nodegroup": "ng-10"
+
+worker:
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 2

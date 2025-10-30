@@ -43,7 +43,7 @@ iam:
     roleOnly: true    
 addons:
   - name: aws-ebs-csi-driver
-    version: v1.48.0-eksbuild.2
+    version: latest
     wellKnownPolicies:
       ebsCSIController: true
     serviceAccountRoleARN: arn:aws:iam::${ACCOUNT_ID}:role/${CLUSTER_NAME}-AWSLoadBalancerControllerRole
@@ -60,10 +60,11 @@ managedNodeGroups:
       operational: "true"
       monitor: "true"
   - name: ${CLUSTER_NAME}-m5-worker-ng-2a
+  # change the instance type if needed
     instanceType: m5.xlarge
     desiredCapacity: 1
     minSize: 1
-    maxSize: 350
+    maxSize: 350 # increase max size on ASG AWS console as needed
     privateNetworking: true
     labels:
       operational: "false"
@@ -74,6 +75,7 @@ managedNodeGroups:
       k8s.io/cluster-autoscaler/enabled: "true"
       k8s.io/cluster-autoscaler/${CLUSTER_NAME}: "owned"
   - name: ${CLUSTER_NAME}-m5-worker-ng-2b
+   # change the instance type if needed
     instanceType: m5.xlarge
     desiredCapacity: 1
     minSize: 1
