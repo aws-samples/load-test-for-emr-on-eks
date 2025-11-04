@@ -39,6 +39,7 @@ iam:
       labels: {aws-usage: "monitoring"}
     attachPolicyARNs: 
     - "arn:aws:iam::aws:policy/AmazonPrometheusRemoteWriteAccess"
+    - "arn:aws:iam::aws:policy/AmazonPrometheusQueryAccess"
     roleName: ${CLUSTER_NAME}-prometheus-ingest 
     roleOnly: true    
 addons:

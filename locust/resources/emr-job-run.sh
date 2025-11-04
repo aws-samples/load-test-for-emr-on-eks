@@ -23,22 +23,21 @@ aws emr-containers start-job-run \
 --job-driver '{
   "sparkSubmitJobDriver": {
       "entryPoint": "local:///usr/lib/spark/examples/jars/eks-spark-benchmark-assembly-1.0.jar",
-      "entryPointArguments":["s3://blogpost-sparkoneks-us-east-1/blog/tpc30/","s3://'$S3BUCKET'/EMRONEKS_PVC-REUSE-TEST-RESULT","/opt/tpcds-kit/tools","parquet","30","1","false","q4-v2.4,q23a-v2.4,q23b-v2.4,q24a-v2.4,q24b-v2.4,q67-v2.4,q50-v2.4,q93-v2.4","false"],
-      "sparkSubmitParameters": "--class com.amazonaws.eks.tpcds.BenchmarkSQL --conf spark.driver.cores=1 --conf spark.driver.memory=1g --conf spark.executor.cores=2 --conf spark.executor.memory=2g --conf spark.executor.instances=16"}}' \
+      "entryPointArguments":["s3://blogpost-sparkoneks-us-east-1/blog/tpc30/","s3://'$S3BUCKET'/EMRONEKS_PVC-REUSE-TEST-RESULT","/opt/tpcds-kit/tools","parquet","30","1","false","q4-v2.4,q24a-v2.4,q24b-v2.4,q67-v2.4","false"],
+      "sparkSubmitParameters": "--class com.amazonaws.eks.tpcds.BenchmarkSQL --conf spark.driver.cores=1 --conf spark.driver.memory=1g --conf spark.executor.cores=2 --conf spark.executor.memory=4g --conf spark.executor.instances=20"}}' \
 --configuration-overrides '{
     "applicationConfiguration": [
       {
         "classification": "spark-defaults", 
         "properties": {
           "spark.kubernetes.container.image.pullPolicy": "IfNotPresent",
-          "spark.kubernetes.container.image": "$ECR_URL/eks-spark-benchmark:emr7.8.0-tpcds2.4",
-          "spark.network.timeout": "2000s",
-          "spark.executor.heartbeatInterval": "300s",
+          "spark.kubernetes.container.image": "'$ECR_URL'/eks-spark-benchmark:emr7.9.0-tpcds2.4",
+          "spark.network.timeout": "3000s",
+          "spark.executor.heartbeatInterval": "2000s",
           
-          "spark.kubernetes.scheduler.name": "custom-scheduler-eks",
           "spark.kubernetes.executor.node.selector.karpenter.sh/nodepool": "executor-memorynodepool",
           "spark.kubernetes.driver.node.selector.karpenter.sh/nodepool": "driver-nodepool",
-          "spark.kubernetes.executor.node.selector.karpenter.sh/capacity-type": "ON_DEMAND",
+          "spark.kubernetes.executor.node.selector.karpenter.sh/capacity-type": "on-demand",
           "spark.kubernetes.node.selector.topology.kubernetes.io/zone": "'$SELECTED_AZ'",
 
           "spark.kubernetes.driver.waitToReusePersistentVolumeClaim": "true",
@@ -47,19 +46,27 @@ aws emr-containers start-job-run \
           "spark.kubernetes.executor.volumes.persistentVolumeClaim.spark-local-dir-1.mount.readOnly": "false",
           "spark.kubernetes.executor.volumes.persistentVolumeClaim.spark-local-dir-1.options.claimName": "OnDemand",
           "spark.kubernetes.executor.volumes.persistentVolumeClaim.spark-local-dir-1.options.storageClass": "gp3",
-          "spark.kubernetes.executor.volumes.persistentVolumeClaim.spark-local-dir-1.options.sizeLimit": "3Gi",
-          "spark.kubernetes.executor.volumes.persistentVolumeClaim.spark-local-dir-1.mount.path": "/data1"
+          "spark.kubernetes.executor.volumes.persistentVolumeClaim.spark-local-dir-1.options.sizeLimit": "5Gi",
+          "spark.kubernetes.executor.volumes.persistentVolumeClaim.spark-local-dir-1.mount.path": "/data1",
+
+          "spark.ui.prometheus.enabled":"true",
+          "spark.executor.processTreeMetrics.enabled":"true",
+          "spark.kubernetes.driver.annotation.prometheus.io/scrape":"true",
+          "spark.kubernetes.driver.annotation.prometheus.io/path":"/metrics/executors/prometheus/",
+          "spark.kubernetes.driver.annotation.prometheus.io/port":"4040",
+          "spark.kubernetes.driver.service.annotation.prometheus.io/scrape":"true",
+          "spark.kubernetes.driver.service.annotation.prometheus.io/path":"/metrics/driver/prometheus/",
+          "spark.kubernetes.driver.service.annotation.prometheus.io/port":"4040",
+          "spark.metrics.conf.*.sink.prometheusServlet.class":"org.apache.spark.metrics.sink.PrometheusServlet",
+          "spark.metrics.conf.*.sink.prometheusServlet.path":"/metrics/driver/prometheus/",
+          "spark.metrics.conf.master.sink.prometheusServlet.path":"/metrics/master/prometheus/",
+          "spark.metrics.conf.applications.sink.prometheusServlet.path":"/metrics/applications/prometheus/"
       }},
       {
         "classification": "emr-containers-defaults",
         "properties": {
           "job-start-timeout":"3600"
-      }},
-       {
-        "classification": "spark-log4j",
-        "properties": {
-          "rootLogger.level" : "DEBUG"
-        }}
+      }}
     ], 
     "monitoringConfiguration": {
       "s3MonitoringConfiguration": {"logUri": "s3://'$S3BUCKET'/elasticmapreduce/emr-containers"}}}'

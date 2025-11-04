@@ -179,11 +179,11 @@ echo " Create Karpenter IAM roles, SQS queue and event rules for EC2 interruptio
 echo "================================================================================================================"
 # the CFN stack creates Controller Policy, Node Role, SQS Queue and Event Bridge Rules
 curl https://raw.githubusercontent.com/aws/karpenter-provider-aws/v"${KARPENTER_VERSION}"/website/content/en/preview/getting-started/getting-started-with-karpenter/cloudformation.yaml > ./resources/karpenter/cloudformation-${KARPENTER_VERSION}.yaml
-aws cloudformation create-stack \
-  --stack-name karpenter-infra-$CLUSTER_NAME \
-  --template-body file://resources/karpenter/cloudformation-${KARPENTER_VERSION}.yaml \
-  --parameters ParameterKey=ClusterName,ParameterValue=$CLUSTER_NAME \
+aws cloudformation deploy \
+  --stack-name "karpenter-infra-${CLUSTER_NAME}" \
+  --template-file ./resources/karpenter/cloudformation-${KARPENTER_VERSION}.yaml \
   --capabilities CAPABILITY_NAMED_IAM \
+  --parameter-overrides "ClusterName=${CLUSTER_NAME}" \
   --region $AWS_REGION
 
 echo "Create Karpenter controller role"
@@ -202,7 +202,6 @@ else
             "Action": "sts:AssumeRoleWithWebIdentity",
             "Condition": {
                 "StringEquals": {
-                    "${OIDC_PROVIDER}:aud": "sts.amazonaws.com",
                     "${OIDC_PROVIDER}:sub": "system:serviceaccount:kube-system:karpenter"
                 }
             }
@@ -250,28 +249,43 @@ helm registry logout public.ecr.aws
 # Before enable the "interruptionQueue", the SQS queue must exist
 helm template karpenter oci://public.ecr.aws/karpenter/karpenter --version "${KARPENTER_VERSION}" --namespace kube-system \
     --set "settings.clusterName=${CLUSTER_NAME}" \
-    --set "settings.interruptionQueue=${CLUSTER_NAME}"  \
-    --set "serviceAccount.annotations.eks\.amazonaws\.com/role-arn=arn:aws:iam::${ACCOUNT_ID}:role/${KARPENTER_CONTROLLER_ROLE}" \
-    --set controller.resources.requests.cpu=4 \
+    --set "settings.interruptionQueue=${CLUSTER_NAME}" \
+    --set "serviceAccount.annotations.eks\.amazonaws\.com/role-arn=arn:aws:iam::${AWS_ACCOUNT_ID}:role/KarpenterControllerRole-${CLUSTER_NAME}" \
+    --set controller.resources.requests.cpu=1 \
     --set controller.resources.requests.memory=1Gi \
-    --set controller.resources.limits.cpu=4 \
+    --set controller.resources.limits.cpu=1 \
     --set controller.resources.limits.memory=1Gi > ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml
-
+# run Karpenter pods on a managed nodegroup
 export NG=$(aws eks list-nodegroups --cluster-name $CLUSTER_NAME --output json | jq -r '.nodegroups[0]')
-sed -i '' '/operator: DoesNotExist/a\
+sed -i='' '/operator: DoesNotExist/a\
               - key: eks.amazonaws.com/nodegroup\
                 operator: In\
                 values:\
                 - '"$(eval echo \$NG)"'
 ' ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml
-
+# increase resource requests
+sed -i='' '
+    /resources:/,/requests:/{
+        s/cpu: 1$/cpu: 4/
+        s/memory: 1Gi$/memory: 4Gi/
+    }
+' ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml
+# increase livenessProbe to avoid throttling
+sed -i='' '/livenessProbe:/,/timeoutSeconds: 30/c\
+          livenessProbe:\
+            initialDelaySeconds: 30\
+            periodSeconds: 30\
+            timeoutSeconds: 10\
+            failureThreshold: 5\
+' ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml
+#crds
 kubectl create -f \
     "https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.sh_nodepools.yaml"
 kubectl create -f \
     "https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.k8s.aws_ec2nodeclasses.yaml"
 kubectl create -f \
     "https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.sh_nodeclaims.yaml"
-# kubectl apply -f ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml
+kubectl apply -f ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml
 
 echo "====================================================="
 echo "  Create Karpenter Nodepools and nodeclass ......"
@@ -279,7 +293,7 @@ echo "====================================================="
 echo "Create Karpenter nodepools ......"
 sed -i='' 's/${KARPENTER_NODE_ROLE}/'$KARPENTER_NODE_ROLE'/g' ./resources/karpenter/shared-nodeclass.yaml
 sed -i='' 's/${CLUSTER_NAME}/'$CLUSTER_NAME'/g' ./resources/karpenter/shared-nodeclass.yaml
-kubectl apply -f "./resources/karpenter/*.yaml"
+kubectl apply -f "./resources/karpenter/*-node*.yaml"
 
 # Add authorized entry for Karpenter node role
 aws eks create-access-entry --cluster-name ${CLUSTER_NAME} --principal-arn arn:aws:iam::${ACCOUNT_ID}:role/${KARPENTER_NODE_ROLE} --type EC2_LINUX
@@ -348,9 +362,14 @@ aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --
 aws ecr create-repository --repository-name eks-spark-benchmark --image-scanning-configuration scanOnPush=true || true
 
 wget -O Dockerfile https://raw.githubusercontent.com/aws-samples/emr-on-eks-benchmark/refs/heads/main/docker/benchmark-util/Dockerfile
-
+# Spark load test image
 docker buildx build --platform linux/amd64,linux/arm64 \
 -t $ECR_URL/eks-spark-benchmark:emr${EMR_IMAGE_VERSION} \
 -f ./Dockerfile \
 --build-arg SPARK_BASE_IMAGE=$SRC_ECR_URL/spark/emr-${EMR_IMAGE_VERSION}:latest \
+--push .
+# Locust image
+docker buildx build --platform linux/amd64,linux/arm64 \
+-t $ECR_URL/locust \
+-f ./locust/Dockerfile \
 --push .

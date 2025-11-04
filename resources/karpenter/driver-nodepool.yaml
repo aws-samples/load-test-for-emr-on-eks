@@ -4,8 +4,6 @@ metadata:
   name: driver-nodepool
 spec:
   disruption:
-    budgets:
-    - nodes: 10%
     consolidateAfter: 1m
     consolidationPolicy: WhenEmpty
   limits:
@@ -21,13 +19,13 @@ spec:
       requirements:
       - key: kubernetes.io/arch
         operator: In
-        values: ["amd64"]
-      - key: kubernetes.io/os
-        operator: In
-        values: ["linux"]
+        values: ["amd64","arm64"]
       - key: karpenter.sh/capacity-type
         operator: In
         values: ["on-demand"]
+      - key: "karpenter.k8s.aws/instance-hypervisor"
+        operator: In
+        values: ["nitro"]   
       - key: karpenter.k8s.aws/instance-size
         operator: In
         values:

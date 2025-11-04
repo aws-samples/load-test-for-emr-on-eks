@@ -5,11 +5,11 @@ loadtest:
   locust_locustfile_configmap: emr-loadtest-locustfile
   locust_lib_configmap: emr-loadtest-lib
   locust_host: ""
-  # # pip_packages: ["prometheus_client","boto3"]
-  # environment:
-  #   REGION: "us-west-2"
-  #   EKS_CLUSTER_NAME: "load-test-cluster-10"
-  #   JOB_SCRIPT_NAME: "emr-job-run.sh"
+  # pip_packages: ["prometheus_client==0.21.0","boto3==1.34.89","botocore==1.34.89","rich==13.7.1"]
+  environment:
+    REGION: ${REGION}
+    EKS_CLUSTER_NAME: ${CLUSTER_NAME}
+    JOB_SCRIPT_NAME: ${JOB_SCRIPT_NAME}
 
 image:
   repository: ${ECR_URL}/locust
@@ -20,10 +20,14 @@ master:
   serviceAccountAnnotations:
     eks.amazonaws.com/role-arn: "arn:aws:iam::${ACCOUNT_ID}:role/${LOCUST_EKS_ROLE}"
   nodeSelector:
-    "eks.amazonaws.com/nodegroup": "ng-10"
+    operational: "true"
 
 worker:
+  serviceAccountAnnotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::${ACCOUNT_ID}:role/${LOCUST_EKS_ROLE}"
+  nodeSelector:
+    operational: "true"  
   hpa:
     enabled: true
-    minReplicas: 2
+    minReplicas: 1
     maxReplicas: 2

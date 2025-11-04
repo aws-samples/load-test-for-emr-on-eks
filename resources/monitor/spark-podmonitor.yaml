@@ -1,7 +1,7 @@
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
-  namespace: $EMR_NAMESPACE
+  namespace: prometheus
   labels:
     prometheus: "true"
   name: spark-driver-monitoring
@@ -19,7 +19,7 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  namespace: $EMR_NAMESPACE
+  namespace: prometheus
   labels:
     prometheus: "true"
   name: spark-service-monitoring

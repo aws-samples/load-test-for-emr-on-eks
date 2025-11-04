@@ -23,7 +23,7 @@ for VAR in "${REQUIRED_VARS[@]}"; do
 done
 
 # # Upload load test artifacts to s3
-aws s3 sync ./locust/resources/ "s3://${BUCKET_NAME}/app-code/"
+# aws s3 sync ./locust/resources/ "s3://${BUCKET_NAME}/app-code/"
 
 echo "==============================================="
 echo "  Setup Locust IRSA role ......"
@@ -97,11 +97,17 @@ kubectl create configmap emr-loadtest-lib -n locust --from-file ./locust/lib
 echo "helm install Locust"
 helm repo add deliveryhero "https://charts.deliveryhero.io/"
 helm repo update deliveryhero
+export ECR_URL=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
 
 sed -i='' 's|${CLUSTER_NAME}|'$CLUSTER_NAME'|g' ./locust/locust-values.yaml 
 sed -i='' 's|${LOCUST_EKS_ROLE}|'$LOCUST_EKS_ROLE'|g' ./locust/locust-values.yaml 
 sed -i='' 's|${ECR_URL}|'$ECR_URL'|g' ./locust/locust-values.yaml 
 sed -i='' 's|${ACCOUNT_ID}|'$ACCOUNT_ID'|g' ./locust/locust-values.yaml 
-helm upgrade --install locust deliveryhero/locust -f ./locust/locust-values.yaml -n locust
+sed -i='' 's|${REGION}|'$AWS_REGION'|g' ./locust/locust-values.yaml 
+sed -i='' 's|${JOB_SCRIPT_NAME}|'$JOB_SCRIPT_NAME'|g' ./locust/locust-values.yaml 
+
+helm upgrade --install locust oci://ghcr.io/deliveryhero/helm-charts/locust \
+-f ./locust/locust-values.yaml\
+ -n locust
 
 # helm uninstall locust -n locust

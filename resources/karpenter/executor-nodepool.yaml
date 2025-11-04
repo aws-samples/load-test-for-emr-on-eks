@@ -4,8 +4,6 @@ metadata:
   name: executor-memorynodepool
 spec:
   disruption:
-    budgets:
-    - nodes: 10%
     consolidateAfter: 1m
     consolidationPolicy: WhenEmptyOrUnderutilized
   limits:
@@ -22,12 +20,12 @@ spec:
       - key: kubernetes.io/arch
         operator: In
         values: ["amd64", "arm64"]
-      - key: kubernetes.io/os
-        operator: In
-        values: [linux]
       - key: karpenter.sh/capacity-type
         operator: In
         values: ["spot", "on-demand"]
+      - key: "karpenter.k8s.aws/instance-hypervisor"
+        operator: In
+        values: ["nitro"]   
       - key: karpenter.k8s.aws/instance-size
         operator: In
         values:
@@ -40,7 +38,7 @@ spec:
         - 16xlarge
       - key: karpenter.k8s.aws/instance-category
         operator: In
-        values: ["r","m"]
+        values: ["r","m","c"]
       - key: karpenter.k8s.aws/instance-generation
         operator: Gt
-        values: ["4"]
+        values: ["2"]

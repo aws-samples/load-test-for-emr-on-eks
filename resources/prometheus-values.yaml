@@ -92,9 +92,9 @@ prometheus:
           cpu: "1"
           memory: 15Gi
     replicas: 1
-    nodeSelector:
-      operational: "true"
-      monitor: "true"
+    # nodeSelector:
+    #   operational: "true"
+    #   monitor: "true"
     # ensure one instance per node
     podAntiAffinity: hard
     # add an EBS volume per instance 
@@ -175,7 +175,7 @@ prometheus:
 
       - job_name: 'locust'
         static_configs:
-          - targets: ['192.168.5.41:8000']
+          - targets: ['http://locust-worker-0.locust.svc.cluster.local:8089']
             labels:
               instance: 'ec2-instance'
       - job_name: 'kubernetes-pods'

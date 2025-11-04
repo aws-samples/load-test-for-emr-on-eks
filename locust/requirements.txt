@@ -1,6 +1,6 @@
 locust==2.42.1
 prometheus_client==0.21.0
-urllib3==2.2.1
-boto3==1.34.89
-botocore==1.34.89
+urllib3==2.5.0 
+boto3==1.40.64
+botocore==1.40.64
 rich==13.7.1

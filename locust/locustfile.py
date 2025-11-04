@@ -35,9 +35,9 @@ def on_locust_init(parser):
     JOB_SHELL_SCRIPT = environ["JOB_SCRIPT_NAME"]
     NAMESPACE_COUNT = int(environ.get("SPARK_JOB_NS_NUM", "2"))
     parser.add_argument("--emr-script-name", type=str, default=JOB_SHELL_SCRIPT, help="EMR on EKS job submission shell script file name and path")
-    parser.add_argument("--job-ns-count", type=int, default=NAMESPACE_COUNT, help="Number of job namespaces")
+    parser.add_argument("--job-ns-count", type=int, default=NAMESPACE_COUNT, help="Number of job namespaces or EMR Virtual Cluster")
     parser.add_argument("--job-azs", type=json.loads, default=None, help="List of AZs for task allocation")
-    # parser.add_argument("--wait-time", type=int, default="20", help="Submission delay per virtual cluster.")
+    # parser.add_argument("--wait-time", type=int, default="20", help="Submission delay in sec per virtual cluster.")
 
 def printlog(log):
     now = str(datetime.now())

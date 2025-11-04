@@ -152,10 +152,9 @@ cd load-test-for-emr-on-eks/locust
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+source env.sh
 
-locust -f ./locustfile.py -u 2 -t 10m \
---job-azs '["us-west-2a", "us-west-2b"]' \
---job-ns-count 2
+locust -f ./locustfile.py -u 2 -t 10m --job-azs '["us-west-2a", "us-west-2b"]'
 ```
 
 Cancel jobs and delete EMR-on-EKS virtual clusters (not namespace) from EKS after each load test session.
