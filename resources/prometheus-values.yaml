@@ -173,11 +173,11 @@ prometheus:
             regex: '.*state-metrics.*'
             action: drop
 
-      - job_name: 'locust'
-        static_configs:
-          - targets: ['http://load-test-cluster-10-locust-operator-webui.locust-operator.svc.cluster.local:8089']
-            labels:
-              instance: 'ec2-instance'
+      # - job_name: 'locust'
+      #   static_configs:
+      #     - targets: ['http://load-test-cluster-10-locust-operator-webui.locust-operator.svc.cluster.local:8089']
+      #       labels:
+      #         instance: 'ec2-instance'
       - job_name: 'kubernetes-pods'
         kubernetes_sd_configs:
           - role: pod

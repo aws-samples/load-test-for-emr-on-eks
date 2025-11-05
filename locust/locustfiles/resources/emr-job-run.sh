@@ -6,6 +6,7 @@
     # "spark.dynamicAllocation.shuffleTracking.enabled": "true"
     # "spark.dynamicAllocation.executorIdleTimeout": "30s"
     # "spark.dynamicAllocation.maxExecutors": "23"
+    # "spark.kubernetes.scheduler.name": "custom-scheduler-eks",
 
 export SHARED_PREFIX_NAME=emr-on-$CLUSTER_NAME
 export ACCOUNTID=$(aws sts get-caller-identity --query Account --output text)
@@ -17,8 +18,8 @@ export SELECTED_AZ=${SELECTED_AZ:-"us-west-2a"}
 
 aws emr-containers start-job-run \
 --virtual-cluster-id $VIRTUAL_CLUSTER_ID \
+--endpoint-url https://emr-containers-gamma.us-west-2.amazonaws.com \
 --name $JOB_UNIQUE_ID \
---endpoint-url https://emr-containers-gamma.us-west-2.amazonaws.com
 --execution-role-arn $EMR_ROLE_ARN \
 --release-label $EMR_VERSION \
 --job-driver '{
@@ -36,7 +37,6 @@ aws emr-containers start-job-run \
           "spark.network.timeout": "3000s",
           "spark.executor.heartbeatInterval": "2000s",
           
-          "spark.kubernetes.scheduler.name": "custom-scheduler-eks",
           "spark.kubernetes.executor.node.selector.karpenter.sh/nodepool": "executor-memorynodepool",
           "spark.kubernetes.driver.node.selector.karpenter.sh/nodepool": "driver-nodepool",
           "spark.kubernetes.executor.node.selector.karpenter.sh/capacity-type": "on-demand",

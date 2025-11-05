@@ -1,29 +1,30 @@
 apiVersion: locust.cloud/v1
 kind: LocustTest
 metadata:
-  name: load-test-cluster-10-locust-operator
-  namespace: locust-operator
+  name: pvc-reuse-${CLUSTER_NAME}
+  namespace: locust
 spec:
   # image: locustio/locust:2.42.1
-  image: 061698477416.dkr.ecr.us-west-2.amazonaws.com/locust:latest
-  imagePullPolicy: Always
+  image: ${ECR_URL}/locust:latest
+  imagePullPolicy: IfNotPresent
   workers: 2
   env:
   - name: AWS_REGION
-    value: us-west-2
+    value: ${REGION}
   - name: CLUSTER_NAME
-    value: load-test-cluster-10
+    value: ${CLUSTER_NAME}
   - name: JOB_SCRIPT_NAME
-    value: emr-job-run.sh
+    value: ${JOB_SCRIPT_NAME}
   - name: SPARK_JOB_NS_NUM
-    value: "2"
-  - name: LOCUST_SKIP_MONKEY_PATCH
-    value: "1"
-  args:
-    -f /home/locust/locustfile.py
+    value: 2
+  extraArgs:
+    -f locustfile.py
     --run-time=60m
     --users=150
     --spawn-rate=2
+    --skip-log-setup
+    --only-summary
+    --headless
   locustfile:
     configMap:
       name: emr-loadtest-locustfile

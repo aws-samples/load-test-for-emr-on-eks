@@ -141,9 +141,9 @@ You can assign compute environment for your load test via Spark configs in job s
 ### 1. Submit Jobs locally
 Firstly, let's run a small test from a local terminal window. The following parameters are avaiable to adjust:
 ```bash
-# -u, How many users are going to submit the jobs concurrently.
+# -u or --users, How many users are going to submit the jobs concurrently.
 #     Used a default wait interval (between 20s-30s per user) before submit the next job. 
-# -t, The total load test period.
+# -t or --run-time, The total load test period.
 # --emr-script-path, Set by env.sh. Load test job's shell script name. 
 # --job-azs, Default: None. a list of AZs available in the EKS's VPC. It means pods in a single job will be scheduled to multiple AZs which could cause data transfer fee and performance downgrade. If it's set (see below), all pods of a job will be scheduled to a single AZ. NOTE: The AZ selection is random not round robin.
 # --job-ns-count, Default: 2 namespaces. Total number of namespaces/VCs that jobs will be submitting to.
@@ -154,7 +154,11 @@ source .venv/bin/activate
 pip install -r requirements.txt
 source ../env.sh
 
-locust -f ./locustfile.py -u 2 -t 10m --job-azs '["us-west-2a", "us-west-2b"]'
+locust -f ./locustfiles/locustfile.py --run-time=10m --users=100 \
+--job-azs '["us-west-2a", "us-west-2b"]' \
+--skip-log-setup \
+--only-summary \
+--headless
 ```
 
 Cancel jobs and delete EMR-on-EKS virtual clusters (not namespace) from EKS after each load test session.
@@ -172,7 +176,7 @@ python3 stop_test.py --cluster $CLUSTER_NAME
 
 
 ```bash
- kubectl apply -f locust/locust-operator.yaml
+ kubectl apply -f locust/load-test-emr-pvc-reuse.yaml
 ```
 
 ## Best Practices Learned from Load Test

@@ -22,12 +22,15 @@
         "emr-containers:CreateVirtualCluster",
         "emr-containers:ListVirtualClusters",
         "emr-containers:DescribeVirtualCluster",
-        "emr-containers:DeleteVirtualCluster"
+        "emr-containers:DeleteVirtualCluster",
+        "eks:DescribeCluster*",
+        "eks:ListClusters",
+        "eks:ListAccessEntries",
+        "eks:DescribeAccessEntry",
+        "eks:CreateAccessEntry",
+        "eks:AssociateAccessPolicy"
       ],
-      "Resource": [
-        "*"
-      ],
-      "Sid": "AllowEMRCONTAINERSCreatevirtualcluster"
+      "Resource": "*"
     },
     {
       "Effect": "Allow",

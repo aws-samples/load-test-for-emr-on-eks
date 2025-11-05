@@ -97,7 +97,7 @@ class EMRJobUser(User):
         
         try:
             # Build script path and validate
-            script_path = path.join(path.dirname(__file__), "resources", self.job_script)
+            script_path = path.join(path.dirname(__file__), "..", "resources", self.job_script)
             if not path.exists(script_path):
                 printlog(f"ERROR: Script not found at {script_path}")
                 failed_counter.inc()

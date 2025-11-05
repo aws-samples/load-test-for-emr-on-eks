@@ -11,7 +11,6 @@ echo "Checking required environment variables..."
 REQUIRED_VARS=(
     "AWS_REGION"
     "CLUSTER_NAME"
-    "BUCKET_NAME"
     "LOCUST_EKS_ROLE",
     "JOB_SCRIPT_NAME"
 )
@@ -43,8 +42,7 @@ else
             "Principal": {
                 "Service": [
                     "ec2.amazonaws.com",
-                    "eks.amazonaws.com",
-                    "emr-containers.amazonaws.com"
+                    "eks.amazonaws.com"
                 ]
             },
             "Action": "sts:AssumeRole"
@@ -57,8 +55,19 @@ else
             "Action": "sts:AssumeRoleWithWebIdentity",
             "Condition": {
                 "StringEquals": {
-                    "${OIDC_PROVIDER}:aud": "sts.amazonaws.com",
-                    "${OIDC_PROVIDER}:sub": "system:serviceaccount:locust:locust-master"
+                    "${OIDC_PROVIDER}:sub": "system:serviceaccount::locust:locust-operator"
+                }
+            }
+        },
+        {
+            "Effect": "Allow",
+            "Principal": {
+                "Federated": "arn:aws:iam::${ACCOUNT_ID}:oidc-provider/${OIDC_PROVIDER}"
+            },
+            "Action": "sts:AssumeRoleWithWebIdentity",
+            "Condition": {
+                "StringEquals": {
+                    "${OIDC_PROVIDER}:sub": "system:serviceaccount::locust:default"
                 }
             }
         }
@@ -68,62 +77,60 @@ EOF
     aws iam create-role --role-name ${LOCUST_EKS_ROLE} --assume-role-policy-document "file:///tmp/locust-trust.json"
     # aws iam attach-role-policy --role-name "${LOCUST_EKS_ROLE}" --policy-arn "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
     aws iam attach-role-policy --role-name "${LOCUST_EKS_ROLE}" --policy-arn "arn:aws:iam::aws:policy/AmazonEKSServicePolicy"
-    aws iam attach-role-policy --role-name "${LOCUST_EKS_ROLE}" --policy-arn "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+    # aws iam attach-role-policy --role-name "${LOCUST_EKS_ROLE}" --policy-arn "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
     aws iam attach-role-policy --role-name "${LOCUST_EKS_ROLE}" --policy-arn "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
 
-    sed -i='' 's|${BUCKET_NAME}|'$BUCKET_NAME'|g' ./locust/resources/locust-eks-role-policy.json
-    aws iam put-role-policy --role-name "$LOCUST_EKS_ROLE" --policy-name "LocustCustomPolicy" --policy-document "file://locust/resources/locust-eks-role-policy.json"
+    sed -i='' 's|${BUCKET_NAME}|'$BUCKET_NAME'|g' locust/locust-operator/eks-role-policy.json
+    aws iam put-role-policy --role-name "$LOCUST_EKS_ROLE" --policy-name "LocustCustomPolicy" --policy-document "file://locust/locust-operator/eks-role-policy.json"
 fi
 
 echo "==============================================="
-echo " Install Locust onto EKS ......"
+echo " Install Locust Operator to EKS ......"
 echo "==============================================="
-echo "Set context to Locust's EKS cluster..."
-export LOCUST_CONTEXT=$(kubectl config get-contexts | sed -e 's/\*/ /' | grep "@${CLUSTER_NAME}." | awk -F" " '{print $1}')
-kubectl config use-context ${LOCUST_CONTEXT}
-# Check
+# Confirm the eks cluster
 kubectl config current-context
+# if needed, switch to the target eks cluster:
+# aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}
 
-echo "add access entry for locust's IRSA role"
-aws eks create-access-entry --cluster-name ${CLUSTER_NAME} --principal-arn arn:aws:iam::${ACCOUNT_ID}:role/${LOCUST_EKS_ROLE} --type EC2_LINUX
+echo "add access entry for Locust access on EKS"
+aws eks create-access-entry --cluster-name $CLUSTER_NAME \
+    --principal-arn arn:aws:iam::${ACCOUNT_ID}:role/${LOCUST_EKS_ROLE} \
+    --type STANDARD --region ${AWS_REGION}
 
+aws eks associate-access-policy --cluster-name $CLUSTER_NAME \
+    --principal-arn arn:aws:iam::${ACCOUNT_ID}:role/${LOCUST_EKS_ROLE} \
+    --policy-arn "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy" \
+    --access-scope type=cluster --region $AWS_REGION
 
-echo "Map locust main file and dependencies into pods via configmaps"
+echo "Install Locust Operator..."
 kubectl create namespace locust || true
-
-kubectl create configmap emr-loadtest-locustfile -n locust-operator --from-file ./locust/locustfiles
-# kubectl create configmap emr-loadtest-locustfile -n locust-operator --from-file=./locust/locustfiles \
-#  --from-file=lib/boto_client_config.py=./locust/locustfiles/lib/boto_client_config.py \
-#  --from-file=lib.emr_job.py=./locust/locustfiles/lib/emr_job.py \
-#  --from-file=lib.shared.py=./locust/locustfiles/lib/shared.py \
-#  --from-file=lib.virtual_cluster.py=./locust/locustfiles/lib/virtual_cluster.py \
-#  --from-file=resources.create_new_ns_setup_emr_eks.sh=./locust/locustfiles/resources/create_new_ns_setup_emr_eks.sh \
-#  --from-file=resources.emr-job-run.sh=./locust/locustfiles/resources/emr-job-run.sh
- 
-# kubectl create configmap emr-loadtest-lib -n locust-operator --from-file ./locust/lib
-# kubectl create configmap emr-loadtest-resource -n locust-operator --from-file ./locust/resources
-
-echo "helm install Locust"
-# helm repo add deliveryhero "https://charts.deliveryhero.io/"
-# helm repo update deliveryhero
 helm repo add locust-operator http://locustcloud.github.io/k8s-operator
 helm repo update
+helm upgrade --install locust-operator locust-operator/locust-operator --namespace locust
+# patch clusterrole permission
+kubectl apply -f locust/locust-operator/patch-role-binding.yaml
+# add IRSA role
+# kubectl annotate serviceaccount -n locust locust-operator eks.amazonaws.com/role-arn=arn:aws:iam::$ACCOUNT_ID:role/$LOCUST_EKS_ROLE
+kubectl annotate serviceaccount -n locust default eks.amazonaws.com/role-arn=arn:aws:iam::$ACCOUNT_ID:role/$LOCUST_EKS_ROLE
+# to view the operator's logs
+kubectl logs -f -n locust -l app.kubernetes.io/name=locust-operator
+# helm uninstall locust-operator -n locust
+
+echo "=============================================================="
+echo " Configure load test application based on Locust ......"
+echo "=============================================================="
+# map locust entry file
+# its dependenciees were created inside dockerfile already
+kubectl create configmap emr-loadtest-locustfile -n locust --from-file=locust/locustfiles
+
 export ECR_URL=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+sed -i='' 's|${CLUSTER_NAME}|'$CLUSTER_NAME'|g' locust/load-test-pvc-reuse.yaml
+sed -i='' 's|${ECR_URL}|'$ECR_URL'|g' locust/load-test-pvc-reuse.yaml
+sed -i='' 's|${REGION}|'$AWS_REGION'|g' locust/load-test-pvc-reuse.yaml
+sed -i='' 's|${JOB_SCRIPT_NAME}|'$JOB_SCRIPT_NAME'|g' locust/load-test-pvc-reuse.yaml
 
-sed -i='' 's|${CLUSTER_NAME}|'$CLUSTER_NAME'|g' ./locust/locust-operator.yaml 
-# sed -i='' 's|${LOCUST_EKS_ROLE}|'$LOCUST_EKS_ROLE'|g' ./locust/locust-values.yaml 
-sed -i='' 's|${ECR_URL}|'$ECR_URL'|g' ./locust/locust-operator.yaml 
-# sed -i='' 's|${ACCOUNT_ID}|'$ACCOUNT_ID'|g' ./locust/locust-values.yaml 
-sed -i='' 's|${REGION}|'$AWS_REGION'|g' ./locust/locust-operator.yaml 
-sed -i='' 's|${JOB_SCRIPT_NAME}|'$JOB_SCRIPT_NAME'|g' ./locust/locust-operator.yaml 
+kubectl apply -f locust/load-test-pvc-reuse.yaml
+# check your load test status
+kubectl logs -f -n locust -l locust.cloud/component=master
 
-# helm upgrade --install locust oci://ghcr.io/deliveryhero/helm-charts/locust \
-# -f ./locust/locust-values.yaml\
-#  -n locust
-
-helm install locust-operator locust-operator/locust-operator \
-  --namespace locust-operator --create-namespace
-
-kubectl annotate serviceaccount -n locust-operator locust-operator \
- eks.amazonaws.com/role-arn=arn:aws:iam::$ACCOUNT_ID:role/$LOCUST_EKS_ROLE
-# helm uninstall locust -n locust
+kubectl port-forward svc/pvc-reuse-load-test-cluster-10-webui -n locust 8089:8089
