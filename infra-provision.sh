@@ -91,7 +91,7 @@ git clone https://github.com/aws-samples/custom-scheduler-eks
 cd custom-scheduler-eks/deploy
 helm install custom-scheduler-eks charts/custom-scheduler-eks \
 -n kube-system \
--f ./resources/binpacking-values.yaml
+-f ../../resources/binpacking-values.yaml
 
 echo "==============================================="
 echo "  Create EMR on EKS Execution Role ......"
@@ -293,6 +293,7 @@ echo "====================================================="
 echo "Create Karpenter nodepools ......"
 sed -i='' 's/${KARPENTER_NODE_ROLE}/'$KARPENTER_NODE_ROLE'/g' ./resources/karpenter/shared-nodeclass.yaml
 sed -i='' 's/${CLUSTER_NAME}/'$CLUSTER_NAME'/g' ./resources/karpenter/shared-nodeclass.yaml
+rm ./resources/karpenter/*=
 kubectl apply -f "./resources/karpenter/*-node*.yaml"
 
 # Add authorized entry for Karpenter node role

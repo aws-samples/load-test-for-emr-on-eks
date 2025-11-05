@@ -152,7 +152,7 @@ cd load-test-for-emr-on-eks/locust
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-source env.sh
+source ../env.sh
 
 locust -f ./locustfile.py -u 2 -t 10m --job-azs '["us-west-2a", "us-west-2b"]'
 ```
@@ -170,6 +170,10 @@ python3 stop_test.py --cluster $CLUSTER_NAME
 
 ### 2. Submit Jobs from EKS
 
+
+```bash
+ kubectl apply -f locust/locust-operator.yaml
+```
 
 ## Best Practices Learned from Load Test
 

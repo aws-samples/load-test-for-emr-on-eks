@@ -3,7 +3,7 @@ kind: EC2NodeClass
 metadata:
   name: memoryec2
 spec:
-  role: "KarpenterNodeRole-load-test-cluster-10"
+  role: "${KARPENTER_NODE_ROLE}"
   amiSelectorTerms:
     - alias: "al2023@v20251023"
   blockDeviceMappings:
@@ -19,9 +19,9 @@ spec:
     httpTokens: required
   subnetSelectorTerms:
     - tags:
-        karpenter.sh/discovery: "load-test-cluster-10"
+        karpenter.sh/discovery: "${CLUSTER_NAME}"
   securityGroupSelectorTerms:
     - tags:
-        karpenter.sh/discovery: "load-test-cluster-10"
+        karpenter.sh/discovery: "${CLUSTER_NAME}"
   tags:
-    Name: load-test-cluster-10-karpenter-node
+    Name: ${CLUSTER_NAME}-karpenter-node

@@ -1,8 +1,9 @@
 
-import time, json, subprocess, random, threading
+import sys, time, json, subprocess, random, threading
 from os import environ, path
 from datetime import datetime, timedelta
 environ["LOCUST_SKIP_MONKEY_PATCH"] = "1"
+sys.path.insert(0, path.dirname(__file__))
 
 from locust import User, task, between, events
 from prometheus_client import start_http_server, Counter, Gauge
@@ -68,7 +69,7 @@ class EMRJobUser(User):
     @events.test_stop.add_listener
     def on_test_stop(environment, **kwargs):
         printlog(f"Test [green]{unique_id}[/green] has stopped ramping up. Jobs are still running")
-        printlog(f"To stop the test: [green on grey27]python3[/][white on grey27] python stop_test.py --id {unique_id}[/]")
+        printlog(f"To stop the test: [green on grey27]python3[/][white on grey27] python locustfiles/stop_test.py --id {unique_id}[/]")
         exit_event.set()
 
     @task

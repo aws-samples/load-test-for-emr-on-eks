@@ -5,7 +5,7 @@ import time
 from lib.shared import console
 from lib.shared import test_instance
 
-REGION=environ["AWS_REGION"]
+REGION=environ.get("AWS_REGION","us-west-2")
 JOB_RUNNING_STATES = ['PENDING', 'SUBMITTED', 'RUNNING', 'CANCEL_PENDING']
 JOB_STATES = ["PENDING", "SUBMITTED", "RUNNING", "COMPLETED", "FAILED"]
 VC_DEFAULT_STATES = ["RUNNING", "TERMINATED"]

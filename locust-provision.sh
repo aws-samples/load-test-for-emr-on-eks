@@ -91,23 +91,39 @@ aws eks create-access-entry --cluster-name ${CLUSTER_NAME} --principal-arn arn:a
 echo "Map locust main file and dependencies into pods via configmaps"
 kubectl create namespace locust || true
 
-kubectl create configmap emr-loadtest-locustfile -n locust --from-file ./locust/locustfile.py
-kubectl create configmap emr-loadtest-lib -n locust --from-file ./locust/lib
+kubectl create configmap emr-loadtest-locustfile -n locust-operator --from-file ./locust/locustfiles
+# kubectl create configmap emr-loadtest-locustfile -n locust-operator --from-file=./locust/locustfiles \
+#  --from-file=lib/boto_client_config.py=./locust/locustfiles/lib/boto_client_config.py \
+#  --from-file=lib.emr_job.py=./locust/locustfiles/lib/emr_job.py \
+#  --from-file=lib.shared.py=./locust/locustfiles/lib/shared.py \
+#  --from-file=lib.virtual_cluster.py=./locust/locustfiles/lib/virtual_cluster.py \
+#  --from-file=resources.create_new_ns_setup_emr_eks.sh=./locust/locustfiles/resources/create_new_ns_setup_emr_eks.sh \
+#  --from-file=resources.emr-job-run.sh=./locust/locustfiles/resources/emr-job-run.sh
+ 
+# kubectl create configmap emr-loadtest-lib -n locust-operator --from-file ./locust/lib
+# kubectl create configmap emr-loadtest-resource -n locust-operator --from-file ./locust/resources
 
 echo "helm install Locust"
-helm repo add deliveryhero "https://charts.deliveryhero.io/"
-helm repo update deliveryhero
+# helm repo add deliveryhero "https://charts.deliveryhero.io/"
+# helm repo update deliveryhero
+helm repo add locust-operator http://locustcloud.github.io/k8s-operator
+helm repo update
 export ECR_URL=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
 
-sed -i='' 's|${CLUSTER_NAME}|'$CLUSTER_NAME'|g' ./locust/locust-values.yaml 
-sed -i='' 's|${LOCUST_EKS_ROLE}|'$LOCUST_EKS_ROLE'|g' ./locust/locust-values.yaml 
-sed -i='' 's|${ECR_URL}|'$ECR_URL'|g' ./locust/locust-values.yaml 
-sed -i='' 's|${ACCOUNT_ID}|'$ACCOUNT_ID'|g' ./locust/locust-values.yaml 
-sed -i='' 's|${REGION}|'$AWS_REGION'|g' ./locust/locust-values.yaml 
-sed -i='' 's|${JOB_SCRIPT_NAME}|'$JOB_SCRIPT_NAME'|g' ./locust/locust-values.yaml 
+sed -i='' 's|${CLUSTER_NAME}|'$CLUSTER_NAME'|g' ./locust/locust-operator.yaml 
+# sed -i='' 's|${LOCUST_EKS_ROLE}|'$LOCUST_EKS_ROLE'|g' ./locust/locust-values.yaml 
+sed -i='' 's|${ECR_URL}|'$ECR_URL'|g' ./locust/locust-operator.yaml 
+# sed -i='' 's|${ACCOUNT_ID}|'$ACCOUNT_ID'|g' ./locust/locust-values.yaml 
+sed -i='' 's|${REGION}|'$AWS_REGION'|g' ./locust/locust-operator.yaml 
+sed -i='' 's|${JOB_SCRIPT_NAME}|'$JOB_SCRIPT_NAME'|g' ./locust/locust-operator.yaml 
 
-helm upgrade --install locust oci://ghcr.io/deliveryhero/helm-charts/locust \
--f ./locust/locust-values.yaml\
- -n locust
+# helm upgrade --install locust oci://ghcr.io/deliveryhero/helm-charts/locust \
+# -f ./locust/locust-values.yaml\
+#  -n locust
 
+helm install locust-operator locust-operator/locust-operator \
+  --namespace locust-operator --create-namespace
+
+kubectl annotate serviceaccount -n locust-operator locust-operator \
+ eks.amazonaws.com/role-arn=arn:aws:iam::$ACCOUNT_ID:role/$LOCUST_EKS_ROLE
 # helm uninstall locust -n locust

@@ -175,7 +175,7 @@ prometheus:
 
       - job_name: 'locust'
         static_configs:
-          - targets: ['http://locust-worker-0.locust.svc.cluster.local:8089']
+          - targets: ['http://load-test-cluster-10-locust-operator-webui.locust-operator.svc.cluster.local:8089']
             labels:
               instance: 'ec2-instance'
       - job_name: 'kubernetes-pods'

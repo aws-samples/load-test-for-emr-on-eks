@@ -1,0 +1,43 @@
+apiVersion: locust.cloud/v1
+kind: LocustTest
+metadata:
+  name: ${CLUSTER_NAME}-locust
+  namespace: locust-operator
+spec:
+  # image: locustio/locust:2.42.1
+  image: ${ECR_URL}/locust:latest
+  imagePullPolicy: IfNotPresent
+  workers: 2
+  env:
+    AWS_REGION: ${REGION}
+    CLUSTER_NAME: ${CLUSTER_NAME}
+    JOB_SCRIPT_NAME: ${JOB_SCRIPT_NAME}
+    SPARK_JOB_NS_NUM: 2
+  extraArgs:
+    -f locustfile.py
+    --run-time=60m
+    --users=150
+    --spawn-rate=2
+  locustfile:
+    configMap:
+      name: emr-loadtest-locustfile
+  master:
+    nodeSelector:
+      operational: "true"  
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "512Mi"
+      limits:
+        cpu: "1"
+        memory: "1Gi"
+  worker:
+    nodeSelector:
+      operational: "true"  
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "512Mi"
+      limits:
+        cpu: "1"
+        memory: "1Gi"

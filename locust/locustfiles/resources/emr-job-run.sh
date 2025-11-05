@@ -18,6 +18,7 @@ export SELECTED_AZ=${SELECTED_AZ:-"us-west-2a"}
 aws emr-containers start-job-run \
 --virtual-cluster-id $VIRTUAL_CLUSTER_ID \
 --name $JOB_UNIQUE_ID \
+--endpoint-url https://emr-containers-gamma.us-west-2.amazonaws.com
 --execution-role-arn $EMR_ROLE_ARN \
 --release-label $EMR_VERSION \
 --job-driver '{
@@ -35,6 +36,7 @@ aws emr-containers start-job-run \
           "spark.network.timeout": "3000s",
           "spark.executor.heartbeatInterval": "2000s",
           
+          "spark.kubernetes.scheduler.name": "custom-scheduler-eks",
           "spark.kubernetes.executor.node.selector.karpenter.sh/nodepool": "executor-memorynodepool",
           "spark.kubernetes.driver.node.selector.karpenter.sh/nodepool": "driver-nodepool",
           "spark.kubernetes.executor.node.selector.karpenter.sh/capacity-type": "on-demand",

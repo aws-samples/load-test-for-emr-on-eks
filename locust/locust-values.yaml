@@ -10,7 +10,8 @@ loadtest:
     REGION: ${REGION}
     EKS_CLUSTER_NAME: ${CLUSTER_NAME}
     JOB_SCRIPT_NAME: ${JOB_SCRIPT_NAME}
-
+    SPARK_JOB_NS_NUM: 2
+    LOCUST_SKIP_MONKEY_PATCH: 1
 image:
   repository: ${ECR_URL}/locust
   tag: latest

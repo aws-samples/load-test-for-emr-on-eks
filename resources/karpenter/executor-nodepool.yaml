@@ -29,13 +29,11 @@ spec:
       - key: karpenter.k8s.aws/instance-size
         operator: In
         values:
-        - large
-        - xlarge
-        - 2xlarge
-        - 4xlarge
-        - 8xlarge
-        - 12xlarge
-        - 16xlarge
+        # - 8xlarge
+        # - 12xlarge
+        # - 16xlarge
+        - 24xlarge
+        - metal
       - key: karpenter.k8s.aws/instance-category
         operator: In
         values: ["r","m","c"]
