@@ -6,11 +6,11 @@ export CLUSTER_NAME=${LOAD_TEST_PREFIX}-10
 export BUCKET_NAME=emr-on-${CLUSTER_NAME}-$ACCOUNT_ID-${AWS_REGION}
 # Locust
 export EMR_IMAGE_VERSION=7.9.0
-export SPARK_JOB_NS_NUM=2 # number of namespaces to test. SF/feature:20
+export SPARK_JOB_NS_NUM=2 # number of namespaces/VC to create
 export LOCUST_EKS_ROLE="${CLUSTER_NAME}-locust-eks-role"
 export JOB_SCRIPT_NAME="emr-job-run.sh"
 
-# ======================================================================
+# ================================================
 # Required variables for infra-provision.sh. 
 # If skip the infra setup step, remove this unnecessary section
 # ================================================

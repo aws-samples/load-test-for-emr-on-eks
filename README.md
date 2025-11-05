@@ -9,8 +9,11 @@ Enjoy! ^.^
 - [Set up Test Environment](#set-up-test-environment)
   - [Prerequisite](#prerequisite---set-environment-variables)
   - [Create the EKS Cluster with Necessary Components(Optional)](#create-an-eks-cluster-with-components-needed-optional)
-  - [Install Locust Cluster in EKS](#install-locust-cluster-in-eks)
-- [Run Load Testing with Locust](#get-started-with-load-test)
+  - [Install Locust Operator on EKS](#install-locust-operator-on-eks)
+- [Get Started](#get-started-with-load-test)
+  - [Prerequisite](#prerequisite---update-job-script)
+  - [Run test from local](#1-fire-up-load-test-locally)
+  - [Run test on EKS](#1-load-test-via-locust-operator-on-eks)
 - [Best Practice Guide](#best-practices-learned-from-load-test)
   - [How to Allocate Pods](#1-how-to-allocate-spark-driver--executor-pods)
   - [DONOT Use Sidecars Whenever Possible](#2-try-not-to-use-initcontainersor-custom-sidecar)
@@ -66,23 +69,23 @@ export CLUSTER_NAME=${LOAD_TEST_PREFIX}-10
 export BUCKET_NAME=emr-on-${CLUSTER_NAME}-$ACCOUNT_ID-${AWS_REGION}
 # Locust
 export EMR_IMAGE_VERSION=7.9.0
-export SPARK_JOB_NS_NUM=2 # number of namespaces to test. SF/feature:20
+export SPARK_JOB_NS_NUM=2 # number of namespaces/VC to create
 export LOCUST_EKS_ROLE="${CLUSTER_NAME}-locust-eks-role"
 export JOB_SCRIPT_NAME="emr-job-run.sh"
 
-# ======================================================================
+# ================================================
 # Required variables for infra-provision.sh. 
 # If skip the infra setup step, remove this unnecessary section
 # ================================================
 # EKS
-export EKS_VPC_CIDR=192.168.0.0/16
+export EKS_VPC_CIDR=192.164.0.0/16
 export EKS_VERSION=1.34
 # EMR on EKS
 export PUB_ECR_REGISTRY_ACCOUNT=895885662937
 export EXECUTION_ROLE=emr-on-${CLUSTER_NAME}-execution-role
 export EXECUTION_ROLE_POLICY=${CLUSTER_NAME}-SparkJobS3AccessPolicy
 # Karpenter
-export KARPENTER_VERSION="1.6.1"
+export KARPENTER_VERSION="1.8.1"
 export KARPENTER_CONTROLLER_ROLE="KarpenterControllerRole-${CLUSTER_NAME}"
 export KARPENTER_CONTROLLER_POLICY="KarpenterControllerPolicy-${CLUSTER_NAME}"
 export KARPENTER_NODE_ROLE="KarpenterNodeRole-${CLUSTER_NAME}"
@@ -95,7 +98,7 @@ export USE_AMG="true"
 ### Create an EKS Cluster with components needed (OPTIONAL)
 A `infra-provision.sh` script is provided by the project, which creates a brand new EKS cluster with the following components. 
 
-Skip this step if your EKS environment exists. If required, install missing components individually based on the infra provision script. 
+Skip this step if you use an existing EKS cluster. If required, install missing components individually, such as EBS CSI Driver, based on the infra provision script. 
 
 - [Auto Scaler](https://aws.github.io/aws-emr-containers-best-practices/troubleshooting/docs/eks-cluster-auto-scaler/)
 - [Load Balancer Controler](https://docs.aws.amazon.com/eks/latest/userguide/lbc-helm.html)
@@ -110,7 +113,7 @@ Monitoring by default uses managed services:
 [^ back to top](#table-of-contents)
 
 
-#### 1. Modify EKS cluster and components' configurations before the creation
+#### 1. Modify EKS cluster and components' configurations before provisioning the environemnt
 - For eks cluster, update [./resources/eks-cluster-values.yaml](./resources/eks-cluster-values.yaml)
 - For autoscaler, modify [./resources/autoscaler-values.yaml](./resources/autoscaler-values.yaml)
 - For custom k8s scheduler, update [./resources/binpacking-values.yaml](./resources/binpacking-values.yaml)
@@ -118,28 +121,34 @@ Monitoring by default uses managed services:
 - For Prometheus, update [./resources/prometheus-values.yaml](./resources/prometheus-values.yaml)
 - For Prometheus's podmonitor and servicemonitor settings, update files under the [./resources/monitor](./resources/monitor)
 
-#### 2. To build the infrastructure, please execute the below cmd:
+#### 2. Run the script after all the customizations are done.
+NOTE: at the end of script, 2 ECR container images will be built and pushed : Spark benchmark and Locust.
 ```bash
 bash ./infra-provision.sh
 ```
 
-### Install Locust Cluster in EKS
-[Locust](https://github.com/locustio/locust) is an Open source load testing tool based on Python. This section demostrates how to setup Locust via a helm chart in a new or existing EKS, with one main pod + 2 worker pods installed by default. Modify the default settings in [./locust/resources/eks-cluster-values.yaml](./resources/eks-cluster-values.yaml) if needed.
+### Install Locust Operator on EKS
+[Locust](https://docs.locust.io/en/stable/locust-cloud/locust-cloud.html#kubernetes-operator) is an open source load testing tool based on Python. 
 
+This project offers a provison scirpt `locust-provision.sh` to setup a Locust k8s Operator via a helm chart. Before run the scirpt, modify the [operator's RBAC permission](./locust/locust-operator/patch-role-binding.yaml) and [IRSA role policy](./locust/locust-operator/eks-role-policy.json) based on your requirement.
 ```bash
-# install locaust
+# create IRSA role and install locust operator
 bash ./locust-provision.sh
 ```
-
 [^ back to top](#table-of-contents)
-
 
 ## Get Started with Load Test
 
-You can assign compute environment for your load test via Spark configs in job scripts, see details in the best practice section: [How to Allocate Pods](#1-how-to-allocate-spark-driver--executor-pods).
+ To get an optimal load test outcome, you can configure your compute resource allocation via Spark settings. See the best practice section: [How to Allocate Pods](#1-how-to-allocate-spark-driver--executor-pods).
 
-### 1. Submit Jobs locally
-Firstly, let's run a small test from a local terminal window. The following parameters are avaiable to adjust:
+### Prerequisite - Update job script
+This project supports most of EMR on EKS load test cases with a defualt monitoring configuration, ie. AWS Managed Promethues + Managed Grafana. Before getting started, replace the sample job run file [./locust/locustfiles/emr-job-run.sh](./locust/locustfiles/emr-job-run.sh) by your actual EMR on EKS job submission script. It then will be mapped into each Locust containers's home directory `/home/locust` via a configmap called `emr-loadtest-locustfile`. More detials can be found in the [locust-provision.sh](https://github.com/aws-samples/load-test-for-emr-on-eks/blob/b389458ff4ebb1b829f6fd9c8aa49405c482bfc9/locust-provision.sh#L124) script. The setup looks like this:
+```bash
+kubectl create configmap emr-loadtest-locustfile --namespace locust --from-file=locust/locustfiles
+```
+
+### 1. Fire up Load Test locally
+Let's run a small test from a local terminal window. The following parameters are avaiable to adjust before run the locust CLI:
 ```bash
 # -u or --users, How many users are going to submit the jobs concurrently.
 #     Used a default wait interval (between 20s-30s per user) before submit the next job. 
@@ -154,30 +163,39 @@ source .venv/bin/activate
 pip install -r requirements.txt
 source ../env.sh
 
-locust -f ./locustfiles/locustfile.py --run-time=10m --users=100 \
+locust -f ./locustfiles/locustfile.py --run-time=10m --users=20 \
 --job-azs '["us-west-2a", "us-west-2b"]' \
---skip-log-setup \
---only-summary \
---headless
+--job-ns-count 1
 ```
 
-Cancel jobs and delete EMR-on-EKS virtual clusters (not namespace) from EKS after each load test session.
-A re-used namespace only can map to a single active VC, so the old VC created by the previously session must be terminated first. 
+After each load test session is finished or in progress, you can forcefuly cancel jobs and delete EMR-on-EKS virtual clusters, excluding namespaces:
 ```bash
-# Clean up EMR-EKS's Virtual Clsuters, jobs and namespaces created by Locust
-# --id, remove by a test instance id')
-# --cluster, or remove by the eks cluster name'
+# clean up script for EMR-EKS's Virtual Clsuters and jobs created by Locust:
+# --id, remove a test by its session/instance ID
+# --cluster, remove all tests by the eks cluster name
 python3 stop_test.py --cluster $CLUSTER_NAME  
 ```
+**WARNING:** `Locust creates a new namespace/VC at each initalization time. To re-used a namespace from a previous test session, the old VC created by the previously tests must be terminated first. Either manually or via the above python script.`
+
 
 [^ back to top](#table-of-contents)
 
-### 2. Submit Jobs from EKS
+### 2. Load Test on EKS
+Locust Operator supports a distributed way of load test. By default, it fires up load testing from a cluster of 1 master+ 2workers pods. Each of which initlizes a test session with a unique session ID.
 
+Update the locust test CRD manifest file by actual environment attributes, then start the load test from an EKS cluster:
+```bash
+ kubectl apply -f examples/load-test-pvc-reuse.yaml
+```
 
 ```bash
- kubectl apply -f locust/load-test-emr-pvc-reuse.yaml
+# check load test status
+kubectl logs -f -n locust -l locust.cloud/component=master
+# access to Locust WebUI: http://localhost:8089/
+kubectl port-forward svc/pvc-reuse-load-test-cluster-10-webui -n locust 8089:8089
 ```
+
+[^ back to top](#table-of-contents)
 
 ## Best Practices Learned from Load Test
 

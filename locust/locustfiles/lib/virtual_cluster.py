@@ -52,7 +52,7 @@ class VirtualCluster:
     def create_namespace_and_virtual_cluster(self, vs_name, ns_id, eks_name):
         try:
             # Create namespace
-            script_path = path.join(path.dirname(__file__), "..", "resources", "create_new_ns_setup_emr_eks.sh")
+            script_path = path.join(path.dirname(__file__), "create_new_ns_setup_emr_eks.sh")
             if not path.exists(script_path):
                 console.log(f"Script not found: {script_path}")
                 return None

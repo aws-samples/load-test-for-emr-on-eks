@@ -22,11 +22,9 @@ spec:
   args:
     -f /home/locust/locustfile.py
     --run-time=60m
-    --users=150
+    --users=120
     --spawn-rate=2
     --skip-log-setup
-    --only-summary
-    --headless
   locustfile:
     configMap:
       name: emr-loadtest-locustfile

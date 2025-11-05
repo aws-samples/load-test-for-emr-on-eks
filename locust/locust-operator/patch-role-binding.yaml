@@ -9,7 +9,7 @@ rules:
     verbs: [list, watch]
   - apiGroups: [""]
     resources: [namespaces]
-    verbs: [list, watch, get, create, delete]
+    verbs: [list, watch, get, create]
   - apiGroups: [""]
     resources: ["serviceaccounts"]
     verbs: ["get", "list", "create"]

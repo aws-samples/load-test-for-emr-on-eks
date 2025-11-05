@@ -8,6 +8,8 @@ spec:
   image: ${ECR_URL}/locust:latest
   imagePullPolicy: IfNotPresent
   workers: 2
+  # run locust-provision.sh to replaces env variables
+  # or manually change by actual values
   env:
   - name: AWS_REGION
     value: ${REGION}

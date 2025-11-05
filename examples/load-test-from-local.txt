@@ -1,0 +1,26 @@
+cd load-test-for-emr-on-eks/locust
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+source ../env.sh
+
+# 1. Load test EMR-EKS jobs with 3 concurrent users for 200mins, in a single Virtual Cluster. 
+# Locust will randomly select a single AZ to run a job to get optimal job performance. 
+# It creates a new namespace first, then pause until users press the enter key. Locust WebUI will pop up.
+# Ignore stats on the Locust WebUI, as we send metrics to Promethues + Grafana for the monitoring.
+# Feel free to change load test parameters on the UI.
+
+locust -f locustfile.py -u 3 -t 200m \
+--job-azs '["us-west-2a","us-west-2b"]' \
+--job-ns-count 1
+
+
+# 2. Load test against 2 newly created EMR-EKS Virutal clusters
+# Disabled Locust WebUI
+# Disabled logs, only print summary stats
+
+locust -f locustfile.py -u 3 -t 200m \
+--job-azs '["us-west-2a", "us-west-2b"]' \
+--job-ns-count 2 \
+--headless --skip-log-setup \
+--only-summary

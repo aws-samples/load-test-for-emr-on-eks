@@ -20,7 +20,6 @@ ENV PATH="/opt/venv/bin:$PATH"
 RUN pip3 install urllib3 prometheus_client==0.21.0 boto3==1.40.64 botocore==1.40.64 rich==13.7.1
 # Copy project files
 COPY locust/locustfiles/lib /opt/venv/bin/lib
-COPY locust/locustfiles/resources /opt/venv/bin/resources
 RUN chown -R locust:locust /opt/venv/bin
 WORKDIR /home/locust
 USER locust

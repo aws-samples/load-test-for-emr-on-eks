@@ -2,8 +2,8 @@
 import sys, time, json, subprocess, random, threading
 from os import environ, path
 from datetime import datetime, timedelta
-environ["LOCUST_SKIP_MONKEY_PATCH"] = "1"
-sys.path.insert(0, path.dirname(__file__))
+# environ["LOCUST_SKIP_MONKEY_PATCH"] = "1"
+# sys.path.insert(0, path.dirname(__file__))
 
 from locust import User, task, between, events
 from prometheus_client import start_http_server, Counter, Gauge
@@ -97,7 +97,7 @@ class EMRJobUser(User):
         
         try:
             # Build script path and validate
-            script_path = path.join(path.dirname(__file__), "..", "resources", self.job_script)
+            script_path = path.join(path.dirname(__file__), self.job_script)
             if not path.exists(script_path):
                 printlog(f"ERROR: Script not found at {script_path}")
                 failed_counter.inc()
