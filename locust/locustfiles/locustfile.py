@@ -2,8 +2,6 @@
 import sys, time, json, subprocess, random, threading
 from os import environ, path
 from datetime import datetime, timedelta
-# environ["LOCUST_SKIP_MONKEY_PATCH"] = "1"
-# sys.path.insert(0, path.dirname(__file__))
 
 from locust import User, task, between, events
 from prometheus_client import start_http_server, Counter, Gauge
@@ -21,13 +19,13 @@ EKS_CLUSTER_NAME = environ["CLUSTER_NAME"]
 REGION = environ["AWS_REGION"]
 
 # Prometheus metrics
-success_counter = Counter('locust_emr_job_submit_success', 'Number of successful EMR job submissions')
-failed_counter = Counter('locust_emr_job_submit_fail', 'Number of failed EMR job submissions')
-execution_time_gauge = Gauge('locust_emr_job_submit_gauge', 'Execution time for EMR job submission')
-running_emr_jobs_gauge = Gauge('locust_running_emr_jobs_gauge', 'Number of concurrent running EMR jobs')
-submitted_emr_jobs_gauge = Gauge('locust_submitted_emr_jobs_gauge', 'Number of submitted EMR jobs')
-completed_emr_jobs_gauge = Gauge('locust_completed_emr_jobs_gauge', 'Number of completed EMR jobs')
-failed_emr_jobs_gauge = Gauge('locust_failed_emr_jobs_gauge', 'Number of failed EMR jobs')
+success_counter = Counter('locust_spark_application_submit_success', 'Number of successful EMR job submissions')
+failed_emr_jobs_gauge = Gauge('locust_spark_application_submit_fail', 'Number of failed EMR job submissions')
+execution_time_gauge = Gauge('locust_spark_application_submit_gauge', 'Execution time for EMR job submission')
+running_emr_jobs_gauge = Gauge('locust_running_spark_application_gauge', 'Number of concurrent running spark application calculated from locust')
+submitted_emr_jobs_gauge = Gauge('locust_submitted_spark_application_gauge', 'Number of submitted EMR jobs calculated from locust')
+pending_emr_jobs_gauge = Gauge('locust_succeeding_spark_application_gauge', 'Number of succeeding spark application calculated from locust')
+completed_emr_jobs_gauge = Gauge('locust_completed_spark_application_gauge', 'Number of completed spark application calculated from locust')
 concurrent_user_gauge = Gauge('locust_concurrent_user', 'Number of concurrent locust users')
 virtual_clusters_gauge = Gauge('locust_virtual_clusters_count', 'Number of EMR virtual clusters created')
 
@@ -57,19 +55,19 @@ class EMRJobUser(User):
 
     @events.test_start.add_listener
     def on_test_start(environment, **kwargs):
-        printlog(f"Start the load test against EKS Cluster {EKS_CLUSTER_NAME} in region {REGION}........")
+        printlog(f"Start the load test against EKS Cluster {EKS_CLUSTER_NAME} in region {REGION} with {environment.parsed_options.job_ns_count} users ........")
         printlog(f"Wait time is set between 20-30 seconds")
         printlog(f"EMR on EKS job submission script is set to [green]{environment.parsed_options.emr_script_name}")
-        printlog(
-            f"Monitor the test:[green on grey19]python3[/][white on grey19] python monitor.py {unique_id}[/]")
-        printlog("Starting EMR job monitoring thread")
-        thread = threading.Thread(target=monitor_emr_jobs, args=(environment,))
-        thread.start()
+        hostname = environ.get('HOSTNAME', '').lower()
+        if 'master' not in hostname:
+            printlog("Starting EMR job monitoring thread")
+            thread = threading.Thread(target=monitor_emr_jobs, args=(environment,))
+            thread.start()
 
     @events.test_stop.add_listener
     def on_test_stop(environment, **kwargs):
         printlog(f"Test [green]{unique_id}[/green] has stopped ramping up. Jobs are still running")
-        printlog(f"To stop the test: [green on grey27]python3[/][white on grey27] python locustfiles/stop_test.py --id {unique_id}[/]")
+        printlog(f"To stop the test: [green on grey27]python3[/][white on grey27] python ./locustfiles/stop_test.py --id {unique_id}[/]")
         exit_event.set()
 
     @task
@@ -79,14 +77,12 @@ class EMRJobUser(User):
     @task
     def submit_emr_job(self):
         printlog(f"Submitting EMR on EKS job for the test session {unique_id} by user {self.user_id}")
-        
         # Randomly pick up a namespace to submit the job
         index = random.randint(1, self.ns_count)
         namespace = f"{ns_prefix}{index}"
         
         if namespace not in virtual_clusters:
             printlog(f"No virtual cluster found in the namespace {namespace}")
-            failed_counter.inc()
             return
             
         # emr_cluster_name = f"{unique_id}-{EKS_CLUSTER_NAME}-{index}"
@@ -100,7 +96,6 @@ class EMRJobUser(User):
             script_path = path.join(path.dirname(__file__), self.job_script)
             if not path.exists(script_path):
                 printlog(f"ERROR: Script not found at {script_path}")
-                failed_counter.inc()
                 return
             
             # Execute EMR job script with environment variables
@@ -108,12 +103,12 @@ class EMRJobUser(User):
             env.update({
                 'CLUSTER_NAME': EKS_CLUSTER_NAME,
                 'VIRTUAL_CLUSTER_ID': virtual_cluster_id,
-                'AWS_REGION': REGION,
+                # 'AWS_REGION': REGION,
                 'JOB_UNIQUE_ID': job_unique_id,
                 'SELECTED_AZ': selected_az
             })
 
-            subprocess.run(['chmod', '+x', script_path], check=True)
+            # subprocess.run(['chmod', '+x', script_path], check=True)
             result = subprocess.run(['sh', script_path],env=env,
                 capture_output=True,text=True,timeout=300)
             
@@ -122,16 +117,11 @@ class EMRJobUser(User):
                 self.total_jobs_submitted += 1
                 printlog(f"EMR job {job_unique_id} is submitted successfully to VC: {virtual_cluster_id}, namespace: {namespace}")
             else:
-                failed_counter.inc()
-                # printlog(f"EMR job submission failed: {result.stderr}")
                 printlog(f"Debug info: EMR job submission failed (exit code {result.returncode}): {result.stderr}")
                 
         except subprocess.TimeoutExpired:
-            failed_counter.inc()
             printlog(f"ERROR: EMR job submission timed out for: {job_unique_id}")
         except Exception as e:
-            failed_counter.inc()
-            # printlog(f"Exception during EMR job submission: {e}")
             printlog(f"ERROR: Exception during EMR job submission: {type(e).__name__}: {e}")
         finally:
             execution_time_gauge.set(time.time() - start_time)
@@ -139,21 +129,20 @@ class EMRJobUser(User):
             printlog(f"Submitted {self.total_jobs_submitted} jobs. Elapsed time: {str(timedelta(seconds=elapsed_time))}")
 
 def monitor_emr_jobs(environment):
-    """Monitor EMR job runs across all virtual clusters, emit job counts per 1 minute"""
-    next_time = time.time() + 60
-    
+    next_time = time.time() + 300
     while True:
         if exit_event.is_set():
             break
         current_time = time.time()
         if current_time > next_time:
-            printlog("Collecting EMR job metrics across all virtual clusters at 1 minute interval...")
-            
+            printlog("Collecting EMR job metrics across all virtual clusters at 5 minute interval...")
+
             running_count = 0
             submitted_count = 0
+            pending_count = 0
             completed_count = 0
             failed_count = 0
-            
+
             try:
                 # Monitor jobs across all virtual clusters using library
                 for ns_id, vc_id in virtual_clusters.items():
@@ -163,29 +152,32 @@ def monitor_emr_jobs(environment):
                         state = job_run['state']
                         if state == 'RUNNING':
                             running_count += 1
-                        elif state in ['PENDING', 'SUBMITTED']:
+                        elif state in ['SUBMITTED']:
                             submitted_count += 1
+                        elif state in ['PENDING']:
+                            pending_count += 1
                         elif state in ['COMPLETED']:
                             completed_count += 1
-                        elif state in ['FAILED', 'CANCELLED']:
+                        elif state in ['FAILED', 'CANCELLED', 'CANCEL_PENDING']:
                             failed_count += 1
                 
                 # Update metrics
                 running_emr_jobs_gauge.set(running_count)
                 submitted_emr_jobs_gauge.set(submitted_count)
+                pending_emr_jobs_gauge.set(pending_count)
                 completed_emr_jobs_gauge.set(completed_count)
                 failed_emr_jobs_gauge.set(failed_count)
                 virtual_clusters_gauge.set(len(virtual_clusters))
                 
-                printlog(f"EMR Jobs - Running: {running_count}, Submitted: {submitted_count}, "
+                printlog(f"EMR Jobs in test session {unique_id} - Running: {running_count}, Submitted: {submitted_count}, Pending: {pending_count},"
                         f"Completed: {completed_count}, Failed: {failed_count}, VCs: {len(virtual_clusters)}")
                 
             except Exception as e:
                 printlog(f"Error monitoring EMR jobs: {e}")
             
-            next_time = current_time + 60
+            next_time = current_time + 300
         
-        time.sleep(5)
+        time.sleep(150)
 
 class LoadTestInitializer():
     def __init__(self, ns_count):
@@ -206,6 +198,11 @@ class LoadTestInitializer():
 
 @events.init.add_listener
 def on_locust_init(environment, **kwargs):
-    LoadTestInitializer(environment.parsed_options.job_ns_count)
-    start_http_server(8000)
-    printlog("EMR on EKS Locust load test with virtual_cluster.py library initialized")
+    namespace_count = environment.parsed_options.job_ns_count
+    hostname = environ.get('HOSTNAME', '').lower()
+    if 'master' in hostname:
+        printlog("EMR on EKS load test is started ...")
+    else:
+        LoadTestInitializer(namespace_count)
+        start_http_server(8000)
+        printlog("Load test session is initializing ...")

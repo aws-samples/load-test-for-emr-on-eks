@@ -15,8 +15,9 @@ export JOB_SCRIPT_NAME="emr-job-run.sh"
 # If skip the infra setup step, remove this unnecessary section
 # ================================================
 # EKS
-export EKS_VPC_CIDR=192.164.0.0/16
+export EKS_VPC_CIDR=192.168.0.0/16
 export EKS_VERSION=1.34
+export CMK_ALIAS=cmk_locust_pvc_reuse
 # EMR on EKS
 export PUB_ECR_REGISTRY_ACCOUNT=895885662937
 export EXECUTION_ROLE=emr-on-${CLUSTER_NAME}-execution-role

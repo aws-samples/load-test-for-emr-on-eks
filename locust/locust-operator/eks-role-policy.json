@@ -69,6 +69,15 @@
         "*"
       ],
       "Sid": "AllowLOGSGet"
-    }
+    },
+    {
+      "Action": [
+          "kms:DescribeKey",
+          "kms:Decrypt",
+          "kms:GenerateDataKey"
+      ],
+      "Resource": "${KMS_ARN}",
+      "Effect": "Allow"
+      }
   ]
 }

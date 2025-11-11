@@ -163,17 +163,22 @@ source .venv/bin/activate
 pip install -r requirements.txt
 source ../env.sh
 
-locust -f ./locustfiles/locustfile.py --run-time=10m --users=20 \
---job-azs '["us-west-2a", "us-west-2b"]' \
---job-ns-count 1
+locust -f ./locustfiles/locustfile.py --run-time=5m --users=2 --spawn-rate=1 \
+--job-azs '["us-west-2a"]' \
+--job-ns-count 1 \
+--skip-log-setup \
+--headless
 ```
 
-After each load test session is finished or in progress, you can forcefuly cancel jobs and delete EMR-on-EKS virtual clusters, excluding namespaces:
+Press enter key, Locust WebUI will pop up. Click start to kick off the load test. 
+After the load test session is finished or in progress, you can cancel these jobs and delete EMR-on-EKS virtual clusters:
 ```bash
 # clean up script for EMR-EKS's Virtual Clsuters and jobs created by Locust:
 # --id, remove a test by its session/instance ID
 # --cluster, remove all tests by the eks cluster name
 python3 stop_test.py --cluster $CLUSTER_NAME  
+# delete namespaces if needed
+kubectl get namespaces -o name | grep "emr" | xargs kubectl delete
 ```
 **WARNING:** `Locust creates a new namespace/VC at each initalization time. To re-used a namespace from a previous test session, the old VC created by the previously tests must be terminated first. Either manually or via the above python script.`
 
@@ -189,10 +194,10 @@ Update the locust test CRD manifest file by actual environment attributes, then 
 ```
 
 ```bash
-# check load test status
-kubectl logs -f -n locust -l locust.cloud/component=master
 # access to Locust WebUI: http://localhost:8089/
 kubectl port-forward svc/pvc-reuse-load-test-cluster-10-webui -n locust 8089:8089
+# check load test status
+kubectl logs -f -n locust -l locust.cloud/component=worker
 ```
 
 [^ back to top](#table-of-contents)

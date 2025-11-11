@@ -7,7 +7,7 @@ spec:
     consolidateAfter: 1m
     consolidationPolicy: WhenEmpty
   limits:
-    cpu: "1000"
+    cpu: "100000"
     # memory: 1000Gi
   template:
     spec:
@@ -29,11 +29,9 @@ spec:
       - key: karpenter.k8s.aws/instance-size
         operator: In
         values:
-        - large
-        - xlarge
-        - 2xlarge
         - 4xlarge
         - 8xlarge
+        - 9xlarge
         - 12xlarge
         - 16xlarge
       - key: karpenter.k8s.aws/instance-category

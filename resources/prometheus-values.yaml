@@ -92,9 +92,9 @@ prometheus:
           cpu: "1"
           memory: 15Gi
     replicas: 1
-    # nodeSelector:
-    #   operational: "true"
-    #   monitor: "true"
+    nodeSelector:
+      operational: "true"
+      monitor: "true"
     # ensure one instance per node
     podAntiAffinity: hard
     # add an EBS volume per instance 
@@ -172,12 +172,13 @@ prometheus:
           - source_labels: [__meta_kubernetes_service_name]
             regex: '.*state-metrics.*'
             action: drop
-
+            
       # - job_name: 'locust'
       #   static_configs:
-      #     - targets: ['http://load-test-cluster-10-locust-operator-webui.locust-operator.svc.cluster.local:8089']
+      #     - targets: ['{LOCUST_WEBUI_DNS}:8089']
       #       labels:
       #         instance: 'ec2-instance'
+
       - job_name: 'kubernetes-pods'
         kubernetes_sd_configs:
           - role: pod

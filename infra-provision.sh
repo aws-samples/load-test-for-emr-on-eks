@@ -43,7 +43,10 @@ echo $OIDC_PROVIDER
 echo "==============================================="
 echo "  Create a default gp3 storageclass ......"
 echo "==============================================="
-echo "Create a default gp3 storageclass"
+echo "retrieve CMK key ARN"
+# KMS_ARN=$(aws kms describe-key --key-id arn:aws:kms:$AWS_REGION:$ACCOUNT_ID:alias/$CMK_ALIAS --query 'KeyMetadata.Arn' --output text)
+# echo "Create a default gp3 storageclass"
+# sed -i='' 's|${KMS_ARN}|'$KMS_ARN'|g' resources/storageclass.yaml
 kubectl apply -f resources/storageclass.yaml
 
 echo "==============================================="
@@ -57,7 +60,7 @@ helm repo update
 helm repo add autoscaler https://kubernetes.github.io/autoscaler
 helm upgrade --install nodescaler autoscaler/cluster-autoscaler -n kube-system --values ./resources/autoscaler-values.yaml
 
-# Disable the autoscaler before using Karpenter first
+echo "Disable the autoscaler before using Karpenter first"
 # Enable it manually later on, when testing the scalability based on the autoscaler.
 kubectl scale deploy/nodescaler-aws-cluster-autoscaler  -n kube-system --replicas=0
 for NODEGROUP in $(aws eks list-nodegroups --cluster-name ${CLUSTER_NAME} \
@@ -65,8 +68,6 @@ for NODEGROUP in $(aws eks list-nodegroups --cluster-name ${CLUSTER_NAME} \
     --nodegroup-name ${NODEGROUP} \
     --scaling-config "minSize=2,maxSize=2,desiredSize=2"
 done
-
-
 echo "==============================================="
 echo "  Setup Load Balancer Controller ......"
 echo "==============================================="
@@ -93,6 +94,13 @@ helm install custom-scheduler-eks charts/custom-scheduler-eks \
 -n kube-system \
 -f ../../resources/binpacking-values.yaml
 
+echo "============================================================="
+echo "  Scale up CSI Controller by patch the existing addon ......"
+echo "============================================================="
+bash ./resources/patch_csi-controller.sh
+# echo "scale up EBS CSI controller from 2 to 3..."
+# kubectl scale deployment ebs-csi-controller --replicas=3 -n kube-system
+
 echo "==============================================="
 echo "  Create EMR on EKS Execution Role ......"
 echo "==============================================="
@@ -116,7 +124,16 @@ else
                 "arn:aws:s3:::${BUCKET_NAME}",
                 "arn:aws:s3:::${BUCKET_NAME}/*"
             ]
-        }
+        },
+		{
+			"Action": [
+                "kms:DescribeKey",
+                "kms:Decrypt",
+                "kms:GenerateDataKey"
+			],
+			"Resource": "$KMS_ARN",
+			"Effect": "Allow"
+		}
     ]
 }
 EOF
@@ -151,6 +168,7 @@ echo "==============================================="
 echo "Setup Prometheus"
 kubectl create ns prometheus || true
 # SA name and IRSA role were created at EKS cluster creation time
+LOCUST_PRIV_HOST_IP=$(kubectl get pod locust-operator-5c57bd46cd-dnndr -n locust -o json | jq -r '.status.hostIP')
 amp=$(aws amp list-workspaces --query "workspaces[?alias=='$CLUSTER_NAME'].workspaceId" --output text)
 if [ -z "$amp" ]; then
     echo "Creating a new prometheus workspace..."
@@ -166,6 +184,7 @@ sed -i -- 's/{AWS_REGION}/'$AWS_REGION'/g'  ./resources/prometheus-values.yaml
 sed -i -- 's/{ACCOUNTID}/'$ACCOUNT_ID'/g'  ./resources/prometheus-values.yaml
 sed -i -- 's/{WORKSPACE_ID}/'$WORKSPACE_ID'/g'  ./resources/prometheus-values.yaml
 sed -i -- 's/{CLUSTER_NAME}/'$CLUSTER_NAME'/g'  ./resources/prometheus-values.yaml
+sed -i -- 's/{LOCUST_PRIV_HOST_IP}/'$LOCUST_PRIV_HOST_IP'/g'  ./resources/prometheus-values.yaml
 helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n prometheus -f  ./resources/prometheus-values.yaml --debug
 # validate in a web browser - localhost:9090, go to menu of status->targets
 # kubectl --namespace prometheus port-forward service/prometheus-kube-prometheus-prometheus 9090
@@ -315,31 +334,28 @@ then
     # create grafana service role policy
     aws iam create-policy --policy-name ${CLUSTER_NAME}-grafana-service-role-policy --policy-document file://./grafana/grafana-service-role-policy.json \
     && export grafana_service_role_policy_arn=$(aws iam list-policies --query 'Policies[?PolicyName==`'${CLUSTER_NAME}-grafana-service-role-policy'`].Arn' --output text)
-    if [[ $$grafana_service_role_policy_arn != "" ]]
+    if [[ $grafana_service_role_policy_arn != "" ]]
     then 
         echo "Create AWS Managed Grafana service role policy $grafana_service_role_policy_arn"
     fi 
-
     # create grafana service role
     sed -i='' "s/\${ACCOUNT_ID}/$ACCOUNT_ID/g" ./grafana/grafana-service-role-assume-policy.json
     sed -i='' "s/\${AWS_REGION}/$AWS_REGION/g" ./grafana/grafana-service-role-assume-policy.json
-
-    aws iam create-role --role-name ${LOAD_TEST_PREFIX}-grafana-service-role \
+    aws iam create-role --role-name ${CLUSTER_NAME}-grafana-service-role \
         --assume-role-policy-document file://./grafana/grafana-service-role-assume-policy.json \
-        --tags Key=Name,Value=${LOAD_TEST_PREFIX}-grafana-service-role && \
-        export grafana_service_role_arn=$(aws iam list-roles --query 'Roles[?RoleName==`'${LOAD_TEST_PREFIX}-grafana-service-role'`].Arn' --output text)
-    
+        --tags Key=Name,Value=${CLUSTER_NAME}-grafana-service-role && \
+        export grafana_service_role_arn=$(aws iam list-roles --query 'Roles[?RoleName==`'${CLUSTER_NAME}-grafana-service-role'`].Arn' --output text)
+
     if [[ $grafana_service_role_arn != "" ]]
     then 
         echo "Created AWS Managed Grafana service role $grafana_service_role_arn" 
     fi
-
-    aws iam attach-role-policy --role-name  ${LOAD_TEST_PREFIX}-grafana-service-role --policy-arn $grafana_service_role_policy_arn \
-    && echo "Attached policy $grafana_service_role_policy_arn to role ${LOAD_TEST_PREFIX}-grafana-service-role"
+    aws iam attach-role-policy --role-name  ${CLUSTER_NAME}-grafana-service-role --policy-arn $grafana_service_role_policy_arn \
+    && echo "Attached policy $grafana_service_role_policy_arn to role ${CLUSTER_NAME}-grafana-service-role"
 
     # create grafana workspace in public network
-    aws grafana create-workspace --workspace-name ${LOAD_TEST_PREFIX} --account-access-type CURRENT_ACCOUNT --authentication-providers AWS_SSO --permission-type SERVICE_MANAGED --workspace-role-arn $grafana_service_role_arn --region $AWS_REGION \
-    && export grafana_workspace_id=$(aws grafana list-workspaces --query 'workspaces[?name==`'${LOAD_TEST_PREFIX}'`].id' --region $AWS_REGION --output text)
+    aws grafana create-workspace --workspace-name ${CLUSTER_NAME} --account-access-type CURRENT_ACCOUNT --authentication-providers AWS_SSO --permission-type SERVICE_MANAGED --workspace-role-arn $grafana_service_role_arn --region $AWS_REGION \
+    && export grafana_workspace_id=$(aws grafana list-workspaces --query 'workspaces[?name==`'${CLUSTER_NAME}'`].id' --region $AWS_REGION --output text)
     if [[ $grafana_workspace_id != "" ]]
     then 
         echo "Created AWS Manged Grafana workspace $grafana_workspace_id"

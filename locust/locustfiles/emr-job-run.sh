@@ -7,6 +7,18 @@
     # "spark.dynamicAllocation.executorIdleTimeout": "30s"
     # "spark.dynamicAllocation.maxExecutors": "23"
     # "spark.kubernetes.scheduler.name": "custom-scheduler-eks",
+    # "spark.kubernetes.executor.node.selector.karpenter.sh/capacity-type": "on-demand",
+x
+
+          # "spark.kubernetes.driver.waitToReusePersistentVolumeClaim": "true",
+          # "spark.kubernetes.driver.ownPersistentVolumeClaim": "true",
+          # "spark.kubernetes.driver.reusePersistentVolumeClaim": "true",
+          # "spark.kubernetes.executor.volumes.persistentVolumeClaim.spark-local-dir-1.mount.readOnly": "false",
+          # "spark.kubernetes.executor.volumes.persistentVolumeClaim.spark-local-dir-1.options.claimName": "OnDemand",
+          # "spark.kubernetes.executor.volumes.persistentVolumeClaim.spark-local-dir-1.options.storageClass": "gp3",
+          # "spark.kubernetes.executor.volumes.persistentVolumeClaim.spark-local-dir-1.options.sizeLimit": "5Gi",
+          # "spark.kubernetes.executor.volumes.persistentVolumeClaim.spark-local-dir-1.mount.path": "/data1",
+
 
 export SHARED_PREFIX_NAME=emr-on-$CLUSTER_NAME
 export ACCOUNTID=$(aws sts get-caller-identity --query Account --output text)
@@ -15,18 +27,19 @@ export S3BUCKET="${SHARED_PREFIX_NAME}-${ACCOUNTID}-${AWS_REGION}"
 export ECR_URL="${ACCOUNTID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 export EMR_VERSION="emr-${EMR_IMAGE_VERSION:-"7.9.0"}-latest"
 export SELECTED_AZ=${SELECTED_AZ:-"us-west-2a"}
+export KMS_ARN=$(aws kms describe-key --key-id arn:aws:kms:${AWS_REGION}:${ACCOUNTID}:alias/cmk_locust_pvc_reuse --query 'KeyMetadata.Arn' --output text)
 
 aws emr-containers start-job-run \
 --virtual-cluster-id $VIRTUAL_CLUSTER_ID \
 --endpoint-url https://emr-containers-gamma.us-west-2.amazonaws.com \
---name $JOB_UNIQUE_ID \
+--name $JOB_UNIQUE_ID-nopvc \
 --execution-role-arn $EMR_ROLE_ARN \
 --release-label $EMR_VERSION \
 --job-driver '{
   "sparkSubmitJobDriver": {
       "entryPoint": "local:///usr/lib/spark/examples/jars/eks-spark-benchmark-assembly-1.0.jar",
-      "entryPointArguments":["s3://blogpost-sparkoneks-us-east-1/blog/tpc30/","s3://'$S3BUCKET'/EMRONEKS_PVC-REUSE-TEST-RESULT","/opt/tpcds-kit/tools","parquet","30","1","false","q4-v2.4,q24a-v2.4,q24b-v2.4,q67-v2.4","false"],
-      "sparkSubmitParameters": "--class com.amazonaws.eks.tpcds.BenchmarkSQL --conf spark.driver.cores=1 --conf spark.driver.memory=1g --conf spark.executor.cores=2 --conf spark.executor.memory=4g --conf spark.executor.instances=20"}}' \
+      "entryPointArguments":["s3://blogpost-sparkoneks-us-east-1/blog/tpc30","s3://'$S3BUCKET'/EMRONEKS_PVC-REUSE-TEST-RESULT","/opt/tpcds-kit/tools","parquet","30","1","false","q4-v2.4,q24a-v2.4,q24b-v2.4,q67-v2.4","false"],
+      "sparkSubmitParameters": "--class com.amazonaws.eks.tpcds.BenchmarkSQL --conf spark.driver.cores=1 --conf spark.driver.memory=1g --conf spark.executor.cores=2 --conf spark.executor.memory=4g --conf spark.executor.instances=50"}}' \
 --configuration-overrides '{
     "applicationConfiguration": [
       {
@@ -39,17 +52,7 @@ aws emr-containers start-job-run \
           
           "spark.kubernetes.executor.node.selector.karpenter.sh/nodepool": "executor-memorynodepool",
           "spark.kubernetes.driver.node.selector.karpenter.sh/nodepool": "driver-nodepool",
-          "spark.kubernetes.executor.node.selector.karpenter.sh/capacity-type": "on-demand",
           "spark.kubernetes.node.selector.topology.kubernetes.io/zone": "'$SELECTED_AZ'",
-
-          "spark.kubernetes.driver.waitToReusePersistentVolumeClaim": "true",
-          "spark.kubernetes.driver.ownPersistentVolumeClaim": "true",
-          "spark.kubernetes.driver.reusePersistentVolumeClaim": "true",
-          "spark.kubernetes.executor.volumes.persistentVolumeClaim.spark-local-dir-1.mount.readOnly": "false",
-          "spark.kubernetes.executor.volumes.persistentVolumeClaim.spark-local-dir-1.options.claimName": "OnDemand",
-          "spark.kubernetes.executor.volumes.persistentVolumeClaim.spark-local-dir-1.options.storageClass": "gp3",
-          "spark.kubernetes.executor.volumes.persistentVolumeClaim.spark-local-dir-1.options.sizeLimit": "5Gi",
-          "spark.kubernetes.executor.volumes.persistentVolumeClaim.spark-local-dir-1.mount.path": "/data1",
 
           "spark.ui.prometheus.enabled":"true",
           "spark.executor.processTreeMetrics.enabled":"true",

@@ -18,15 +18,13 @@ spec:
   - name: JOB_SCRIPT_NAME
     value: ${JOB_SCRIPT_NAME}
   - name: SPARK_JOB_NS_NUM
-    value: 2
+    value: 5
   extraArgs:
-    -f locustfile.py
+    -f /home/locust/locustfile.py
     --run-time=60m
-    --users=150
-    --spawn-rate=2
+    --users=120
+    --spawn-rate=15
     --skip-log-setup
-    --only-summary
-    --headless
   locustfile:
     configMap:
       name: emr-loadtest-locustfile
@@ -41,8 +39,8 @@ spec:
   worker:
     resources:
       requests:
-        cpu: "500m"
-        memory: "512Mi"
-      limits:
         cpu: "1"
         memory: "1Gi"
+      limits:
+        cpu: "8"
+        memory: "8Gi"
