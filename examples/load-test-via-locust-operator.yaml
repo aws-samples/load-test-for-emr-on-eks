@@ -21,8 +21,8 @@ spec:
     value: 5
   extraArgs:
     -f /home/locust/locustfile.py
-    --run-time=60m
-    --users=120
+    --run-time=120m
+    --users=300
     --spawn-rate=15
     --skip-log-setup
   locustfile:
@@ -34,8 +34,8 @@ spec:
         cpu: "500m"
         memory: "512Mi"
       limits:
-        cpu: "1"
-        memory: "1Gi"
+        cpu: "2"
+        memory: "2Gi"
   worker:
     resources:
       requests:

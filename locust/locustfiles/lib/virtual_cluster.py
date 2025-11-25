@@ -165,7 +165,7 @@ class VirtualCluster:
         virtual_clusters = [
             vc for page in page_iterator
             for vc in page["virtualClusters"]
-            if vc['name'].startswith(scale_test_id)
+            if vc['containerProvider']['info']['eksInfo']['namespace'].startswith(scale_test_id)
         ]
         return virtual_clusters
 

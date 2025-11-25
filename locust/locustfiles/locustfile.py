@@ -17,7 +17,7 @@ ns_prefix = f"{unique_id}-ns"
 
 EKS_CLUSTER_NAME = environ["CLUSTER_NAME"]
 REGION = environ["AWS_REGION"]
-
+    
 # Prometheus metrics
 success_counter = Counter('locust_spark_application_submit_success', 'Number of successful EMR job submissions')
 failed_emr_jobs_gauge = Gauge('locust_spark_application_submit_fail', 'Number of failed EMR job submissions')
@@ -36,13 +36,13 @@ def on_locust_init(parser):
     parser.add_argument("--emr-script-name", type=str, default=JOB_SHELL_SCRIPT, help="EMR on EKS job submission shell script file name and path")
     parser.add_argument("--job-ns-count", type=int, default=NAMESPACE_COUNT, help="Number of job namespaces or EMR Virtual Cluster")
     parser.add_argument("--job-azs", type=json.loads, default=None, help="List of AZs for task allocation")
-    # parser.add_argument("--wait-time", type=int, default="20", help="Submission delay in sec per virtual cluster.")
 
 def printlog(log):
     now = str(datetime.now())
     print(f"[{now}] {log}")
 
 class EMRJobUser(User):
+    # Submission delay in sec per virtual cluster
     wait_time = between(20, 30)
 
     def __init__(self, environment):
@@ -57,17 +57,16 @@ class EMRJobUser(User):
     def on_test_start(environment, **kwargs):
         printlog(f"Start the load test against EKS Cluster {EKS_CLUSTER_NAME} in region {REGION} with {environment.parsed_options.job_ns_count} users ........")
         printlog(f"Wait time is set between 20-30 seconds")
-        printlog(f"EMR on EKS job submission script is set to [green]{environment.parsed_options.emr_script_name}")
-        hostname = environ.get('HOSTNAME', '').lower()
-        if 'master' not in hostname:
-            printlog("Starting EMR job monitoring thread")
-            thread = threading.Thread(target=monitor_emr_jobs, args=(environment,))
-            thread.start()
+        printlog(f"EMR on EKS job submission script is set to {environment.parsed_options.emr_script_name}")
+        printlog("Starting EMR job monitoring thread")
+        thread = threading.Thread(target=count_emr_jobs)
+        thread.start()
 
     @events.test_stop.add_listener
     def on_test_stop(environment, **kwargs):
         printlog(f"Test [green]{unique_id}[/green] has stopped ramping up. Jobs are still running")
-        printlog(f"To stop the test: [green on grey27]python3[/][white on grey27] python ./locustfiles/stop_test.py --id {unique_id}[/]")
+        printlog(f"To stop all tests on the EKS cluster: python ./locustfiles/stop_test.py")
+        printlog(f"To stop a test session: python ./locustfiles/stop_test.py --id {unique_id}")
         exit_event.set()
 
     @task
@@ -103,7 +102,7 @@ class EMRJobUser(User):
             env.update({
                 'CLUSTER_NAME': EKS_CLUSTER_NAME,
                 'VIRTUAL_CLUSTER_ID': virtual_cluster_id,
-                # 'AWS_REGION': REGION,
+                'AWS_REGION': REGION,
                 'JOB_UNIQUE_ID': job_unique_id,
                 'SELECTED_AZ': selected_az
             })
@@ -128,14 +127,14 @@ class EMRJobUser(User):
             elapsed_time = time.perf_counter() - test_start_time
             printlog(f"Submitted {self.total_jobs_submitted} jobs. Elapsed time: {str(timedelta(seconds=elapsed_time))}")
 
-def monitor_emr_jobs(environment):
-    next_time = time.time() + 300
+def count_emr_jobs():
+    next_time = time.time() + 60
     while True:
         if exit_event.is_set():
             break
         current_time = time.time()
         if current_time > next_time:
-            printlog("Collecting EMR job metrics across all virtual clusters at 5 minute interval...")
+            printlog("Collecting EMR job metrics across all virtual clusters at 1 minute interval...")
 
             running_count = 0
             submitted_count = 0
@@ -144,8 +143,9 @@ def monitor_emr_jobs(environment):
             failed_count = 0
 
             try:
-                # Monitor jobs across all virtual clusters using library
-                for ns_id, vc_id in virtual_clusters.items():
+                list_virtual_clusters = [vc['id'] for vc in virtual_cluster.find_vcs_eks(EKS_CLUSTER_NAME, ['RUNNING'])]
+                # Aggregate jobs counts across all active virtual clusters in an EKS 
+                for vc_id in list_virtual_clusters:
                     job_runs = virtual_cluster.list_job_runs(vc_id)
                     
                     for job_run in job_runs:
@@ -160,24 +160,22 @@ def monitor_emr_jobs(environment):
                             completed_count += 1
                         elif state in ['FAILED', 'CANCELLED', 'CANCEL_PENDING']:
                             failed_count += 1
-                
                 # Update metrics
                 running_emr_jobs_gauge.set(running_count)
                 submitted_emr_jobs_gauge.set(submitted_count)
                 pending_emr_jobs_gauge.set(pending_count)
                 completed_emr_jobs_gauge.set(completed_count)
                 failed_emr_jobs_gauge.set(failed_count)
-                virtual_clusters_gauge.set(len(virtual_clusters))
+                virtual_clusters_gauge.set(len(list_virtual_clusters))
                 
                 printlog(f"EMR Jobs in test session {unique_id} - Running: {running_count}, Submitted: {submitted_count}, Pending: {pending_count},"
-                        f"Completed: {completed_count}, Failed: {failed_count}, VCs: {len(virtual_clusters)}")
+                        f"Completed: {completed_count}, Failed: {failed_count}, VCs: {len(list_virtual_clusters)}")
                 
             except Exception as e:
                 printlog(f"Error monitoring EMR jobs: {e}")
             
-            next_time = current_time + 300
-        
-        time.sleep(150)
+            next_time = current_time + 60
+        time.sleep(1)
 
 class LoadTestInitializer():
     def __init__(self, ns_count):
@@ -202,7 +200,7 @@ def on_locust_init(environment, **kwargs):
     hostname = environ.get('HOSTNAME', '').lower()
     if 'master' in hostname:
         printlog("EMR on EKS load test is started ...")
+        start_http_server(8000)
     else:
         LoadTestInitializer(namespace_count)
-        start_http_server(8000)
         printlog("Load test session is initializing ...")

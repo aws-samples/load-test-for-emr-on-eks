@@ -168,7 +168,7 @@ echo "==============================================="
 echo "Setup Prometheus"
 kubectl create ns prometheus || true
 # SA name and IRSA role were created at EKS cluster creation time
-LOCUST_PRIV_HOST_IP=$(kubectl get pod locust-operator-5c57bd46cd-dnndr -n locust -o json | jq -r '.status.hostIP')
+# LOCUST_PRIV_HOST_IP=$(kubectl get pod -n locust -l app.kubernetes.io/name=master --field-selector=status.phase=Running -o jsonpath='{.items[*].status.hostIP}')
 amp=$(aws amp list-workspaces --query "workspaces[?alias=='$CLUSTER_NAME'].workspaceId" --output text)
 if [ -z "$amp" ]; then
     echo "Creating a new prometheus workspace..."
@@ -180,12 +180,12 @@ fi
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm repo add kube-state-metrics https://kubernetes.github.io/kube-state-metrics
 helm repo update
-sed -i -- 's/{AWS_REGION}/'$AWS_REGION'/g'  ./resources/prometheus-values.yaml
-sed -i -- 's/{ACCOUNTID}/'$ACCOUNT_ID'/g'  ./resources/prometheus-values.yaml
-sed -i -- 's/{WORKSPACE_ID}/'$WORKSPACE_ID'/g'  ./resources/prometheus-values.yaml
-sed -i -- 's/{CLUSTER_NAME}/'$CLUSTER_NAME'/g'  ./resources/prometheus-values.yaml
-sed -i -- 's/{LOCUST_PRIV_HOST_IP}/'$LOCUST_PRIV_HOST_IP'/g'  ./resources/prometheus-values.yaml
-helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n prometheus -f  ./resources/prometheus-values.yaml --debug
+sed -i -- 's/{AWS_REGION}/'$AWS_REGION'/g'  ./resources/monitor/prometheus-values.yaml
+sed -i -- 's/{ACCOUNTID}/'$ACCOUNT_ID'/g'  ./resources/monitor/prometheus-values.yaml
+sed -i -- 's/{WORKSPACE_ID}/'$WORKSPACE_ID'/g'  ./resources/monitor/prometheus-values.yaml
+sed -i -- 's/{CLUSTER_NAME}/'$CLUSTER_NAME'/g'  ./resources/monitor/prometheus-values.yaml
+# sed -i -- 's/{LOCUST_PRIV_HOST_IP}/'$LOCUST_PRIV_HOST_IP'/g'  ./resources/monitor/prometheus-values.yaml
+helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n prometheus -f  ./resources/monitor/prometheus-values.yaml --debug
 # validate in a web browser - localhost:9090, go to menu of status->targets
 # kubectl --namespace prometheus port-forward service/prometheus-kube-prometheus-prometheus 9090
 
@@ -273,6 +273,8 @@ helm template karpenter oci://public.ecr.aws/karpenter/karpenter --version "${KA
     --set controller.resources.requests.cpu=1 \
     --set controller.resources.requests.memory=1Gi \
     --set controller.resources.limits.cpu=1 \
+    --set webhook.serviceName="karpenter" \
+    --set webhook.port=8443 \
     --set controller.resources.limits.memory=1Gi > ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml
 # run Karpenter pods on a managed nodegroup
 export NG=$(aws eks list-nodegroups --cluster-name $CLUSTER_NAME --output json | jq -r '.nodegroups[0]')

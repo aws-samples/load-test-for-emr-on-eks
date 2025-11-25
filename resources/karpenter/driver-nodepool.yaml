@@ -7,7 +7,7 @@ spec:
     consolidateAfter: 1m
     consolidationPolicy: WhenEmpty
   limits:
-    cpu: "100000"
+    cpu: "30000"
     # memory: 1000Gi
   template:
     spec:
@@ -25,7 +25,7 @@ spec:
         values: ["on-demand"]
       - key: "karpenter.k8s.aws/instance-hypervisor"
         operator: In
-        values: ["nitro"]   
+        values: ["nitro"]   # to support prefix delegation
       - key: karpenter.k8s.aws/instance-size
         operator: In
         values:
@@ -39,4 +39,4 @@ spec:
         values: ["m", "c"]
       - key: karpenter.k8s.aws/instance-generation
         operator: Gt
-        values: ["4"]
+        values: ["2"]

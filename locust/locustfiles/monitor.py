@@ -70,14 +70,14 @@ def monitor_vc(vc, current, total):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Monitor virtual clusters.')
-    parser.add_argument('scale_test_id', type=str, help='Unique id for the scale test')
+    parser.add_argument('eks_cluster_name', type=str, help='EKS clustesr name for the scale test')
     args = parser.parse_args()
-    with console.status(f"Pulling virtual clusters for [magenta]{args.scale_test_id}"):
-        vcs = [vc['id'] for vc in virtual_cluster.find_vcs(args.scale_test_id, ['RUNNING'])]
-    console.print(f"Found the following: vcs={vcs}, test_id=[magenta]{args.scale_test_id}[/]")
+    with console.status(f"Pulling virtual clusters for [magenta]{args.eks_cluster_name}"):
+        vcs = [vc['id'] for vc in virtual_cluster.find_vcs_eks(args.eks_cluster_name, ['RUNNING'])]
+    console.print(f"Found the following: vcs={vcs}, test_id=[magenta]{args.eks_cluster_name}[/]")
     greenlets = []
     for index, vc in enumerate(vcs):
         greenlets.append(gevent.spawn(monitor_vc, vc, index + 1, len(vcs)))
-    draw(args.scale_test_id)
+    draw(args.eks_cluster_name)
     # gevent.joinall(greenlets)
 

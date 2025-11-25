@@ -10,7 +10,7 @@ echo "patch the csi-provisioner container"
 kubectl patch deployment $DEPLOYMENT_NAME -n $NAMESPACE --type='json' -p='[
   {
     "op": "replace",
-    "path": "/spec/template/spec/containers/1/args/10",
+    "path": "/spec/template/spec/containers/1/args/9",
     "value": "--worker-threads=300"
   }
 ]'
@@ -37,7 +37,7 @@ kubectl patch deployment $DEPLOYMENT_NAME -n $NAMESPACE --type='json' -p='[
   {
     "op": "replace",
     "path": "/spec/template/spec/containers/2/resources/limits/memory",
-    "value": "4Gi"
+    "value": "2Gi"
   }
 ]'
 

@@ -55,12 +55,13 @@ def main():
     parser.add_argument('--cluster', type=str, default=EKS_CLUSTER_NAME, help='The name of the eks cluster')
     args = parser.parse_args()
 
-    if not args.cluster:
+    if args.id:
         vcs = [vc['id'] for vc in virtual_cluster.find_vcs(args.id, ['RUNNING'])]
+        console.log(f"Found the following: vcs={vcs}, test_id={args.id}")
     else:
         vcs = [vc['id'] for vc in virtual_cluster.find_vcs_eks(args.cluster, ['RUNNING'])]
+        console.log(f"Found the following: vcs={vcs}, test_id={args.cluster}")
 
-    console.log(f"Found the following: vcs={vcs}, test_id={args.id}")
     # for vc in vcs:
     #     safe_delete_virtual_cluster(vc)
 

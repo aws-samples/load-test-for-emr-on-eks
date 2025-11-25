@@ -92,9 +92,6 @@ prometheus:
           cpu: "1"
           memory: 15Gi
     replicas: 1
-    nodeSelector:
-      operational: "true"
-      monitor: "true"
     # ensure one instance per node
     podAntiAffinity: hard
     # add an EBS volume per instance 

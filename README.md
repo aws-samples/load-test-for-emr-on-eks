@@ -118,7 +118,7 @@ Monitoring by default uses managed services:
 - For autoscaler, modify [./resources/autoscaler-values.yaml](./resources/autoscaler-values.yaml)
 - For custom k8s scheduler, update [./resources/binpacking-values.yaml](./resources/binpacking-values.yaml)
 - For Karpenter, update yaml files under the [./resources/karpenter/](./resources/karpenter/)
-- For Prometheus, update [./resources/prometheus-values.yaml](./resources/prometheus-values.yaml)
+- For Prometheus, update [./resources/monitor/prometheus-values.yaml](./resources/monitor/prometheus-values.yamlprometheus-values.yaml)
 - For Prometheus's podmonitor and servicemonitor settings, update files under the [./resources/monitor](./resources/monitor)
 
 #### 2. Run the script after all the customizations are done.
@@ -142,9 +142,14 @@ bash ./locust-provision.sh
  To get an optimal load test outcome, you can configure your compute resource allocation via Spark settings. See the best practice section: [How to Allocate Pods](#1-how-to-allocate-spark-driver--executor-pods).
 
 ### Prerequisite - Update job script
-This project supports most of EMR on EKS load test cases with a defualt monitoring configuration, ie. AWS Managed Promethues + Managed Grafana. Before getting started, replace the sample job run file [./locust/locustfiles/emr-job-run.sh](./locust/locustfiles/emr-job-run.sh) by your actual EMR on EKS job submission script. It then will be mapped into each Locust containers's home directory `/home/locust` via a configmap called `emr-loadtest-locustfile`. More detials can be found in the [locust-provision.sh](https://github.com/aws-samples/load-test-for-emr-on-eks/blob/b389458ff4ebb1b829f6fd9c8aa49405c482bfc9/locust-provision.sh#L124) script. The setup looks like this:
+This project supports most of EMR on EKS load test cases with a defualt monitoring configuration, ie. AWS Managed Promethues + Managed Grafana. Before getting started, replace the sample job run file [./locust/locustfiles/emr-job-run.sh](./locust/locustfiles/emr-job-run.sh) by your actual EMR on EKS job submission script. Don't change the directory location, becuase it will be mapped into each Locust containers's home directory `/home/locust` via a configmap called `emr-loadtest-locustfile`. More detials can be found in the [locust-provision.sh](https://github.com/aws-samples/load-test-for-emr-on-eks/blob/b389458ff4ebb1b829f6fd9c8aa49405c482bfc9/locust-provision.sh#L124) script. The setup looks like this:
 ```bash
 kubectl create configmap emr-loadtest-locustfile --namespace locust --from-file=locust/locustfiles
+```
+
+NOTE: delete then recreate this configmap if your the submission script or other python script are changed. Otherwise, Locust operator will only read from its previous version before any changes. Don't need to refresh the configma if running a test locally via `locust -f ./locustfiles/locustfile.py ....`
+```bash
+kubectl delete configmap emr-loadtest-locustfile --namespace locust
 ```
 
 ### 1. Fire up Load Test locally
@@ -163,24 +168,24 @@ source .venv/bin/activate
 pip install -r requirements.txt
 source ../env.sh
 
-locust -f ./locustfiles/locustfile.py --run-time=5m --users=2 --spawn-rate=1 \
+locust -f ./locustfiles/locustfile.py --run-time=2m --users=1 --spawn-rate=1 \
 --job-azs '["us-west-2a"]' \
 --job-ns-count 1 \
 --skip-log-setup \
 --headless
 ```
-
-Press enter key, Locust WebUI will pop up. Click start to kick off the load test. 
-After the load test session is finished or in progress, you can cancel these jobs and delete EMR-on-EKS virtual clusters:
+When the load test session is finished or in progress, you can cancel these jobs and delete EMR-on-EKS virtual clusters:
 ```bash
 # clean up script for EMR-EKS's Virtual Clsuters and jobs created by Locust:
-# --id, remove a test by its session/instance ID
-# --cluster, remove all tests by the eks cluster name
-python3 stop_test.py --cluster $CLUSTER_NAME  
+# --id, terminate VCs by a test session id. The unique id is used as namespace prefix "emr-{uniqueID}-{date}"
+# --cluster, cancel test jobs across all VCs on the eks cluster.A default value is set.
+python3 ./locustfiles/stop_test.py --cluster $CLUSTER_NAME  
+# or 
+python3 ./locustfiles/stop_test.py
 # delete namespaces if needed
 kubectl get namespaces -o name | grep "emr" | xargs kubectl delete
 ```
-**WARNING:** `Locust creates a new namespace/VC at each initalization time. To re-used a namespace from a previous test session, the old VC created by the previously tests must be terminated first. Either manually or via the above python script.`
+**WARNING:** `Locust creates a new namespace/VC at each test session. The old VC created previously must be terminated first. Either manually or via the above python script stop_test.py.`
 
 
 [^ back to top](#table-of-contents)
@@ -190,7 +195,8 @@ Locust Operator supports a distributed way of load test. By default, it fires up
 
 Update the locust test CRD manifest file by actual environment attributes, then start the load test from an EKS cluster:
 ```bash
- kubectl apply -f examples/load-test-pvc-reuse.yaml
+cd load-test-for-emr-on-eks
+kubectl apply -f examples/load-test-pvc-reuse.yaml
 ```
 
 ```bash
@@ -357,7 +363,7 @@ Please aware if the below charts are not working, which is expected due to the `
 - Prometheus Kubelet Metrics Series Count
 - Spark Operator Pod CPU Core Usage
 
-If you want to enable them, then please update `./resources/prometheus-values.yaml` as below:
+If you want to enable them, then please update `./resources/monitor/prometheus-values.yaml` as below:
 ```yaml
 kubelet:
   enabled: true
