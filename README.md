@@ -1,8 +1,6 @@
-## EMR Spark Operator on EKS Benchmark Utility
+## EMR on EKS Load Test Benchmark Utility
 
-This repository provides a general tool to benchmark EMR Spark Operator & EKS performance. This is an out-of-the-box tool, with both EKS cluster and load testing job generator (Locust). You will have zero or minimal setup overhead for the EKS cluster.
-
-Enjoy! ^.^
+This repository provides a general tool to benchmark EMR scalability performance on EKS cluster, supporting all three job submission types: Spark Operator, JobRun API, and Spark Submit. This out-of-the-box solution includes complete infrastructure setup for EKS clusters and a load testing job generator powered by the Locust Kubernetes Operator. It also features pre-built Grafana dashboard templates which can be used directly to observe your test result and throttling events. With zero to minimal setup overhead, you can quickly establish a large-scale load testing environment via this utility.
 
 # Table of Contents
 - [Prerequisite](#prerequisite)
@@ -10,11 +8,11 @@ Enjoy! ^.^
   - [Prerequisite](#prerequisite---set-environment-variables)
   - [Create the EKS Cluster with Necessary Components(Optional)](#create-an-eks-cluster-with-components-needed-optional)
   - [Install Locust Operator on EKS](#install-locust-operator-on-eks)
-- [Get Started](#get-started-with-load-test)
+- [Get Started](#get-started)
   - [Prerequisite](#prerequisite---update-job-script)
-  - [Run test from local](#1-fire-up-load-test-locally)
-  - [Run test on EKS](#1-load-test-via-locust-operator-on-eks)
-- [Best Practice Guide](#best-practices-learned-from-load-test)
+  - [Run test from local](#1-run-load-test-locally)
+  - [Run test on EKS](#1-load-test-on-eks)
+- [Best Practice Guide](#best-practices-and-considerations)
   - [How to Allocate Pods](#1-how-to-allocate-spark-driver--executor-pods)
   - [DONOT Use Sidecars Whenever Possible](#2-try-not-to-use-initcontainersor-custom-sidecar)
   - [Binpacking pods](#3-binpacking-application-pods)
@@ -110,9 +108,6 @@ Monitoring by default uses managed services:
 - [Amazon Managed Prometheus](https://aws.amazon.com/prometheus/)
 - [Amazon Managed Grafana](https://aws.amazon.com/grafana/)
 
-[^ back to top](#table-of-contents)
-
-
 #### 1. Modify EKS cluster and components' configurations before provisioning the environemnt
 - For eks cluster, update [./resources/eks-cluster-values.yaml](./resources/eks-cluster-values.yaml)
 - For autoscaler, modify [./resources/autoscaler-values.yaml](./resources/autoscaler-values.yaml)
@@ -137,7 +132,7 @@ bash ./locust-provision.sh
 ```
 [^ back to top](#table-of-contents)
 
-## Get Started with Load Test
+## Get Started
 
  To get an optimal load test outcome, you can configure your compute resource allocation via Spark settings. See the best practice section: [How to Allocate Pods](#1-how-to-allocate-spark-driver--executor-pods).
 
@@ -151,9 +146,10 @@ NOTE: delete then recreate this configmap if your the submission script or other
 ```bash
 kubectl delete configmap emr-loadtest-locustfile --namespace locust
 ```
+[^ back to top](#table-of-contents)
 
-### 1. Fire up Load Test locally
-Let's run a small test from a local terminal window. The following parameters are avaiable to adjust before run the locust CLI:
+### 1. Run Load Test Locally
+Let's run a small test from a local terminal window. The following parameters are available to adjust before run the Locust CLI:
 ```bash
 # -u or --users, How many users are going to submit the jobs concurrently.
 #     Used a default wait interval (between 20s-30s per user) before submit the next job. 
@@ -208,7 +204,7 @@ kubectl logs -f -n locust -l locust.cloud/component=worker
 
 [^ back to top](#table-of-contents)
 
-## Best Practices Learned from Load Test
+## Best Practices and Considerations
 
 ### 1. How to Allocate Spark Driver & Executor Pods
 To minimise the cross-node DataIO and networkIO penalty in a single Spark job, it is recommended trying to allocate the Spark executor pods into the same node as much as possible.
@@ -229,7 +225,7 @@ Additionally, to avoid the cross-AZ data transfer fee, utilize the `spark.kubern
 ```
 [^ back to top](#table-of-contents)
 
-### 2. TRY NOT to Use `initContainers`or Custom Sidecar.
+### 2. Try Not to Use `initContainers`or Custom Sidecar.
 k8s events in EKS emitted by a Spark job increased significantly, as soon as we enable the `initContainers`. As a result, EKS API Server and ETCD DB size will be filled up quicker than normal. It is recommended to avoid the `initContainers` or any sidecars in a large scale workload on an EKS cluster. Otherwise, try to split your workload to multiple EKS clusters.
 
 ### 3. Binpacking Application Pods
@@ -290,16 +286,17 @@ extraArgs:
 With large volume of workloads, IP addresses often exhaustes. To solve this, we have some tips to address the network problem:
 - Use `AWS VPC CNI` - to set up a 2nd or more CIDRs for your EKS cluster, instead of utilizing the primary subnet. Please learn more about this technique here: https://aws.github.io/aws-eks-best-practices/networking/custom-networking/
 - To minimise IP wastage per existing subnet, you should try to fine tune the following VPC CNI configs: 
-    - `WARM_ENI_TARGET`, `MAX_ENI`
+    - `WARM_ENI_TARGET`
+    - `WARM_PREFIX_TARGET` 
     - `WARM_IP_TARGET`, `MINIMUM_IP_TARGET`
-More details can be found: https://aws.github.io/aws-eks-best-practices/networking/vpc-cni/
-https://docs.aws.amazon.com/eks/latest/best-practices/networking.html
+More details can be found in the [EKS networking best practice](https://docs.aws.amazon.com/eks/latest/best-practices/networking.html), [VPC-CNI concepts](https://aws.github.io/aws-eks-best-practices/networking/vpc-cni/) and the [Prefix Delegation](https://docs.aws.amazon.com/eks/latest/best-practices/prefix-mode-linux.html).
+
 
 [^ back to top](#table-of-contents)
 
 ## Monitoring:
 
-We have built monitoring solution for this architecture, with [Amazon Managed Prometheus](https://aws.amazon.com/prometheus/) and [Amazon Managed Grafana](https://aws.amazon.com/grafana/) included by default.
+We have built insightful monitoring dashboards for the load test, with [Amazon Managed Prometheus](https://aws.amazon.com/prometheus/) and [Amazon Managed Grafana](https://aws.amazon.com/grafana/) setup in infra-provision.sh by default.
 
 <table align="center">
   <tr>
@@ -324,42 +321,42 @@ We have built monitoring solution for this architecture, with [Amazon Managed Pr
   </tr>
 </table>
 
-### 1. Monitor Load Testing with Amazon Managed Prometheus and Amazon Managed Grafana
+### 1. Observe Load Testing with Amazon Managed Prometheus and Amazon Managed Grafana
 
-#### 1.1 Set up AMP & AMG follow based on this git repo
-Please aware, `./infra-provision.sh` has included prometheus on eks and also Amazon Managed Prometheus by default. Thus, please just follow the below guidence to set up Amazon Managed Grafana:
+#### 1.1 Set up AMP & AMG
+Please aware, `./infra-provision.sh` has included Amazon Managed Prometheus setup by default. Please just follow the below guidence to set up Amazon Managed Grafana:
 <details>
-<summary>Here are the steps to use Amazon Managed Grafana </summary>
+<summary>Here are the steps to install Amazon Managed Grafana </summary>
 
-- From `./env.sh`, keep default value as below, then the script will create AMG workspace automatically:
+- In `./env.sh`, keep the default value as below, which creates AMG workspace automatically:
 ```bash
 export USE_AMG="true"
 ```
-If you do not have the IAM Identity Center / useage account enabled, then please follow: https://docs.aws.amazon.com/databrew/latest/dg/sso-setup.html
+If you do not have the IAM Identity Center(IDC) enabled in your test region and AWS account, follow the instruction [here](https://docs.aws.amazon.com/databrew/latest/dg/sso-setup.html) to create one.
 
 - Set up the access for Amazon Grafana:
-    - Access to aws console -> search "Amazon Grafana" -> click the three lines icon at top left of the page -> click "All workspaces";
-    - click the workspace name, which is the same value of the `LOAD_TEST_PREFIX` value;
+    - Access to AWS console -> search "Amazon Grafana" -> click the three lines icon at top left of the page -> choose "All workspaces";
+    - click on the workspace name, which is the same value of the `CLUSTER_NAME` value;
     - From Authentication tab -> click "Assign new user or group";
     - Select your account -> click "Assign Users and groups";
     - Select your account again -> click "Action" -> "Make admin";
-    - To find the "Grafana workspace URL" from the workspace detail page -> access to the URL.
+    - Finally, find the "Grafana workspace URL" from the workspace detail page -> click on the URL.
 
-- Sign in via IAM Identity Center access;
+- Sign in the Grafana UI via IAM Identity Center access;
 - Set up Amazon Managed Prometheus Datasource via:
-    - Click Apps -> AWS Data Source -> Click `Amazon Managed Service for Prometheus`;
-    - Select `region` align with your eks cluster, eg: `us-west-2`;
-    - Select the Region and Click Add data source.
-    - Click `Go to Settings`, scroll down to the bottom and click `Save & test` to verify the connection.
+    - Navigate to Apps -> Amazon Data Sources -> `Amazon Managed Service for Prometheus`;
+    - Select `region` align with your load test region, eg: `us-west-2`;
+    - Select the Region then Click Add data source.
+    - `Go to Settings`, scroll down to the bottom and click `Save & test` to verify the connection.
 
-- Set up Grafana Dashboard:
-    - Client the "+" icon from top right of the page after signed in -> click "Import dashboard";
-    - You can either use `Upload` or `Copy & Paste` the value of `./grafana/dashboard-template/spark-operator-dashbord.json` and then click "Load";
-    - Select the data source, which align with the AMP connection that sets up above, eg: `Prometheus ws-xxxx.....`
-    - You may repeat above step to import more templates from `./grafana/dashboard-template/`;
+- Import Pre-buid Grafana Dashboard Templates:
+    - Navigate to `Dashboards` side menu, hit "New" button -> choose `Import` from the drop down list;
+    - You can either use "file upload" or "Copy & Paste" approaches to import the raw content of `./grafana/dashboard-template/spark-operator-dashbord.json`, click `Load`;
+    - Select your data source, which align with the AMP connection setup previously, eg: `Prometheus ws-xxxx.....`
+    - Repeat above steps to import the rest of templates under the directory: `./grafana/dashboard-template/`;
 
 
-Please aware if the below charts are not working, which is expected due to the `kubelet` will generate the large volume of metrics and it will boost prometheus memory usage.
+Please be aware of that the below charts are not working, which is expected due to the `kubelet` will generate the large volume of metrics and it will boost prometheus memory usage.
 - Prometheus Kubelet Metrics Series Count
 - Spark Operator Pod CPU Core Usage
 

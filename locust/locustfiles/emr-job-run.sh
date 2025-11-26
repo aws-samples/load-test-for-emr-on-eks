@@ -20,7 +20,8 @@ export KMS_ARN=$(aws kms describe-key --key-id arn:aws:kms:${AWS_REGION}:${ACCOU
 
 aws emr-containers start-job-run \
 --virtual-cluster-id $VIRTUAL_CLUSTER_ID \
---name $JOB_UNIQUE_ID-pvcReuse \
+--endpoint-url https://emr-containers-gamma.us-west-2.amazonaws.com \
+--name $JOB_UNIQUE_ID-pvcReuse-api-lifted \
 --execution-role-arn $EMR_ROLE_ARN \
 --release-label $EMR_VERSION \
 --job-driver '{
