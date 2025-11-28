@@ -158,13 +158,13 @@ Let's run a small test from a local terminal window. The following parameters ar
 # --job-azs, Default: None. a list of AZs available in the EKS's VPC. It means pods in a single job will be scheduled to multiple AZs which could cause data transfer fee and performance downgrade. If it's set (see below), all pods of a job will be scheduled to a single AZ. NOTE: The AZ selection is random not round robin.
 # --job-ns-count, Default: 2 namespaces. Total number of namespaces/VCs that jobs will be submitting to.
 
-cd load-test-for-emr-on-eks/locust
+cd load-test-for-emr-on-eks
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r locust/requirements.txt
 source ../env.sh
 
-locust -f ./locustfiles/locustfile.py --run-time=2m --users=1 --spawn-rate=1 \
+locust -f locust/locustfiles/locustfile.py --run-time=2m --users=1 --spawn-rate=1 \
 --job-azs '["us-west-2a"]' \
 --job-ns-count 1 \
 --skip-log-setup \
@@ -175,9 +175,9 @@ When the load test session is finished or in progress, you can cancel these jobs
 # clean up script for EMR-EKS's Virtual Clsuters and jobs created by Locust:
 # --id, terminate VCs by a test session id. The unique id is used as namespace prefix "emr-{uniqueID}-{date}"
 # --cluster, cancel test jobs across all VCs on the eks cluster.A default value is set.
-python3 ./locustfiles/stop_test.py --cluster $CLUSTER_NAME  
+python3 locust/locustfiles/stop_test.py --cluster $CLUSTER_NAME  
 # or 
-python3 ./locustfiles/stop_test.py
+python3 locust/locustfiles/stop_test.py
 # delete namespaces if needed
 kubectl get namespaces -o name | grep "emr" | xargs kubectl delete
 ```

@@ -272,7 +272,8 @@ helm template karpenter oci://public.ecr.aws/karpenter/karpenter --version "${KA
     --set "serviceAccount.annotations.eks\.amazonaws\.com/role-arn=arn:aws:iam::${AWS_ACCOUNT_ID}:role/KarpenterControllerRole-${CLUSTER_NAME}" \
     --set controller.resources.requests.cpu=1 \
     --set controller.resources.requests.memory=1Gi \
-    --set controller.resources.limits.cpu=1 \
+    --set controller.resources.limits.cpu=4 \
+    --set controller.resources.limits.memory=8Gi \
     --set webhook.serviceName="karpenter" \
     --set webhook.port=8443 \
     --set controller.resources.limits.memory=1Gi > ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml
@@ -283,13 +284,6 @@ sed -i='' '/operator: DoesNotExist/a\
                 operator: In\
                 values:\
                 - '"$(eval echo \$NG)"'
-' ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml
-# increase resource requests
-sed -i='' '
-    /resources:/,/requests:/{
-        s/cpu: 1$/cpu: 4/
-        s/memory: 1Gi$/memory: 4Gi/
-    }
 ' ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml
 # increase livenessProbe to avoid throttling
 sed -i='' '/livenessProbe:/,/timeoutSeconds: 30/c\

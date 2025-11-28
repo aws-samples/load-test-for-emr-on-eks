@@ -7,7 +7,7 @@
     # "spark.dynamicAllocation.shuffleTracking.enabled": "true"
     # "spark.dynamicAllocation.executorIdleTimeout": "30s"
     # "spark.dynamicAllocation.maxExecutors": "23"
-    # "spark.kubernetes.scheduler.name": "custom-scheduler-eks",
+
 
 export SHARED_PREFIX_NAME=emr-on-$CLUSTER_NAME
 export ACCOUNTID=$(aws sts get-caller-identity --query Account --output text)
@@ -20,14 +20,14 @@ export KMS_ARN=$(aws kms describe-key --key-id arn:aws:kms:${AWS_REGION}:${ACCOU
 
 aws emr-containers start-job-run \
 --virtual-cluster-id $VIRTUAL_CLUSTER_ID \
---name $JOB_UNIQUE_ID-pvcReuse-api-lifted \
+--name $JOB_UNIQUE_ID-5userpersec-apilift \
 --execution-role-arn $EMR_ROLE_ARN \
 --release-label $EMR_VERSION \
 --job-driver '{
   "sparkSubmitJobDriver": {
       "entryPoint": "local:///usr/lib/spark/examples/jars/eks-spark-benchmark-assembly-1.0.jar",
       "entryPointArguments":["s3://blogpost-sparkoneks-us-east-1/blog/tpc30","s3://'$S3BUCKET'/EMRONEKS_PVC-REUSE-TEST-RESULT","/opt/tpcds-kit/tools","parquet","30","1","false","q4-v2.4,q24a-v2.4,q24b-v2.4,q67-v2.4","false"],
-      "sparkSubmitParameters": "--class com.amazonaws.eks.tpcds.BenchmarkSQL --conf spark.driver.cores=2 --conf spark.driver.memory=2g --conf spark.executor.cores=3 --conf spark.executor.memory=4g --conf spark.executor.instances=30"}}' \
+      "sparkSubmitParameters": "--class com.amazonaws.eks.tpcds.BenchmarkSQL --conf spark.driver.cores=2 --conf spark.driver.memory=2g --conf spark.executor.cores=3 --conf spark.executor.memory=6g --conf spark.executor.instances=30"}}' \
 --configuration-overrides '{
     "applicationConfiguration": [
       {
@@ -41,7 +41,7 @@ aws emr-containers start-job-run \
           "spark.hadoop.fs.s3.maxRetries": "20",
           "spark.hadoop.fs.s3.retry.interval.millis": "5000",
           "spark.hadoop.fs.s3.fast.upload": "true",
-          "spark.scheduler.maxRegisteredResourcesWaitingTime": "600s",
+          "spark.scheduler.maxRegisteredResourcesWaitingTime": "1800s",
 
           "spark.kubernetes.executor.node.selector.karpenter.sh/nodepool": "executor-memorynodepool",
           "spark.kubernetes.driver.node.selector.karpenter.sh/nodepool": "driver-nodepool",

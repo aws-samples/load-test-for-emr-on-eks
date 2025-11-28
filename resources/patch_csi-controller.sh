@@ -11,7 +11,7 @@ kubectl patch deployment $DEPLOYMENT_NAME -n $NAMESPACE --type='json' -p='[
   {
     "op": "replace",
     "path": "/spec/template/spec/containers/1/args/9",
-    "value": "--worker-threads=300"
+    "value": "--worker-threads=500"
   }
 ]'
 
@@ -20,7 +20,7 @@ kubectl patch deployment $DEPLOYMENT_NAME -n $NAMESPACE --type='json' -p='[
   {
     "op": "replace",
     "path": "/spec/template/spec/containers/1/resources/limits/memory",
-    "value": "2Gi"
+    "value": "4Gi"
   }
 ]'
 

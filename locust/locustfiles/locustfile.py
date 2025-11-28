@@ -55,7 +55,7 @@ class EMRJobUser(User):
 
     @events.test_start.add_listener
     def on_test_start(environment, **kwargs):
-        printlog(f"Start the load test against EKS Cluster {EKS_CLUSTER_NAME} in region {REGION} with {environment.parsed_options.job_ns_count} users ........")
+        printlog(f"Start the load test against EKS Cluster {EKS_CLUSTER_NAME} in region {REGION} with {environment.parsed_options.job_ns_count} namespaces per Locust worker ........")
         printlog(f"Wait time is set between 20-30 seconds")
         printlog(f"EMR on EKS job submission script is set to {environment.parsed_options.emr_script_name}")
         printlog("Starting EMR job monitoring thread")
@@ -65,8 +65,8 @@ class EMRJobUser(User):
     @events.test_stop.add_listener
     def on_test_stop(environment, **kwargs):
         printlog(f"Test [green]{unique_id}[/green] has stopped ramping up. Jobs are still running")
-        printlog(f"To stop all tests on the EKS cluster: python ./locustfiles/stop_test.py")
-        printlog(f"To stop a test session: python ./locustfiles/stop_test.py --id {unique_id}")
+        printlog(f"To stop all tests on the EKS cluster: python locust/locustfiles/stop_test.py")
+        printlog(f"To stop a test session: python locust/locustfiles/stop_test.py --id {unique_id}")
         exit_event.set()
 
     @task
