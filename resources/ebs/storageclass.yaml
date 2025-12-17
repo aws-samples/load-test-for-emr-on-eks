@@ -2,6 +2,8 @@ apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: gp3
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "false"
 parameters:
   csi.storage.k8s.io/fstype: ext4
   type: gp3
@@ -10,3 +12,9 @@ provisioner: ebs.csi.aws.com
 reclaimPolicy: Delete
 volumeBindingMode: WaitForFirstConsumer
 allowVolumeExpansion: false
+allowedTopologies:
+- matchLabelExpressions:
+  - key: topology.kubernetes.io/zone
+    values:
+    - us-west-2a
+    - us-west-2b

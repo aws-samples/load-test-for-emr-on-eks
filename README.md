@@ -11,7 +11,7 @@ This repository provides a general tool to benchmark EMR scalability performance
 - [Get Started](#get-started)
   - [Prerequisite](#prerequisite---update-job-script)
   - [Run test from local](#1-run-load-test-locally)
-  - [Run test on EKS](#1-load-test-on-eks)
+  - [Run test on EKS](#2-load-test-on-eks)
 - [Best Practice Guide](#best-practices-and-considerations)
   - [How to Allocate Pods](#1-how-to-allocate-spark-driver--executor-pods)
   - [DONOT Use Sidecars Whenever Possible](#2-try-not-to-use-initcontainersor-custom-sidecar)
@@ -162,10 +162,10 @@ cd load-test-for-emr-on-eks
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r locust/requirements.txt
-source ../env.sh
+source env.sh
 
-locust -f locust/locustfiles/locustfile.py --run-time=2m --users=1 --spawn-rate=1 \
---job-azs '["us-west-2a"]' \
+locust -f locust/locustfiles/locustfile.py --run-time=2m --users=2 --spawn-rate=1 \
+--job-azs '["us-west-2a","us-west-2b"]' \
 --job-ns-count 1 \
 --skip-log-setup \
 --headless
@@ -193,13 +193,16 @@ Update the locust test CRD manifest file by actual environment attributes, then 
 ```bash
 cd load-test-for-emr-on-eks
 kubectl apply -f examples/load-test-pvc-reuse.yaml
+
+# check summarized load test metrics at master node
+kubectl logs -f -n locust -l locust.cloud/component=master
+# check load test status at job level
+kubectl logs -f -n locust -l locust.cloud/component=worker
 ```
 
 ```bash
 # access to Locust WebUI: http://localhost:8089/
 kubectl port-forward svc/pvc-reuse-load-test-cluster-10-webui -n locust 8089:8089
-# check load test status
-kubectl logs -f -n locust -l locust.cloud/component=worker
 ```
 
 [^ back to top](#table-of-contents)
@@ -209,16 +212,16 @@ kubectl logs -f -n locust -l locust.cloud/component=worker
 ### 1. How to Allocate Spark Driver & Executor Pods
 To minimise the cross-node DataIO and networkIO penalty in a single Spark job, it is recommended trying to allocate the Spark executor pods into the same node as much as possible.
 
-However, to reduce the compute cost, executor's node pool has aggressive node consolidation rule. To remove the eviction impact on Driver pod, we run it in a seperate node pool in Karpenter.
+However, in oder to reduce the compute cost, we configured executor's node pool with an aggressive node consolidation rule. To avoid the eviction impact on Driver pod ( alive throughout its entire job lifecycle), we created a seperate Karpenter node pool for Driver pods in this load test.
 
-Additionally, to avoid the cross-AZ data transfer fee, utilize the `spark.kubernetes.node.selector.topology.kubernetes.io/zone` config to tight all pods within a Spark job to a specified single AZ. If your managed node group or Karpenter nodepool is configured as a single-AZ node provisoners, you can simply use a nodegroup/nodepool name as the nodeSelector to ensure your job's pods are in a single AZ.
+Additionally, to avoid cross-AZ data transfer fee and downgraded job performance, the load test framework (`locust/locustfile.py`) populates AZ value of `spark.kubernetes.node.selector.topology.kubernetes.io/zone` dymaically in job submission, tighting all pods within a job to the specified single AZ. If your managed node group or Karpenter nodepool is configured as a single-AZ node provisoners, you can simply use a nodegroup/nodepool name as the nodeSelector to ensure your job's pods are in a single AZ. See the exmaple below:
 
 ```yaml
 # nodeSelector sample as below:
 "spark.kubernetes.node.selector.topology.kubernetes.io/zone": "us-west-2a"
 
 # Or match by a kapenter nodepool name
-"spark.kubernetes.node.selector.karpenter.sh/nodepool": "single-az-nodepool"
+"spark.kubernetes.node.selector.karpenter.sh/nodepool": "single-az-nodepool-name"
 
 # Or match by a nodegroup name managed by cluster autoscaler
 "spark.kubernetes.driver.node.selector.eks.amazonaws.com/nodegroup": "m5-ng-uw2a",
@@ -226,7 +229,7 @@ Additionally, to avoid the cross-AZ data transfer fee, utilize the `spark.kubern
 [^ back to top](#table-of-contents)
 
 ### 2. Try Not to Use `initContainers`or Custom Sidecar.
-k8s events in EKS emitted by a Spark job increased significantly, as soon as we enable the `initContainers`. As a result, EKS API Server and ETCD DB size will be filled up quicker than normal. It is recommended to avoid the `initContainers` or any sidecars in a large scale workload on an EKS cluster. Otherwise, try to split your workload to multiple EKS clusters.
+The number of k8s events in EKS emitted by Spark jobs increases significantly, as soon as we enable the `initContainers`. As a result, EKS API Server and ETCD DB size will be filled up quicker than normal. It is recommended to avoid the `initContainers` or sidecar containers in a large scale workload on an EKS cluster. Otherwise, please consider to split your workload to multiple EKS clusters or pay extra to use [Provisioned Control Plane](https://docs.aws.amazon.com/eks/latest/userguide/eks-provisioned-control-plane.html) offered by EKS.
 
 ### 3. Binpacking Application Pods
 
@@ -269,10 +272,10 @@ extraArgs:
   kube-client-burst: 400
 ```
 
-**Karpenter** - In this project, we only provision load test jobs by Karpenter, the rest of operational pods, eg: Prometheus, Karpenter, Binpacking etc. are still scheduled in the fix-sized opertional NodeGroup, which is out of controll by Karpenter.
+**Karpenter** - In this project, we only provision load test jobs by Karpenter, the rest of operational pods, eg: Prometheus, Karpenter, Binpacking etc. are scheduled in a fix-sized opertional NodeGroup, which is out of controll by Karpenter.
 
 - Karpenter Nodepool configs
-    - To align with NodeGroup's configs by CAS, we can utilize the `topology.kubernetes.io/zone` when submitting karpenter spark jobs, to ensure all pods in a single job will be allocated into the same AZ.
+    - To apply the best practice in cost and performance, we utilize the `topology.kubernetes.io/zone` node selector to ensure Spark's pods in a single job are all allallocated into the same AZ.
 
 ```bash
   "spark.kubernetes.executor.node.selector.karpenter.sh/nodepool": "executor-nodepool",
@@ -291,6 +294,13 @@ With large volume of workloads, IP addresses often exhaustes. To solve this, we 
     - `WARM_IP_TARGET`, `MINIMUM_IP_TARGET`
 More details can be found in the [EKS networking best practice](https://docs.aws.amazon.com/eks/latest/best-practices/networking.html), [VPC-CNI concepts](https://aws.github.io/aws-eks-best-practices/networking/vpc-cni/) and the [Prefix Delegation](https://docs.aws.amazon.com/eks/latest/best-practices/prefix-mode-linux.html).
 
+In our tests, the following configurations presents the fastest EC2 start-up speed, but with the trade-off pod-indensity flexibility:
+
+- `MINIMUM_IP_TARGET`=29 (Max EBS volume/node is usually 27)
+- `WARM_IP_TARGET`=3
+- `ENABLE_IP_COOLDOWN_COUNTING`=false
+- `WARM_ENI_TARGET`=0
+- `WARM_PREFIX_TARGET`=1 (value can't be 0, but can be override by WARM_IP_TARGET>0)
 
 [^ back to top](#table-of-contents)
 

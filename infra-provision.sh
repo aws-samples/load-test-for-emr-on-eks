@@ -46,8 +46,8 @@ echo "==============================================="
 echo "retrieve CMK key ARN"
 # KMS_ARN=$(aws kms describe-key --key-id arn:aws:kms:$AWS_REGION:$ACCOUNT_ID:alias/$CMK_ALIAS --query 'KeyMetadata.Arn' --output text)
 # echo "Create a default gp3 storageclass"
-# sed -i='' 's|${KMS_ARN}|'$KMS_ARN'|g' resources/storageclass.yaml
-kubectl apply -f resources/storageclass.yaml
+# sed -i='' 's|${KMS_ARN}|'$KMS_ARN'|g' resources/ebs/storageclass.yaml
+kubectl apply -f resources/ebs/storageclass.yaml
 
 echo "==============================================="
 echo "  Setup Cluster Autoscaler ......"
@@ -97,9 +97,9 @@ helm install custom-scheduler-eks charts/custom-scheduler-eks \
 echo "============================================================="
 echo "  Scale up CSI Controller by patch the existing addon ......"
 echo "============================================================="
-bash ./resources/patch_csi-controller.sh
-# echo "scale up EBS CSI controller from 2 to 3..."
-# kubectl scale deployment ebs-csi-controller --replicas=3 -n kube-system
+bash ./resources/ebs/patch_csi-controller.sh
+echo "scale up EBS CSI controller from 2 to 3..."
+kubectl scale deployment ebs-csi-controller --replicas=3 -n kube-system
 
 echo "==============================================="
 echo "  Create EMR on EKS Execution Role ......"
@@ -186,6 +186,9 @@ sed -i -- 's/{WORKSPACE_ID}/'$WORKSPACE_ID'/g'  ./resources/monitor/prometheus-v
 sed -i -- 's/{CLUSTER_NAME}/'$CLUSTER_NAME'/g'  ./resources/monitor/prometheus-values.yaml
 # sed -i -- 's/{LOCUST_PRIV_HOST_IP}/'$LOCUST_PRIV_HOST_IP'/g'  ./resources/monitor/prometheus-values.yaml
 helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n prometheus -f  ./resources/monitor/prometheus-values.yaml --debug
+echo "Scale up Prometheus server to 2 replicas for high availability..."
+kubectl scale deployment prometheus-kube-prometheus-operator --replicas=2 -n prometheus
+kubectl scale deployment prometheus-kube-state-metrics --replicas=2 -n prometheus
 # validate in a web browser - localhost:9090, go to menu of status->targets
 # kubectl --namespace prometheus port-forward service/prometheus-kube-prometheus-prometheus 9090
 
@@ -270,13 +273,12 @@ helm template karpenter oci://public.ecr.aws/karpenter/karpenter --version "${KA
     --set "settings.clusterName=${CLUSTER_NAME}" \
     --set "settings.interruptionQueue=${CLUSTER_NAME}" \
     --set "serviceAccount.annotations.eks\.amazonaws\.com/role-arn=arn:aws:iam::${AWS_ACCOUNT_ID}:role/KarpenterControllerRole-${CLUSTER_NAME}" \
-    --set controller.resources.requests.cpu=1 \
-    --set controller.resources.requests.memory=1Gi \
-    --set controller.resources.limits.cpu=4 \
-    --set controller.resources.limits.memory=8Gi \
+    --set controller.resources.requests.cpu=2 \
+    --set controller.resources.requests.memory=2Gi \
+    --set controller.resources.limits.cpu=10 \
+    --set controller.resources.limits.memory=10Gi \
     --set webhook.serviceName="karpenter" \
-    --set webhook.port=8443 \
-    --set controller.resources.limits.memory=1Gi > ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml
+    --set webhook.port=8443 > ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml
 # run Karpenter pods on a managed nodegroup
 export NG=$(aws eks list-nodegroups --cluster-name $CLUSTER_NAME --output json | jq -r '.nodegroups[0]')
 sed -i='' '/operator: DoesNotExist/a\

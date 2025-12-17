@@ -7,6 +7,21 @@ echo "Namespace: $NAMESPACE"
 echo "Deployment: $DEPLOYMENT_NAME"
 
 echo "patch the csi-provisioner container"
+# Increase API limit
+kubectl patch deployment $DEPLOYMENT_NAME -n $NAMESPACE --type='json' -p='[
+  {
+    "op": "replace",
+    "path": "/spec/template/spec/containers/1/args/7",
+    "value": "--kube-api-qps=100"
+  }
+]'
+kubectl patch deployment $DEPLOYMENT_NAME -n $NAMESPACE --type='json' -p='[
+  {
+    "op": "replace",
+    "path": "/spec/template/spec/containers/1/args/8",
+    "value": "--kube-api-burst=200"
+  }
+]'
 kubectl patch deployment $DEPLOYMENT_NAME -n $NAMESPACE --type='json' -p='[
   {
     "op": "replace",
@@ -14,7 +29,6 @@ kubectl patch deployment $DEPLOYMENT_NAME -n $NAMESPACE --type='json' -p='[
     "value": "--worker-threads=500"
   }
 ]'
-
 # Update csi-provisioner memory limit
 kubectl patch deployment $DEPLOYMENT_NAME -n $NAMESPACE --type='json' -p='[
   {
@@ -23,9 +37,30 @@ kubectl patch deployment $DEPLOYMENT_NAME -n $NAMESPACE --type='json' -p='[
     "value": "4Gi"
   }
 ]'
-
 echo "Creating patch for csi-attacher..."
-# Now patch the csi-attacher container
+# Increase csi-attacher timeout
+kubectl patch deployment $DEPLOYMENT_NAME -n $NAMESPACE --type='json' -p='[
+  {
+    "op": "replace",
+    "path": "/spec/template/spec/containers/2/args/0",
+    "value": "--timeout=30m"
+  }
+]'
+# Increase csi-attacher API limit
+kubectl patch deployment $DEPLOYMENT_NAME -n $NAMESPACE --type='json' -p='[
+  {
+    "op": "replace",
+    "path": "/spec/template/spec/containers/2/args/4",
+    "value": "--kube-api-qps=75"
+  }
+]'
+kubectl patch deployment $DEPLOYMENT_NAME -n $NAMESPACE --type='json' -p='[
+  {
+    "op": "replace",
+    "path": "/spec/template/spec/containers/2/args/5",
+    "value": "--kube-api-burst=100"
+  }
+]'
 kubectl patch deployment $DEPLOYMENT_NAME -n $NAMESPACE --type='json' -p='[
   {
     "op": "replace",
@@ -33,6 +68,7 @@ kubectl patch deployment $DEPLOYMENT_NAME -n $NAMESPACE --type='json' -p='[
     "value": "--worker-threads=500"
   }
 ]'
+# Increase csi-attacher memory limit
 kubectl patch deployment $DEPLOYMENT_NAME -n $NAMESPACE --type='json' -p='[
   {
     "op": "replace",
@@ -41,6 +77,15 @@ kubectl patch deployment $DEPLOYMENT_NAME -n $NAMESPACE --type='json' -p='[
   }
 ]'
 
+echo "Creating patch for csi-resizer..."
+# Increase csi-resizer memory limit
+kubectl patch deployment $DEPLOYMENT_NAME -n $NAMESPACE --type='json' -p='[
+  {
+    "op": "replace",
+    "path": "/spec/template/spec/containers/4/resources/limits/memory",
+    "value": "2Gi"
+  }
+]'
 if [ $? -eq 0 ]; then
     echo "✅ Patches applied successfully!"
     echo

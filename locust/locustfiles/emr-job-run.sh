@@ -7,7 +7,7 @@
     # "spark.dynamicAllocation.shuffleTracking.enabled": "true"
     # "spark.dynamicAllocation.executorIdleTimeout": "30s"
     # "spark.dynamicAllocation.maxExecutors": "23"
-
+    # "spark.kubernetes.scheduler.name": "custom-scheduler-eks",
 
 export SHARED_PREFIX_NAME=emr-on-$CLUSTER_NAME
 export ACCOUNTID=$(aws sts get-caller-identity --query Account --output text)
@@ -20,14 +20,15 @@ export KMS_ARN=$(aws kms describe-key --key-id arn:aws:kms:${AWS_REGION}:${ACCOU
 
 aws emr-containers start-job-run \
 --virtual-cluster-id $VIRTUAL_CLUSTER_ID \
---name $JOB_UNIQUE_ID-5userpersec-apilift \
+--endpoint-url https://emr-containers-gamma.us-west-2.amazonaws.com \
+--name $JOB_UNIQUE_ID-binpack-createVlift-2usr \
 --execution-role-arn $EMR_ROLE_ARN \
 --release-label $EMR_VERSION \
 --job-driver '{
   "sparkSubmitJobDriver": {
       "entryPoint": "local:///usr/lib/spark/examples/jars/eks-spark-benchmark-assembly-1.0.jar",
       "entryPointArguments":["s3://blogpost-sparkoneks-us-east-1/blog/tpc30","s3://'$S3BUCKET'/EMRONEKS_PVC-REUSE-TEST-RESULT","/opt/tpcds-kit/tools","parquet","30","1","false","q4-v2.4,q24a-v2.4,q24b-v2.4,q67-v2.4","false"],
-      "sparkSubmitParameters": "--class com.amazonaws.eks.tpcds.BenchmarkSQL --conf spark.driver.cores=2 --conf spark.driver.memory=2g --conf spark.executor.cores=3 --conf spark.executor.memory=6g --conf spark.executor.instances=30"}}' \
+      "sparkSubmitParameters": "--class com.amazonaws.eks.tpcds.BenchmarkSQL --conf spark.driver.cores=2 --conf spark.driver.memory=2g --conf spark.executor.cores=3 --conf spark.executor.memory=3g --conf spark.executor.instances=30"}}' \
 --configuration-overrides '{
     "applicationConfiguration": [
       {
@@ -36,20 +37,22 @@ aws emr-containers start-job-run \
           "spark.kubernetes.container.image.pullPolicy": "IfNotPresent",
           "spark.kubernetes.container.image": "'$ECR_URL'/eks-spark-benchmark:emr7.9.0-tpcds2.4",
           "spark.network.timeout": "3600s",
-          "spark.executor.heartbeatInterval": "300s",
+          "spark.executor.heartbeatInterval": "1800s",
 
-          "spark.hadoop.fs.s3.maxRetries": "20",
-          "spark.hadoop.fs.s3.retry.interval.millis": "5000",
-          "spark.hadoop.fs.s3.fast.upload": "true",
-          "spark.scheduler.maxRegisteredResourcesWaitingTime": "1800s",
-
+          "spark.scheduler.maxRegisteredResourcesWaitingTime": "3000s",
+          "spark.shuffle.io.retryWait": "60s",
+          "spark.hadoop.fs.s3.maxConnections": "200",
+          "spark.hadoop.fs.s3.maxRetries": "30",
+          
           "spark.kubernetes.executor.node.selector.karpenter.sh/nodepool": "executor-memorynodepool",
           "spark.kubernetes.driver.node.selector.karpenter.sh/nodepool": "driver-nodepool",
-          "spark.kubernetes.node.selector.topology.kubernetes.io/zone": "'$SELECTED_AZ'",
+          "spark.kubernetes.driver.node.selector.topology.kubernetes.io/zone": "'$SELECTED_AZ'",
+          "spark.kubernetes.executor.node.selector.topology.kubernetes.io/zone": "'$SELECTED_AZ'",
 
           "spark.kubernetes.driver.waitToReusePersistentVolumeClaim": "true",
           "spark.kubernetes.driver.ownPersistentVolumeClaim": "true",
           "spark.kubernetes.driver.reusePersistentVolumeClaim": "true",
+          "spark.shuffle.sort.io.plugin.class": "org.apache.spark.shuffle.KubernetesLocalDiskShuffleDataIO",
           "spark.kubernetes.executor.volumes.persistentVolumeClaim.spark-local-dir-1.mount.readOnly": "false",
           "spark.kubernetes.executor.volumes.persistentVolumeClaim.spark-local-dir-1.options.claimName": "OnDemand",
           "spark.kubernetes.executor.volumes.persistentVolumeClaim.spark-local-dir-1.options.storageClass": "gp3",
@@ -72,8 +75,20 @@ aws emr-containers start-job-run \
       {
         "classification": "emr-containers-defaults",
         "properties": {
-          "job-start-timeout":"3600"
-      }}
+          "job-start-timeout":"4800",
+          "logging.request.memory": "800Mi",
+          "logging.request.cores": "0.5"
+      }},
+       {
+        "classification": "emr-job-submitter",
+        "properties": {
+            "jobsubmitter.logging.request.memory": "800Mi",
+            "jobsubmitter.logging.request.cores": "0.5",
+            "jobsubmitter.node.selector.topology.kubernetes.io/zone": "'$SELECTED_AZ'",
+            "jobsubmitter.node.selector.karpenter.sh/nodepool": "driver-nodepool",
+            "jobsubmitter.container.image.pullPolicy": "IfNotPresent"
+        }
+      }
     ], 
     "monitoringConfiguration": {
       "managedLogs": {
