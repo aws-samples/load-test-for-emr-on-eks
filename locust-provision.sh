@@ -110,6 +110,7 @@ helm upgrade --install locust-operator locust-operator/locust-operator --namespa
 # patch RBAC permission and IRSA
 kubectl apply -f locust/locust-operator/patch-role-binding.yaml
 kubectl annotate serviceaccount -n locust default eks.amazonaws.com/role-arn=arn:aws:iam::$ACCOUNT_ID:role/$LOCUST_EKS_ROLE
+# kubectl scale deployment locust-operator  --replicas=2 -n locust
 # view the operator's logs (optional)
 # kubectl logs -n locust -l app.kubernetes.io/name=locust-operator
 # uninstall the operator if needed
@@ -131,4 +132,4 @@ sed -i='' 's|${JOB_SCRIPT_NAME}|'$JOB_SCRIPT_NAME'|g' examples/load-test-pvc-reu
 
 # kubectl apply -f examples/load-test-pvc-reuse.yaml
 # access to Locust WebUI: http://localhost:8089/
-# kubectl port-forward svc/pvc-reuse-load-test-cluster-10-webui -n locust 8089:8089
+# kubectl port-forward svc/pvc-reuse-cluster-10-webui -n locust 8089

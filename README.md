@@ -159,12 +159,12 @@ Let's run a small test from a local terminal window. The following parameters ar
 # --job-ns-count, Default: 2 namespaces. Total number of namespaces/VCs that jobs will be submitting to.
 
 cd load-test-for-emr-on-eks
-python3 -m venv .venv
+python -m venv .venv
 source .venv/bin/activate
-pip install -r locust/requirements.txt
+sudo pip install -r locust/requirements.txt
 source env.sh
 
-locust -f locust/locustfiles/locustfile.py --run-time=2m --users=2 --spawn-rate=1 \
+locust -f locust/locustfiles/locustfile.py --run-time=2m --users=1 --spawn-rate=.5 \
 --job-azs '["us-west-2a","us-west-2b"]' \
 --job-ns-count 1 \
 --skip-log-setup \
@@ -200,10 +200,10 @@ kubectl logs -f -n locust -l locust.cloud/component=master
 kubectl logs -f -n locust -l locust.cloud/component=worker
 ```
 
-```bash
+<!-- ```bash
 # access to Locust WebUI: http://localhost:8089/
-kubectl port-forward svc/pvc-reuse-load-test-cluster-10-webui -n locust 8089:8089
-```
+kubectl port-forward svc/pvc-reuse-cluster-10-webui -n locust 8089
+``` -->
 
 [^ back to top](#table-of-contents)
 

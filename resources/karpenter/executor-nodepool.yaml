@@ -38,7 +38,7 @@ spec:
         - 16xlarge
       - key: karpenter.k8s.aws/instance-category
         operator: In
-        values: ["m", "c"]
+        values: ["m", "c", "r"]
       - key: karpenter.k8s.aws/instance-generation
         operator: Gt
-        values: ["5"]
+        values: ["4"]

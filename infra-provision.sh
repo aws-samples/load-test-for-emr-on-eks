@@ -95,8 +95,13 @@ helm install custom-scheduler-eks charts/custom-scheduler-eks \
 -f ../../resources/binpacking-values.yaml
 
 echo "============================================================="
-echo "  Scale up CSI Controller by patch the existing addon ......"
+echo "  Tune CSI Controller by patch the existing addon ......"
 echo "============================================================="
+echo "enable EBS controller metrics for Grafana monitoring..."
+aws eks update-addon --cluster-name ${CLUSTER_NAME} \
+--addon-name aws-ebs-csi-driver --resolve-conflicts OVERWRITE   \
+--configuration-values '{"controller":{"enableMetrics":true},"nodeAllocatableUpdatePeriodSeconds":60}'
+echo "Patching EBS CSI controller deployment..."
 bash ./resources/ebs/patch_csi-controller.sh
 echo "scale up EBS CSI controller from 2 to 3..."
 kubectl scale deployment ebs-csi-controller --replicas=3 -n kube-system
@@ -187,8 +192,6 @@ sed -i -- 's/{CLUSTER_NAME}/'$CLUSTER_NAME'/g'  ./resources/monitor/prometheus-v
 # sed -i -- 's/{LOCUST_PRIV_HOST_IP}/'$LOCUST_PRIV_HOST_IP'/g'  ./resources/monitor/prometheus-values.yaml
 helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n prometheus -f  ./resources/monitor/prometheus-values.yaml --debug
 echo "Scale up Prometheus server to 2 replicas for high availability..."
-kubectl scale deployment prometheus-kube-prometheus-operator --replicas=2 -n prometheus
-kubectl scale deployment prometheus-kube-state-metrics --replicas=2 -n prometheus
 # validate in a web browser - localhost:9090, go to menu of status->targets
 # kubectl --namespace prometheus port-forward service/prometheus-kube-prometheus-prometheus 9090
 
@@ -275,8 +278,8 @@ helm template karpenter oci://public.ecr.aws/karpenter/karpenter --version "${KA
     --set "serviceAccount.annotations.eks\.amazonaws\.com/role-arn=arn:aws:iam::${AWS_ACCOUNT_ID}:role/KarpenterControllerRole-${CLUSTER_NAME}" \
     --set controller.resources.requests.cpu=2 \
     --set controller.resources.requests.memory=2Gi \
-    --set controller.resources.limits.cpu=10 \
-    --set controller.resources.limits.memory=10Gi \
+    --set controller.resources.limits.cpu=15 \
+    --set controller.resources.limits.memory=25Gi \
     --set webhook.serviceName="karpenter" \
     --set webhook.port=8443 > ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml
 # run Karpenter pods on a managed nodegroup
@@ -321,8 +324,9 @@ echo "  Set up Prometheus ServiceMonitor and PodMonitor ......"
 echo "========================================================="
 echo "Create Prometheus service monitor and pod monitor"
 # kubectl apply -f ./resources/monitor/spark-podmonitor.yaml
-kubectl apply -f ./resources/monitor/karpenter-srvmonitor.yaml
+kubectl apply -f ./resources/monitor/karpenter-svcmonitor.yaml
 kubectl apply -f ./resources/monitor/aws-cni-podmonitor.yaml
+kubectl apply -f ./resources/monitor/ebs-csi-controller-svcmonitor.yaml
 
 echo "==================================================="
 echo "  Set up Amazon Managed Grafana if required ......"

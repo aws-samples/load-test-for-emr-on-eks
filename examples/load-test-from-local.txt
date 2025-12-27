@@ -10,7 +10,7 @@ source ../env.sh
 # Ignore stats on the Locust WebUI, as we send metrics to Promethues + Grafana for the monitoring.
 # Feel free to change load test parameters on the UI.
 
-locust -f locustfile.py -u 3 -t 200m \
+locust -f locustfile.py -u 3 -t 60m \
 --job-azs '["us-west-2a","us-west-2b"]' \
 --job-ns-count 1
 
@@ -19,7 +19,7 @@ locust -f locustfile.py -u 3 -t 200m \
 # Disabled Locust WebUI
 # Disabled logs, only print summary stats
 
-locust -f locustfile.py -u 3 -t 200m \
+locust -f locustfile.py -u 3 -t 60m \
 --job-azs '["us-west-2a", "us-west-2b"]' \
 --job-ns-count 2 \
 --headless --skip-log-setup \

@@ -4,6 +4,7 @@ metadata:
   name: pvc-reuse-${CLUSTER_NAME}
   namespace: locust
 spec:
+  # have to use a custom image due to additional dependencies
   # image: locustio/locust:2.42.1
   image: ${ECR_URL}/locust:latest
   imagePullPolicy: IfNotPresent
@@ -21,9 +22,10 @@ spec:
     value: 5
   extraArgs:
     -f /home/locust/locustfile.py
-    --run-time=120m
+    --job-azs '["${REGION}a","${REGION}b"]'
+    --run-time=60m
     --users=300
-    --spawn-rate=15
+    --spawn-rate=.5
     --skip-log-setup
   locustfile:
     configMap:

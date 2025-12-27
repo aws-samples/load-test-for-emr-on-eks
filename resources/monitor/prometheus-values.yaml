@@ -5,7 +5,15 @@ alertmanager:
 grafana:
   enabled: false
 kubelet:
-  enabled: false
+  enabled: true
+  serviceMonitor:
+    metricRelabelings:
+      - action: keep
+        regex: csi_operations_seconds_(bucket|count)
+        sourceLabels: [__name__]
+      - action: keep
+        regex: '/csi\.v1\.Node/(Node.*Volume)'
+        sourceLabels: [method_name]
 
 prometheusOperator:
   nodeSelector:
@@ -86,12 +94,12 @@ prometheus:
         initialDelaySeconds: 60
       resources:
         limits:
-          cpu: "4"
+          cpu: "8"
           memory: 80Gi
         requests:
           cpu: "1"
           memory: 15Gi
-    replicas: 1
+    replicas: 2
     # ensure one instance per node
     podAntiAffinity: hard
     # add an EBS volume per instance 

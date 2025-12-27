@@ -12,9 +12,3 @@ provisioner: ebs.csi.aws.com
 reclaimPolicy: Delete
 volumeBindingMode: WaitForFirstConsumer
 allowVolumeExpansion: false
-allowedTopologies:
-- matchLabelExpressions:
-  - key: topology.kubernetes.io/zone
-    values:
-    - us-west-2a
-    - us-west-2b

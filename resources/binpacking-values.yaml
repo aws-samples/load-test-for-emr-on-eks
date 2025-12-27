@@ -46,17 +46,17 @@ podAnnotations: {}
 podLabels: {}
 
 podSecurityContext:
-  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
+
+securityContext:
   allowPrivilegeEscalation: false
-  runAsNonRoot: false
   privileged: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
   capabilities:
     drop:
       - ALL
-
-securityContext:
-  runAsNonRoot: true
-
 
 resources:
   # We usually recommend not to specify default resources and to leave this as a conscious
@@ -65,10 +65,10 @@ resources:
   # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
   requests:
    cpu: '1'
-   memory: 1Gi
+   memory: 2Gi
   limits:
-   cpu: '4'
-   memory: 4Gi
+   cpu: '8'
+   memory: 16Gi
 livenessProbe:
   httpGet:
     path: /healthz
@@ -126,7 +126,7 @@ affinity:
     requiredDuringSchedulingIgnoredDuringExecution:
     - labelSelector:
         matchLabels:
-          app.kubernetes.io/name: binpack-scheduler
+          app.kubernetes.io/name: custom-scheduler-eks
       topologyKey: kubernetes.io/hostname
 
 # Monitoring configuration
