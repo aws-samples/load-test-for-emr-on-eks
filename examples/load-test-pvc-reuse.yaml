@@ -14,10 +14,12 @@ spec:
     value: us-west-2
   - name: CLUSTER_NAME
     value: load-test-cluster-10
+  - name: METRICS_PORT
+    value: "8000"  
   - name: JOB_SCRIPT_NAME
     value: emr-job-run.sh
   - name: SPARK_JOB_NS_NUM # number of namespaces/VCs per Locust worker
-    value: "5"
+    value: "1"
   args:
     -f /home/locust/locustfile.py
     --job-azs '["us-west-2a","us-west-2b"]'
@@ -25,15 +27,15 @@ spec:
     --users=300
     --spawn-rate=0.5                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
     --skip-log-setup
-    # --headless
+    --headless
   locustfile:
     configMap:
       name: emr-loadtest-locustfile
   master:
-    annotations:
-      prometheus.io/scrape: "true"
-      prometheus.io/port: "8089"  # Default registry port
-      prometheus.io/path: "/metrics"
+    # annotations:
+    #   prometheus.io/scrape: "true"
+    #   prometheus.io/port: "8000"
+    #   prometheus.io/path: "/metrics"
     resources:
       requests:
         cpu: "500m"

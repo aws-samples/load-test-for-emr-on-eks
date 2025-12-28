@@ -68,21 +68,21 @@ for NODEGROUP in $(aws eks list-nodegroups --cluster-name ${CLUSTER_NAME} \
     --nodegroup-name ${NODEGROUP} \
     --scaling-config "minSize=2,maxSize=2,desiredSize=2"
 done
-echo "==============================================="
-echo "  Setup Load Balancer Controller ......"
-echo "==============================================="
-echo "Setup AWS Load Balancer Controller"
-helm repo add eks https://aws.github.io/eks-charts
-helm repo update eks
-helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
-  -n kube-system \
-  --set clusterName=${CLUSTER_NAME} \
-  --set serviceAccount.create=false \
-  --set serviceAccount.name=aws-load-balancer-controller
+# echo "==============================================="
+# echo "  Setup Load Balancer Controller ......"
+# echo "==============================================="
+# echo "Setup AWS Load Balancer Controller"
+# helm repo add eks https://aws.github.io/eks-charts
+# helm repo update eks
+# helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
+#   -n kube-system \
+#   --set clusterName=${CLUSTER_NAME} \
+#   --set serviceAccount.create=false \
+#   --set serviceAccount.name=aws-load-balancer-controller
   
-aws ec2 create-tags \
-    --tags "Key=kubernetes.io/role/elb,Value=1" \
-    --resources "$(aws ec2 describe-subnets --filters 'Name=tag:Name,Values=PublicSubnet*' --query 'Subnets[*].SubnetId')"
+# aws ec2 create-tags \
+#     --tags "Key=kubernetes.io/role/elb,Value=1" \
+#     --resources "$(aws ec2 describe-subnets --filters 'Name=tag:Name,Values=PublicSubnet*' --query 'Subnets[*].SubnetId')"
 
 echo "==============================================="
 echo "  Setup BinPacking ......"
@@ -327,6 +327,7 @@ echo "Create Prometheus service monitor and pod monitor"
 kubectl apply -f ./resources/monitor/karpenter-svcmonitor.yaml
 kubectl apply -f ./resources/monitor/aws-cni-podmonitor.yaml
 kubectl apply -f ./resources/monitor/ebs-csi-controller-svcmonitor.yaml
+kubectl apply -f ./resources/monitor/locust-podmonitor.yaml
 
 echo "==================================================="
 echo "  Set up Amazon Managed Grafana if required ......"

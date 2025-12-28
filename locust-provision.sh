@@ -129,7 +129,6 @@ sed -i='' 's|${CLUSTER_NAME}|'$CLUSTER_NAME'|g' examples/load-test-pvc-reuse.yam
 sed -i='' 's|${ECR_URL}|'$ECR_URL'|g' examples/load-test-pvc-reuse.yaml
 sed -i='' 's|${REGION}|'$AWS_REGION'|g' examples/load-test-pvc-reuse.yaml
 sed -i='' 's|${JOB_SCRIPT_NAME}|'$JOB_SCRIPT_NAME'|g' examples/load-test-pvc-reuse.yaml
-
 # kubectl apply -f examples/load-test-pvc-reuse.yaml
 # access to Locust WebUI: http://localhost:8089/
 # kubectl port-forward svc/pvc-reuse-cluster-10-webui -n locust 8089

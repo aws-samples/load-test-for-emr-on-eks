@@ -14,21 +14,23 @@ test_start_time = time.perf_counter()
 virtual_clusters = {}  # Store namespace -> virtual_cluster_id mapping
 unique_id = f"{test_instance.id}"
 ns_prefix = f"{unique_id}-ns"
+metrics_port = int(environ.get("METRICS_PORT", "8000"))
 
 EKS_CLUSTER_NAME = environ["CLUSTER_NAME"]
 REGION = environ["AWS_REGION"]
     
 # Prometheus metrics
-success_counter = Counter('locust_spark_application_submit_success_total', 'Number of successful EMR job submissions')
+success_counter = Gauge('locust_spark_application_submit_success_total', 'Number of successful EMR job submissions at Locust')
+failed_counter = Gauge('locust_spark_application_submit_fail_total', 'Number of failed EMR job submissions at Locust')
 failed_emr_jobs_gauge = Gauge('locust_spark_application_submit_fail_total', 'Number of failed EMR job submissions')
-execution_time_gauge = Gauge('locust_spark_application_submit_gauge', 'Execution time for EMR job submission')
-running_emr_jobs_gauge = Gauge('locust_running_spark_application_gauge', 'Number of concurrent running spark application calculated from locust')
-submitted_emr_jobs_gauge = Gauge('locust_submitted_spark_application_gauge', 'Number of submitted EMR jobs calculated from locust')
-pending_emr_jobs_gauge = Gauge('locust_succeeding_spark_application_gauge', 'Number of succeeding spark application calculated from locust')
-new_spark_application_gauge = Gauge('locust_new_spark_application_gauge', 'Number of new spark application calculated from locust')
-completed_emr_jobs_gauge = Gauge('locust_completed_spark_application_gauge', 'Number of completed spark application calculated from locust')
+execution_time_gauge = Gauge('locust_spark_application_submit_gauge', 'Execution time for submitting spark application')
+running_emr_jobs_gauge = Gauge('locust_running_spark_application_gauge', 'Number of concurrent running spark application')
+submitted_emr_jobs_gauge = Gauge('locust_submitted_spark_application_gauge', 'Number of submitted EMR jobs')
+pending_emr_jobs_gauge = Gauge('locust_succeeding_spark_application_gauge', 'Number of Pending spark application waiting for compute resources provisioning')
+new_emr_jobs_gauge = Gauge('locust_new_spark_application_gauge', 'Number of new spark application created but not submitted yet')
+completed_emr_jobs_gauge = Gauge('locust_completed_spark_application_gauge', 'Number of spark jobs completed successfully')
 concurrent_user_gauge = Gauge('locust_concurrent_user', 'Number of concurrent locust users')
-virtual_clusters_gauge = Gauge('locust_virtual_clusters_count', 'Number of EMR virtual clusters created')
+# virtual_clusters_gauge = Gauge('locust_virtual_clusters_count', 'Number of EMR virtual clusters created')
 
 @events.init_command_line_parser.add_listener
 def on_locust_init(parser):
@@ -103,17 +105,17 @@ class EMRJobUser(User):
             env.update({
                 'CLUSTER_NAME': EKS_CLUSTER_NAME,
                 'VIRTUAL_CLUSTER_ID': virtual_cluster_id,
+                'METRICS_PORT': str(metrics_port),
                 'AWS_REGION': REGION,
                 'JOB_UNIQUE_ID': job_unique_id,
                 'SELECTED_AZ': selected_az
             })
 
-            # subprocess.run(['chmod', '+x', script_path], check=True)
             result = subprocess.run(['sh', script_path],env=env,
                 capture_output=True,text=True,timeout=300)
-            
             if result.returncode == 0:
                 success_counter.inc()
+                execution_time_gauge.set(time.time() - start_time)
                 self.total_jobs_submitted += 1
                 printlog(f"EMR job {job_unique_id} is submitted successfully to VC: {virtual_cluster_id}, namespace: {namespace}")
             else:
@@ -122,9 +124,9 @@ class EMRJobUser(User):
         except subprocess.TimeoutExpired:
             printlog(f"ERROR: EMR job submission timed out for: {job_unique_id}")
         except Exception as e:
+            failed_counter.inc()
             printlog(f"ERROR: Exception during EMR job submission: {type(e).__name__}: {e}")
         finally:
-            execution_time_gauge.set(time.time() - start_time)
             elapsed_time = time.perf_counter() - test_start_time
             printlog(f"Submitted {self.total_jobs_submitted} jobs. Elapsed time: {str(timedelta(seconds=elapsed_time))}")
 
@@ -156,10 +158,10 @@ def count_emr_jobs():
                 running_emr_jobs_gauge.set(job_states.get('RUNNING', 0))
                 submitted_emr_jobs_gauge.set(job_states.get('SUBMITTED', 0))
                 pending_emr_jobs_gauge.set(job_states.get('PENDING', 0))
-                new_spark_application_gauge.set(job_states.get('NEW', 0))
+                new_emr_jobs_gauge.set(job_states.get('NEW', 0))
                 completed_emr_jobs_gauge.set(job_states.get('COMPLETED', 0))
                 failed_emr_jobs_gauge.set(job_states.get('FAILED', 0))
-                virtual_clusters_gauge.set(len(list_virtual_clusters))
+                # virtual_clusters_gauge.set(len(list_virtual_clusters))
 
                 printlog(f"EMR Jobs in test session {unique_id} - job_states: {job_states}")
 
@@ -192,7 +194,8 @@ def on_locust_init(environment, **kwargs):
     hostname = environ.get('HOSTNAME', '').lower()
     if 'master' in hostname:
         printlog("EMR on EKS load test is started ...")
-        # start_http_server(8000)
+        printlog(f"Starting Prometheus metrics HTTP server on port {metrics_port}")
+        start_http_server(metrics_port)
     else:
         LoadTestInitializer(namespace_count)
         printlog("Load test session is initializing ...")

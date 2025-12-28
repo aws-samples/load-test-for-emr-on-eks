@@ -177,12 +177,6 @@ prometheus:
           - source_labels: [__meta_kubernetes_service_name]
             regex: '.*state-metrics.*'
             action: drop
-            
-      # - job_name: 'locust'
-      #   static_configs:
-      #     - targets: ['{LOCUST_WEBUI_DNS}:8089']
-      #       labels:
-      #         instance: 'ec2-instance'
 
       - job_name: 'kubernetes-pods'
         kubernetes_sd_configs:

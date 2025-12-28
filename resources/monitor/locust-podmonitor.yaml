@@ -1,0 +1,24 @@
+# // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# // SPDX-License-Identifier: MIT-0
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: locust-metrics
+  namespace: prometheus
+spec:
+  # Select pods across all namespaces
+  namespaceSelector:
+    matchNames:
+    - locust
+  # Match Locust pods by label
+  selector:
+    matchLabels:
+      locust.cloud/component: master 
+  podMetricsEndpoints:
+    - port: "8000"
+      interval: 30s
+      path: /metrics
+      metricRelabelings:
+        - action: keep
+          regex: 'locust_.*'
+          sourceLabels: [__name__]
