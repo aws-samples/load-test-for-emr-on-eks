@@ -44,6 +44,10 @@ spec:
         cpu: "4"
         memory: "4Gi"
   worker:
+    annotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "8000"
+      prometheus.io/path: "/metrics"
     resources:
       requests:
         cpu: "1"

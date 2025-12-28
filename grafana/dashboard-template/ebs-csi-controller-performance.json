@@ -1,11 +1,54 @@
 {
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS-CLUSTER-10",
+      "label": "prometheus",
+      "description": "",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ],
+  "__elements": {},
+  "__requires": [
+    {
+      "type": "panel",
+      "id": "bargauge",
+      "name": "Bar gauge",
+      "version": ""
+    },
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "10.4.1"
+    },
+    {
+      "type": "datasource",
+      "id": "prometheus",
+      "name": "Prometheus",
+      "version": "1.0.0"
+    },
+    {
+      "type": "panel",
+      "id": "stat",
+      "name": "Stat",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "timeseries",
+      "name": "Time series",
+      "version": ""
+    }
+  ],
   "annotations": {
     "list": [
       {
         "builtIn": 1,
         "datasource": {
-          "type": "datasource",
-          "uid": "grafana"
+          "type": "grafana",
+          "uid": "-- Grafana --"
         },
         "enable": true,
         "hide": true,
@@ -19,7 +62,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
-  "id": 50,
+  "id": null,
   "links": [],
   "liveNow": false,
   "panels": [
@@ -39,7 +82,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "$datasource"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "description": "P99, P95, and P50 latency for EBS volume creation operations",
       "fieldConfig": {
@@ -175,7 +218,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "$datasource"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.99, sum(rate(csi_operations_seconds_bucket{driver_name=\"ebs.csi.aws.com\",method_name=\"/csi.v1.Node/NodeStageVolume\"}[5m])) by (le))",
@@ -187,7 +230,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "$datasource"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.95, sum(rate(csi_operations_seconds_bucket{driver_name=\"ebs.csi.aws.com\",method_name=\"/csi.v1.Node/NodeStageVolume\"}[5m])) by (le))",
@@ -199,7 +242,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "$datasource"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.5, sum(rate(csi_operations_seconds_bucket{driver_name=\"ebs.csi.aws.com\",method_name=\"/csi.v1.Node/NodeStageVolume\"}[5m])) by (le))",
@@ -215,7 +258,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "$datasource"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "description": "P99, P95, and P50 latency for EBS volume deletion operations",
       "fieldConfig": {
@@ -305,7 +348,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "$datasource"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.99, sum(rate(csi_operations_seconds_bucket{driver_name=\"ebs.csi.aws.com\",method_name=\"/csi.v1.Node/NodeUnstageVolume\"}[5m])) by (le))",
@@ -317,7 +360,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "$datasource"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.95, sum(rate(csi_operations_seconds_bucket{driver_name=\"ebs.csi.aws.com\",method_name=\"/csi.v1.Node/NodeUnstageVolume\"}[5m])) by (le))",
@@ -329,7 +372,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "$datasource"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.5, sum(rate(csi_operations_seconds_bucket{driver_name=\"ebs.csi.aws.com\",method_name=\"/csi.v1.Node/NodeUnstageVolume\"}[5m])) by (le))",
@@ -345,7 +388,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "$datasource"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "description": "Rate of volume creation and deletion operations per second",
       "fieldConfig": {
@@ -427,7 +470,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "$datasource"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -441,7 +484,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "$datasource"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "sum(rate(csi_operations_seconds_bucket{driver_name=\"ebs.csi.aws.com\", method_name=~\"/csi.v1.Node/NodeUnstageVolume\"}[5m]))",
@@ -458,7 +501,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "$datasource"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "description": "Error rate by volume creation and deletion operations",
       "fieldConfig": {
@@ -543,7 +586,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "$datasource"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "sum(rate(csi_operations_seconds_count{driver_name=\"ebs.csi.aws.com\",method_name=~\"/csi.v1.Node/Node(.*)Volume\",grpc_status_code!=\"OK\"}[5m])) by (method_name)",
@@ -572,7 +615,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "$datasource"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "description": "P99, P95, and P50 latency for EBS volume attach operations (NodePublishVolume)",
       "fieldConfig": {
@@ -664,7 +707,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "$datasource"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(1.0, sum(rate(csi_operations_seconds_bucket{driver_name=\"ebs.csi.aws.com\",method_name=\"/csi.v1.Node/NodePublishVolume\"}[5m])) by (le))",
@@ -676,7 +719,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "$datasource"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.95, sum(rate(csi_operations_seconds_bucket{driver_name=\"ebs.csi.aws.com\",method_name=\"/csi.v1.Node/NodePublishVolume\"}[5m])) by (le))",
@@ -688,7 +731,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "$datasource"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.5, sum(rate(csi_operations_seconds_bucket{driver_name=\"ebs.csi.aws.com\",method_name=\"/csi.v1.Node/NodePublishVolume\"}[5m])) by (le))",
@@ -704,7 +747,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "$datasource"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "description": "P99, P95, and P50 latency for EBS volume detach operations (ControllerUnpublishVolume)",
       "fieldConfig": {
@@ -840,7 +883,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "$datasource"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.99, sum(rate(csi_operations_seconds_bucket{driver_name=\"ebs.csi.aws.com\",method_name=\"/csi.v1.Node/NodeUnpublishVolume\"}[5m])) by (le))",
@@ -852,7 +895,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "$datasource"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.95, sum(rate(csi_operations_seconds_bucket{driver_name=\"ebs.csi.aws.com\",method_name=\"/csi.v1.Node/NodeUnpublishVolume\"}[5m])) by (le))",
@@ -864,7 +907,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "$datasource"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.5, sum(rate(csi_operations_seconds_bucket{driver_name=\"ebs.csi.aws.com\",method_name=\"/csi.v1.Node/NodeUnpublishVolume\"}[5m])) by (le))",
@@ -880,7 +923,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "$datasource"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "description": "Rate of volume attach and detach operations per second",
       "fieldConfig": {
@@ -926,7 +969,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               }
             ]
           },
@@ -961,7 +1005,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "$datasource"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "sum(rate(csi_operations_seconds_count{driver_name=\"ebs.csi.aws.com\", method_name=~\"/csi.v1.Node/NodePublishVolume\"}[5m]))",
@@ -973,7 +1017,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "$datasource"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "sum(rate(csi_operations_seconds_count{driver_name=\"ebs.csi.aws.com\", method_name=~\"/csi.v1.Node/NodeUnpublishVolume\"}[5m]))",
@@ -990,7 +1034,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "$datasource"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "description": "Time CSI driver has been waiting for volume detachment - identifies stuck volumes",
       "fieldConfig": {
@@ -1036,7 +1080,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "yellow",
@@ -1079,7 +1124,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "$datasource"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "aws_ebs_csi_ec2_detach_pending_seconds",
@@ -1108,7 +1153,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "$datasource"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "description": "P99 latency of AWS SDK API calls by request type",
       "fieldConfig": {
@@ -1121,7 +1166,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               }
             ]
           },
@@ -1159,7 +1205,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "$datasource"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.99, sum(rate(aws_ebs_csi_api_request_duration_seconds_bucket[5m])) by (request, le))",
@@ -1175,7 +1221,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "$datasource"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "description": "Rate of throttled AWS API requests by request type - indicates hitting AWS API rate limits",
       "fieldConfig": {
@@ -1221,7 +1267,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -1259,7 +1306,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "$datasource"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "sum(aws_ebs_csi_api_request_throttles_total{app=\"ebs-csi-controller\"}) by (operation_name)",
@@ -1275,7 +1322,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "$datasource"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "description": "Total throttled requests by request type over time window",
       "fieldConfig": {
@@ -1288,7 +1335,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -1327,7 +1375,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "$datasource"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -1346,7 +1394,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "$datasource"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "description": "Error rate from AWS API calls broken down by request type and error code",
       "fieldConfig": {
@@ -1392,7 +1440,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -1432,7 +1481,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "$datasource"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "sum(rate(aws_ebs_csi_api_request_errors_total[5m])) by (request, code)",
@@ -1461,7 +1510,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "$datasource"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "description": "Number of healthy EBS CSI controller pods",
       "fieldConfig": {
@@ -1474,7 +1523,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "red"
+                "color": "red",
+                "value": null
               },
               {
                 "color": "yellow",
@@ -1518,7 +1568,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "$datasource"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "sum(up{job=\"ebs-csi-controller\"})",
@@ -1534,7 +1584,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "$datasource"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "description": "CPU usage of EBS CSI controller pods",
       "fieldConfig": {
@@ -1580,7 +1630,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               }
             ]
           },
@@ -1615,7 +1666,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "$datasource"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"kube-system\",pod=~\"ebs-csi-controller.*\",container=\"ebs-plugin\"}[5m])) by (pod)",
@@ -1631,7 +1682,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "$datasource"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "description": "Memory usage of EBS CSI controller pods",
       "fieldConfig": {
@@ -1677,7 +1728,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               }
             ]
           },
@@ -1712,7 +1764,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "$datasource"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "expr": "sum(container_memory_working_set_bytes{namespace=\"kube-system\",pod=~\"ebs-csi-controller.*\",container=\"ebs-plugin\"}) by (pod)",
           "interval": "",
@@ -1766,6 +1818,6 @@
   "timezone": "",
   "title": "EBS Volume Provision/Attach Performance",
   "uid": "ebs-csi-perf",
-  "version": 17,
+  "version": 18,
   "weekStart": ""
 }

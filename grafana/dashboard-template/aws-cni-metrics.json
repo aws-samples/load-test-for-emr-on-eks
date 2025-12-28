@@ -1,7 +1,7 @@
 {
   "__inputs": [
     {
-      "name": "DS_PROMETHEUS-CLUSTER-10",
+      "name": "DS_PROMETHEUS",
       "label": "prometheus",
       "description": "",
       "type": "datasource",
@@ -99,7 +99,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+        "uid": "${DS_PROMETHEUS}"
       },
       "fieldConfig": {
         "defaults": {
@@ -178,7 +178,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
           "expr": "awscni_assigned_ip_addresses",
@@ -194,7 +194,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+        "uid": "${DS_PROMETHEUS}"
       },
       "fieldConfig": {
         "defaults": {
@@ -274,7 +274,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
           "expr": "rate(awscni_aws_api_latency_ms_sum {api=\"AssignPrivateIpAddresses\"} [1m])/rate(awscni_aws_api_latency_ms_count{api=\"AssignPrivateIpAddresses\"}[1m])",
@@ -286,7 +286,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
           "expr": "",
@@ -303,7 +303,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+        "uid": "${DS_PROMETHEUS}"
       },
       "fieldConfig": {
         "defaults": {
@@ -382,7 +382,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "${DS_PROMETHEUS}"
           },
           "disableTextWrap": false,
           "editorMode": "code",
@@ -402,7 +402,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+        "uid": "${DS_PROMETHEUS}"
       },
       "fieldConfig": {
         "defaults": {
@@ -482,7 +482,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
           "expr": "rate(awscni_aws_api_latency_ms_sum {api=\"UnassignPrivateIpAddresses\"} [1m])/rate(awscni_aws_api_latency_ms_count{api=\"UnassignPrivateIpAddresses\"}[1m])",
@@ -909,7 +909,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS_WS-026CBC90-FEFE-4312-B368-251D30BC44D4}"
+            "uid": "${DS_PROMETHEUS}"
           },
           "exemplar": true,
           "expr": "sum (rate(awscni_add_ip_req_count[$__rate_interval]))",
@@ -920,7 +920,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS_WS-026CBC90-FEFE-4312-B368-251D30BC44D4}"
+            "uid": "${DS_PROMETHEUS}"
           },
           "exemplar": true,
           "expr": "sum (rate(awscni_del_ip_req_count[$__rate_interval]))",
@@ -993,7 +993,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS_WS-026CBC90-FEFE-4312-B368-251D30BC44D4}"
+            "uid": "${DS_PROMETHEUS}"
           },
           "exemplar": true,
           "expr": "count_values(\"value\", 100*awscni_eni_allocated/awscni_eni_max)",
@@ -1059,7 +1059,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS_WS-026CBC90-FEFE-4312-B368-251D30BC44D4}"
+            "uid": "${DS_PROMETHEUS}"
           },
           "exemplar": true,
           "expr": "sum(awscni_eni_allocated/awscni_eni_max)/count(awscni_eni_allocated)",
@@ -1125,7 +1125,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS_WS-026CBC90-FEFE-4312-B368-251D30BC44D4}"
+            "uid": "${DS_PROMETHEUS}"
           },
           "exemplar": true,
           "expr": "sum(awscni_assigned_ip_addresses/(awscni_total_ip_addresses-1))/count(awscni_assigned_ip_addresses)",
@@ -1304,7 +1304,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS_WS-026CBC90-FEFE-4312-B368-251D30BC44D4}"
+            "uid": "${DS_PROMETHEUS}"
           },
           "expr": "sum(awscni_force_removed_enis)",
           "interval": "",
@@ -1314,7 +1314,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS_WS-026CBC90-FEFE-4312-B368-251D30BC44D4}"
+            "uid": "${DS_PROMETHEUS}"
           },
           "exemplar": true,
           "expr": "sum(awscni_force_removed_ips)",
@@ -1382,7 +1382,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS_WS-026CBC90-FEFE-4312-B368-251D30BC44D4}"
+            "uid": "${DS_PROMETHEUS}"
           },
           "exemplar": true,
           "expr": "sum (awscni_del_ip_req_count{reason!=\"PodDeleted\"})",
@@ -1480,7 +1480,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS_WS-026CBC90-FEFE-4312-B368-251D30BC44D4}"
+            "uid": "${DS_PROMETHEUS}"
           },
           "exemplar": true,
           "expr": "sum by (reason) (awscni_del_ip_req_count{reason!=\"PodDeleted\"})",
@@ -1780,7 +1780,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS_WS-026CBC90-FEFE-4312-B368-251D30BC44D4}"
+            "uid": "${DS_PROMETHEUS}"
           },
           "exemplar": true,
           "expr": "avg by (api)(rate(awscni_aws_api_latency_ms_sum[5m])/rate(awscni_aws_api_latency_ms_count[5m]))",
@@ -2000,7 +2000,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS_WS-026CBC90-FEFE-4312-B368-251D30BC44D4}"
+            "uid": "${DS_PROMETHEUS}"
           },
           "exemplar": true,
           "expr": "sum(rate(awscni_reconcile_count[5m])) by (fn)",

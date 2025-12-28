@@ -1,7 +1,7 @@
 {
   "__inputs": [
     {
-      "name": "DS_PROMETHEUS",
+      "name": "DS_PROMETHEUS-CLUSTER-10",
       "label": "prometheus",
       "description": "",
       "type": "datasource",
@@ -95,7 +95,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "description": "Total number of cpu resources requested by all pods on the current Nodepool",
       "fieldConfig": {
@@ -145,7 +145,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "sum(karpenter_nodes_total_pod_requests{nodepool=~\"$nodepool\",resource_type=\"cpu\"})",
@@ -160,7 +160,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "description": "Total number of memory resources requested by all pods on the current Nodepool",
       "fieldConfig": {
@@ -210,7 +210,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "sum(karpenter_nodes_total_pod_requests{nodepool=~\"$nodepool\",resource_type=\"memory\"})",
@@ -225,7 +225,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "fieldConfig": {
         "defaults": {
@@ -273,7 +273,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "sum(karpenter_pods_state{nodepool=~\"$nodepool\"})",
@@ -288,7 +288,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "fieldConfig": {
         "defaults": {
@@ -337,7 +337,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "(count(karpenter_nodes_allocatable{capacity_type=\"spot\",instance_type=~\"$instance_type\",nodepool=~\"$nodepool\",zone=~\"$zone\"}) or vector(0)) / count(karpenter_nodes_allocatable{instance_type=~\"$instance_type\",nodepool=~\"$nodepool\",zone=~\"$zone\"})*100",
@@ -352,7 +352,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "fieldConfig": {
         "defaults": {
@@ -400,7 +400,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -417,7 +417,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "fieldConfig": {
         "defaults": {
@@ -465,7 +465,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -482,7 +482,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "description": "Percentage of resources requested by all pods from those available on the current Nodepool nodes",
       "fieldConfig": {
@@ -534,7 +534,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "sum(karpenter_nodes_total_pod_requests{nodepool=~\"$nodepool\",resource_type=\"cpu\"}) / sum(karpenter_nodes_allocatable{nodepool=~\"$nodepool\", resource_type=\"cpu\"})",
@@ -549,7 +549,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "description": "Percentage of resources requested by all pods from those available on the current Nodepool nodes",
       "fieldConfig": {
@@ -605,7 +605,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "sum(karpenter_nodes_total_pod_requests{nodepool=~\"$nodepool\",resource_type=\"memory\"}) / sum(karpenter_nodes_allocatable{nodepool=~\"$nodepool\", resource_type=\"memory\"})",
@@ -620,7 +620,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "fieldConfig": {
         "defaults": {
@@ -668,10 +668,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
-          "expr": "count(karpenter_nodes_allocatable{nodepool=~\"$nodepool\",resource_type=\"pods\"})",
+          "expr": "count(karpenter_nodes_allocatable{nodepool=\"$nodepool\",resource_type=\"pods\"})",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -683,7 +683,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "fieldConfig": {
         "defaults": {
@@ -731,7 +731,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -748,7 +748,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "fieldConfig": {
         "defaults": {
@@ -796,7 +796,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -826,7 +826,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "description": "Percentage of how many resources Karpenter launched from the total Nodepool limit",
       "fieldConfig": {
@@ -909,7 +909,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "sum by (nodepool,resource_type) (karpenter_nodepool_usage{nodepool=~\"$nodepool\",resource_type=~\"memory|cpu\"} / karpenter_nodepool_limit{nodepool=~\"$nodepool\",resource_type=~\"memory|cpu\"} * 100) ",
@@ -924,7 +924,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1037,7 +1037,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "sum(karpenter_nodes_allocatable{nodepool=~\"$nodepool\", resource_type=\"cpu\"})",
@@ -1048,7 +1048,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "sum(karpenter_nodes_total_pod_requests{nodepool=~\"$nodepool\",resource_type=\"cpu\"})",
@@ -1064,7 +1064,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1177,7 +1177,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "sum(karpenter_nodes_allocatable{nodepool=~\"$nodepool\", resource_type=\"cpu\"})",
@@ -1188,7 +1188,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "sum(karpenter_nodes_total_pod_requests{nodepool=~\"$nodepool\",resource_type=\"cpu\"})",
@@ -1204,7 +1204,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1317,7 +1317,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "sum by (nodepool) (karpenter_nodeclaims_launched) - sum by (nodepool)(karpenter_nodeclaims_registered)",
@@ -1332,7 +1332,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1445,7 +1445,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "karpenter_cloudprovider_errors_total{controller!~\"node.termination|nodeclaim.termination\", error!=\"NodeClaimNotFoundError\"}",
@@ -1473,7 +1473,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1494,7 +1494,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -1543,7 +1544,8 @@
                   "mode": "percentage",
                   "steps": [
                     {
-                      "color": "green"
+                      "color": "green",
+                      "value": null
                     },
                     {
                       "color": "red",
@@ -1607,7 +1609,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -1622,7 +1624,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -1637,7 +1639,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -1652,7 +1654,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -1912,7 +1914,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1957,7 +1959,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -1991,7 +1994,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "increase(karpenter_nodeclaims_created_total{nodepool=~\"$nodepool\"}[5m])",
@@ -2003,7 +2006,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "increase(karpenter_nodeclaims_created{nodepool=~\"$nodepool\"}[1m])",
@@ -2019,7 +2022,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "fieldConfig": {
         "defaults": {
@@ -2065,7 +2068,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -2099,7 +2103,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "count(karpenter_nodes_total_pod_requests{nodepool=~\"$nodepool\",resource_type=\"pods\"}) by (zone)",
@@ -2114,7 +2118,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "fieldConfig": {
         "defaults": {
@@ -2160,7 +2164,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -2195,7 +2200,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "karpenter_nodes_total_pod_requests{nodepool=~\"$nodepool\",resource_type=\"cpu\"} / karpenter_nodes_allocatable{nodepool=~\"$nodepool\",resource_type=\"cpu\"}",
@@ -2210,7 +2215,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "fieldConfig": {
         "defaults": {
@@ -2256,7 +2261,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -2291,7 +2297,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "karpenter_nodes_total_pod_requests{nodepool=~\"$nodepool\",resource_type=\"memory\"} / karpenter_nodes_allocatable{nodepool=~\"$nodepool\", resource_type=\"memory\"}",
@@ -2306,7 +2312,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "fieldConfig": {
         "defaults": {
@@ -2351,7 +2357,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -2385,7 +2392,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "idelta(karpenter_interruption_received_messages_total[1m])",
@@ -2401,7 +2408,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "fieldConfig": {
         "defaults": {
@@ -2446,7 +2453,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -2480,7 +2488,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -2509,7 +2517,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "fieldConfig": {
         "defaults": {
@@ -2555,7 +2563,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -2589,7 +2598,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "sum(karpenter_pods_state{nodepool=~\"$nodepool\", name=~\"$application.*\"})",
@@ -2604,7 +2613,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "fieldConfig": {
         "defaults": {
@@ -2650,7 +2659,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -2684,7 +2694,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "sum(karpenter_pods_state{nodepool=~\"$nodepool\",name=~\"$application.*\"}) by (zone)",
@@ -2699,7 +2709,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
       },
       "fieldConfig": {
         "defaults": {
@@ -2745,7 +2755,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green"
+                "color": "green",
+                "value": null
               },
               {
                 "color": "red",
@@ -2779,7 +2790,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
           "expr": "max(sum(karpenter_pods_state{nodepool=~\"$nodepool\", name=~\"$application.*\"}) by (zone)) - min(sum(karpenter_pods_state{nodepool=~\"$nodepool\", name=~\"$application.*\"}) by (zone))",
@@ -2820,9 +2831,9 @@
         "current": {},
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
+          "uid": "${DS_PROMETHEUS-CLUSTER-10}"
         },
-        "definition": "label_values()",
+        "definition": "label_values(karpenter_nodepools_usage,nodepool)",
         "hide": 0,
         "includeAll": true,
         "multi": false,
@@ -2830,7 +2841,7 @@
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values()",
+          "query": "label_values(karpenter_nodepools_usage,nodepool)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,
@@ -2844,7 +2855,7 @@
         "current": {},
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
+          "uid": "${DS_PROMETHEUS-CLUSTER-10}"
         },
         "definition": "query_result(kube_deployment_created OR kube_statefulset_created)",
         "hide": 0,
@@ -2866,7 +2877,7 @@
         "current": {},
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS_WS-026CBC90-FEFE-4312-B368-251D30BC44D4}"
+          "uid": "${DS_PROMETHEUS-CLUSTER-10}"
         },
         "definition": "label_values(karpenter_nodes_allocatable,zone)",
         "hide": 0,
@@ -2889,7 +2900,7 @@
         "current": {},
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS_WS-026CBC90-FEFE-4312-B368-251D30BC44D4}"
+          "uid": "${DS_PROMETHEUS-CLUSTER-10}"
         },
         "definition": "label_values(karpenter_nodes_allocatable,arch)",
         "hide": 0,
@@ -2912,7 +2923,7 @@
         "current": {},
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS_WS-026CBC90-FEFE-4312-B368-251D30BC44D4}"
+          "uid": "${DS_PROMETHEUS-CLUSTER-10}"
         },
         "definition": "label_values(karpenter_nodes_allocatable,capacity_type)",
         "hide": 0,
@@ -2935,7 +2946,7 @@
         "current": {},
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS_WS-026CBC90-FEFE-4312-B368-251D30BC44D4}"
+          "uid": "${DS_PROMETHEUS-CLUSTER-10}"
         },
         "definition": "label_values(karpenter_nodes_allocatable,instance_type)",
         "hide": 0,
@@ -2956,9 +2967,9 @@
       },
       {
         "current": {
-          "selected": false,
-          "text": "nodepool",
-          "value": "nodepool"
+          "selected": true,
+          "text": "zone",
+          "value": "zone"
         },
         "hide": 0,
         "includeAll": false,
@@ -2991,12 +3002,12 @@
             "value": "node"
           },
           {
-            "selected": true,
+            "selected": false,
             "text": "nodepool",
             "value": "nodepool"
           },
           {
-            "selected": false,
+            "selected": true,
             "text": "zone",
             "value": "zone"
           }
@@ -3009,13 +3020,13 @@
     ]
   },
   "time": {
-    "from": "now-1h",
+    "from": "now-12h",
     "to": "now"
   },
   "timepicker": {},
   "timezone": "",
   "title": "Karpenter",
   "uid": "karpenter",
-  "version": 4,
+  "version": 8,
   "weekStart": ""
 }

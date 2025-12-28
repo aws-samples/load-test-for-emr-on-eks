@@ -4,91 +4,54 @@ This document describes the custom Prometheus metrics exposed by the Locust load
 
 ## Overview
 
-The enhanced `locustfile_with_prometheus.py` exposes comprehensive `locust_*` metrics via a Prometheus HTTP endpoint on port 8000 (configurable via `METRICS_PORT` environment variable).
+The enhanced `locustfile.py` exposes comprehensive `locust_*` metrics via a Prometheus HTTP endpoint on port 8000 (configurable via `METRICS_PORT` environment variable).
 
 ## New Metrics
 
 ### Job Submission Metrics
 
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `locust_spark_submit_total` | Counter | `status`, `namespace` | Total Spark job submissions by status (success/failed/timeout/exception) |
-| `locust_spark_submit_success_total` | Counter | - | Total successful Spark job submissions |
-| `locust_spark_submit_failed_total` | Counter | `error_type` | Total failed Spark job submissions by error type |
+| Metric | Type | Description |
+|--------|------|-------------|
+| `locust_spark_application_submit_success_total` | Counter | Total Spark job submissions at Locust |
+| `locust_spark_application_submit_failed_total` | Counter | Total failed Spark job submissions at Locust |
 | `locust_spark_submit_duration_seconds` | Histogram | `namespace` | Job submission duration in seconds (buckets: 0.5s to 300s) |
-| `locust_spark_submit_duration_summary_seconds` | Summary | - | Summary statistics for job submission duration |
 
 ### Job State Metrics (Gauges)
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `locust_spark_jobs_running` | Gauge | Currently running Spark jobs |
-| `locust_spark_jobs_submitted` | Gauge | Submitted Spark jobs |
-| `locust_spark_jobs_pending` | Gauge | Pending Spark jobs |
-| `locust_spark_jobs_new` | Gauge | New Spark jobs |
-| `locust_spark_jobs_completed` | Gauge | Completed Spark jobs |
-| `locust_spark_jobs_failed` | Gauge | Failed Spark jobs |
+| `locust_running_spark_application_gauge` | Gauge | Currently running Spark jobs |
+| `locust_submitted_spark_application_gauge` | Gauge | Submitted Spark jobs |
+| `locust_succeeding_spark_application_gauge` | Gauge | Pending Spark jobs |
+| `locust_new_spark_application_gauge` | Gauge | New Spark jobs |
+| `locust_completed_spark_application_gauge` | Gauge | Completed Spark jobs |
+| `locust_failed_spark_application_gauge` | Gauge | Failed Spark jobs |
 
 ### Locust User Metrics
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `locust_users_active` | Gauge | Number of active Locust users (concurrent load) |
-| `locust_users_spawned_total` | Counter | Total number of Locust users spawned |
-
-### Virtual Cluster Metrics
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| `locust_virtual_clusters_total` | Gauge | Total EMR virtual clusters created for test |
-| `locust_virtual_clusters_active` | Gauge | Active EMR virtual clusters |
-
-### Test Session Metrics
-
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `locust_test_info` | Info | `test_id`, `cluster_name`, `region`, `namespace_prefix` | Test session metadata |
-| `locust_test_uptime_seconds` | Gauge | - | Test session uptime in seconds |
-| `locust_test_start_timestamp` | Gauge | - | Unix timestamp when test started |
-| `locust_jobs_per_namespace` | Gauge | `namespace` | Jobs submitted per namespace |
+| `locust_concurrent_user` | Gauge | Number of active Locust users (concurrent load) |
 
 ## Deployment
 
-### Step 1: Update Locust Deployment
+### Step 1: Create Annotations in Locust Pods
 
-Ensure your Locust pods have the following:
+Ensure your Locust pods have the following annotations:
 
-1. **Port Configuration**: Add metrics port to your pod spec
-2. **Labels**: Add `app: locust` label
-3. **Environment Variable** (optional): Set `METRICS_PORT=8000`
-
-Example pod template snippet:
+Example Locust Operator template snippet:
 ```yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: locust-master
-  labels:
-    app: locust
-    component: master
-spec:
-  containers:
-  - name: locust
-    image: your-locust-image
-    ports:
-    - name: web
-      containerPort: 8089
-      protocol: TCP
-    - name: metrics  # Prometheus metrics port
-      containerPort: 8000
-      protocol: TCP
-    env:
-    - name: METRICS_PORT
-      value: "8000"
-    - name: CLUSTER_NAME
-      value: "your-cluster"
-    - name: AWS_REGION
-      value: "us-west-2"
+master:
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics"
+.....
+workler:
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics"    
 ```
 
 ### Step 2: Deploy PodMonitor
@@ -102,7 +65,7 @@ kubectl apply -f resources/monitor/locust-podmonitor.yaml
 Verify the PodMonitor is created:
 
 ```bash
-kubectl get podmonitor -n prometheus locust-load-test-monitor
+kubectl get podmonitor -n prometheus locust-metrics
 ```
 
 ### Step 3: Verify Metrics Collection
@@ -114,9 +77,9 @@ Check that Prometheus is scraping Locust metrics:
 kubectl port-forward -n prometheus svc/prometheus-kube-prometheus-prometheus 9090:9090
 
 # Open browser to http://localhost:9090 and query:
-locust_spark_submit_success_total
-locust_users_active
-locust_spark_jobs_running
+locust_spark_application_submit_success_total
+locust_concurrent_user
+locust_running_spark_application_gauge
 ```
 
 Expected result: You should see metrics with current values.
@@ -127,110 +90,44 @@ Expected result: You should see metrics with current values.
 
 ```promql
 # Successful submissions per second
-rate(locust_spark_submit_success_total[5m])
+rate(locust_spark_application_submit_success_total[5m])
 
-# Failed submissions per second by error type
-rate(locust_spark_submit_failed_total[5m])
+# Failed submissions per second
+rate(locust_spark_application_submit_failed_total[5m])
 ```
 
 ### Job Submission Latency
 
 ```promql
 # P99 submission latency across all namespaces
-histogram_quantile(0.99, sum(rate(locust_spark_submit_duration_seconds_bucket[5m])) by (le))
+histogram_quantile(0.99, sum(rate(locust_spark_application_submit_success_total[5m])) by (le))
 
 # P95 submission latency by namespace
-histogram_quantile(0.95, sum(rate(locust_spark_submit_duration_seconds_bucket[5m])) by (namespace, le))
-
-# Average submission duration
-rate(locust_spark_submit_duration_summary_seconds_sum[5m]) / rate(locust_spark_submit_duration_summary_seconds_count[5m])
+histogram_quantile(0.95, sum(rate(locust_spark_application_submit_success_total[5m])) by (namespace,le))
 ```
 
 ### Job State Tracking
 
 ```promql
 # Total jobs in any active state
-locust_spark_jobs_running + locust_spark_jobs_submitted + locust_spark_jobs_pending
+locust_running_spark_application_gauge + locust_submitted_spark_application_gauge + locust_succeeding_spark_application_gauge
 
 # Job completion rate
-rate(locust_spark_jobs_completed[5m])
+rate(locust_completed_spark_application_gauge[5m])
 
 # Job failure rate
-rate(locust_spark_jobs_failed[5m])
-```
-
-### Load Testing Progress
-
-```promql
-# Current concurrent users
-locust_users_active
-
-# Test duration in hours
-locust_test_uptime_seconds / 3600
-
-# Jobs per namespace
-sum(locust_jobs_per_namespace) by (namespace)
-```
-
-### Success Rate
-
-```promql
-# Overall success rate (%)
-100 * rate(locust_spark_submit_success_total[5m]) / rate(locust_spark_submit_total[5m])
-
-# Failure rate by error type
-sum(rate(locust_spark_submit_failed_total[5m])) by (error_type)
+rate(locust_failed_spark_application_gauge[5m])
 ```
 
 ## Grafana Dashboard
 
 Create a Grafana dashboard with these panels:
 
-### 1. Job Submission Rate
-```promql
-rate(locust_spark_submit_success_total[5m])
-```
-
-### 2. Job States Over Time
-```promql
-locust_spark_jobs_running
-locust_spark_jobs_pending
-locust_spark_jobs_submitted
-```
-
-### 3. Active Users
-```promql
-locust_users_active
-```
-
-### 4. Submission Latency (P99, P95, P50)
-```promql
-histogram_quantile(0.99, sum(rate(locust_spark_submit_duration_seconds_bucket[5m])) by (le))
-histogram_quantile(0.95, sum(rate(locust_spark_submit_duration_seconds_bucket[5m])) by (le))
-histogram_quantile(0.50, sum(rate(locust_spark_submit_duration_seconds_bucket[5m])) by (le))
-```
 
 ### 5. Job Success Rate
 ```promql
-100 * rate(locust_spark_submit_success_total[5m]) / rate(locust_spark_submit_total[5m])
+100 * rate(locust_submitted_spark_application_gauge[5m]) / rate(locust_spark_application_submit_success_total[5m])
 ```
-
-### 6. Errors by Type
-```promql
-sum(rate(locust_spark_submit_failed_total[5m])) by (error_type)
-```
-
-## Backward Compatibility
-
-The new version maintains backward compatibility with the original metric names:
-- `locust_spark_application_submit_success_total`
-- `locust_spark_application_submit_fail_total`
-- `locust_running_spark_application_gauge`
-- `locust_submitted_spark_application_gauge`
-- `locust_concurrent_user`
-- `locust_virtual_clusters_count`
-
-Both old and new metric names are exported simultaneously.
 
 ## Troubleshooting
 
@@ -240,7 +137,7 @@ Both old and new metric names are exported simultaneously.
 ```bash
 kubectl get pods -n locust --show-labels | grep locust
 ```
-Ensure pods have `app=locust` label.
+Ensure pods have `master` and `worker` labels.
 
 2. **Verify Metrics Port**:
 ```bash
@@ -256,7 +153,7 @@ kubectl get podmonitor -n prometheus locust-metrics -o yaml
 
 4. **Check Prometheus Targets**:
 - Open Prometheus UI: `http://localhost:9090/targets`
-- Search for "locust-load-test-monitor"
+- Search for "locust-metrics"
 - Verify status is "UP"
 
 **Check metric names**:
@@ -285,8 +182,8 @@ Should show all available metrics.
 
 ### PodMonitor Configuration
 
-The PodMonitor scrapes metrics from pods with `app: locust` label:
-- **Namespace**: Any namespace (cross-namespace scraping enabled)
+The PodMonitor scrapes metrics from pods with `master` or `worker` label:
+- **Namespace**: Locust (scraping the single namespace)
 - **Port**: `metrics` (8000)
 - **Interval**: 30 seconds
 - **Path**: `/metrics`

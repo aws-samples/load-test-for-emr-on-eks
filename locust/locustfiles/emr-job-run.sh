@@ -8,6 +8,7 @@
     # "spark.dynamicAllocation.executorIdleTimeout": "30s"
     # "spark.dynamicAllocation.maxExecutors": "23"
     # "spark.scheduler.maxRegisteredResourcesWaitingTime": "3000s",
+    # "spark.kubernetes.scheduler.name": "custom-scheduler-eks",
 
 export SHARED_PREFIX_NAME=emr-on-$CLUSTER_NAME
 export ACCOUNTID=$(aws sts get-caller-identity --query Account --output text)
@@ -42,7 +43,6 @@ aws emr-containers start-job-run \
           "spark.hadoop.fs.s3.maxConnections": "200",
           "spark.hadoop.fs.s3.maxRetries": "30",
 
-          "spark.kubernetes.scheduler.name": "custom-scheduler-eks",
           "spark.kubernetes.executor.node.selector.karpenter.sh/nodepool": "executor-memorynodepool",
           "spark.kubernetes.driver.node.selector.karpenter.sh/nodepool": "driver-nodepool",
           "spark.kubernetes.driver.node.selector.topology.kubernetes.io/zone": "'$SELECTED_AZ'",

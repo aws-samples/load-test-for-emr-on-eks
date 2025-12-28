@@ -12,8 +12,11 @@ spec:
     - locust
   # Match Locust pods by label
   selector:
-    matchLabels:
-      locust.cloud/component: master 
+    matchExpressions:
+      - key: locust.cloud/component
+        operator: In
+        values:
+          - worker
   podMetricsEndpoints:
     - port: "8000"
       interval: 30s
