@@ -94,12 +94,12 @@ prometheus:
         initialDelaySeconds: 60
       resources:
         limits:
-          cpu: "8"
-          memory: 80Gi
+          cpu: "15"
+          memory: 100Gi
         requests:
-          cpu: "1"
+          cpu: "4"
           memory: 15Gi
-    replicas: 2
+    replicas: 1
     # ensure one instance per node
     podAntiAffinity: hard
     # add an EBS volume per instance 
@@ -113,7 +113,7 @@ prometheus:
           accessModes: ["ReadWriteOnce"]
           resources:
             requests:
-              storage: 50Gi
+              storage: 100Gi
 
     serviceMonitorSelectorNilUsesHelmValues: false
     podMonitorSelectorNilUsesHelmValues: false

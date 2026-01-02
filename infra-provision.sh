@@ -44,9 +44,6 @@ echo "==============================================="
 echo "  Create a default gp3 storageclass ......"
 echo "==============================================="
 echo "retrieve CMK key ARN"
-# KMS_ARN=$(aws kms describe-key --key-id arn:aws:kms:$AWS_REGION:$ACCOUNT_ID:alias/$CMK_ALIAS --query 'KeyMetadata.Arn' --output text)
-# echo "Create a default gp3 storageclass"
-# sed -i='' 's|${KMS_ARN}|'$KMS_ARN'|g' resources/ebs/storageclass.yaml
 kubectl apply -f resources/ebs/storageclass.yaml
 
 echo "==============================================="
@@ -97,14 +94,17 @@ helm install custom-scheduler-eks charts/custom-scheduler-eks \
 echo "============================================================="
 echo "  Tune CSI Controller by patch the existing addon ......"
 echo "============================================================="
-echo "enable EBS controller metrics for Grafana monitoring..."
+echo "Must enable the controller's metrics for Grafana dashboard before patch the CSI controller..."
+an issue raised to EKS team: https://t.corp.amazon.com/P361360332
 aws eks update-addon --cluster-name ${CLUSTER_NAME} \
 --addon-name aws-ebs-csi-driver --resolve-conflicts OVERWRITE   \
---configuration-values '{"controller":{"enableMetrics":true},"nodeAllocatableUpdatePeriodSeconds":60}'
-echo "Patching EBS CSI controller deployment..."
+--configuration-values '{"controller":{"enableMetrics":true}}'
+
+eecho "Patching EBS CSI controller deployment..."
 bash ./resources/ebs/patch_csi-controller.sh
-echo "scale up EBS CSI controller from 2 to 3..."
-kubectl scale deployment ebs-csi-controller --replicas=3 -n kube-system
+
+# echo "scale up EBS CSI controller from 2 to 3..."
+# kubectl scale deployment ebs-csi-controller --replicas=3 -n kube-system
 
 echo "==============================================="
 echo "  Create EMR on EKS Execution Role ......"
@@ -185,11 +185,11 @@ fi
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm repo add kube-state-metrics https://kubernetes.github.io/kube-state-metrics
 helm repo update
+
 sed -i -- 's/{AWS_REGION}/'$AWS_REGION'/g'  ./resources/monitor/prometheus-values.yaml
 sed -i -- 's/{ACCOUNTID}/'$ACCOUNT_ID'/g'  ./resources/monitor/prometheus-values.yaml
 sed -i -- 's/{WORKSPACE_ID}/'$WORKSPACE_ID'/g'  ./resources/monitor/prometheus-values.yaml
 sed -i -- 's/{CLUSTER_NAME}/'$CLUSTER_NAME'/g'  ./resources/monitor/prometheus-values.yaml
-# sed -i -- 's/{LOCUST_PRIV_HOST_IP}/'$LOCUST_PRIV_HOST_IP'/g'  ./resources/monitor/prometheus-values.yaml
 helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n prometheus -f  ./resources/monitor/prometheus-values.yaml --debug
 echo "Scale up Prometheus server to 2 replicas for high availability..."
 # validate in a web browser - localhost:9090, go to menu of status->targets
@@ -278,8 +278,8 @@ helm template karpenter oci://public.ecr.aws/karpenter/karpenter --version "${KA
     --set "serviceAccount.annotations.eks\.amazonaws\.com/role-arn=arn:aws:iam::${AWS_ACCOUNT_ID}:role/KarpenterControllerRole-${CLUSTER_NAME}" \
     --set controller.resources.requests.cpu=2 \
     --set controller.resources.requests.memory=2Gi \
-    --set controller.resources.limits.cpu=15 \
-    --set controller.resources.limits.memory=25Gi \
+    --set controller.resources.limits.cpu=10 \
+    --set controller.resources.limits.memory=20Gi \
     --set webhook.serviceName="karpenter" \
     --set webhook.port=8443 > ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml
 # run Karpenter pods on a managed nodegroup

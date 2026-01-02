@@ -36,13 +36,6 @@ kubectl patch deployment $DEPLOYMENT_NAME -n $NAMESPACE --type='json' -p='[
     "value": "--timeout=180s"
   }
 ]'
-kubectl patch deployment $DEPLOYMENT_NAME -n $NAMESPACE --type='json' -p='[
-  {
-    "op": "replace",
-    "path": "/spec/template/spec/containers/1/args/10",
-    "value": "--retry-interval-max=30m"
-  }
-]'
 # Update csi-provisioner memory limit
 kubectl patch deployment $DEPLOYMENT_NAME -n $NAMESPACE --type='json' -p='[
   {
@@ -97,7 +90,6 @@ kubectl patch deployment $DEPLOYMENT_NAME -n $NAMESPACE --type='json' -p='[
     "value": "10Gi"
   }
 ]'
-
 echo "Creating patch for csi-resizer..."
 # Increase csi-resizer memory limit
 kubectl patch deployment $DEPLOYMENT_NAME -n $NAMESPACE --type='json' -p='[
@@ -123,32 +115,22 @@ if [ $? -eq 0 ]; then
         kubectl get pods -n $NAMESPACE -l app=ebs-csi-controller
         echo
         
-        echo "📊 Checking container arguments and resources:"
+        echo "📊 Spot checking some of updates:"
         POD_NAME=$(kubectl get pods -n $NAMESPACE -l app=ebs-csi-controller -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
         
         if [ -n "$POD_NAME" ]; then
             echo "Pod name: $POD_NAME"
             
             echo "CSI Provisioner configuration:"
-            kubectl get pod $POD_NAME -n $NAMESPACE -o jsonpath='{.spec.containers[?(@.name=="csi-provisioner")].args}' | tr ',' '
-' | grep worker-threads || echo "Worker threads not found in args"
-            
-            echo "CSI Provisioner memory limit:"
-            kubectl get pod $POD_NAME -n $NAMESPACE -o jsonpath='{.spec.containers[?(@.name=="csi-provisioner")].resources.limits.memory}'
+            kubectl get pod $POD_NAME -n $NAMESPACE -o jsonpath='{.spec.containers[?(@.name=="csi-provisioner")].args}' | tr ',' '\n' | grep -E "(worker-threads|kube-api-qps|kube-api-burst)" || echo "Worker threads not found in args"
             
             echo "CSI Attacher configuration:"
-            kubectl get pod $POD_NAME -n $NAMESPACE -o jsonpath='{.spec.containers[?(@.name=="csi-attacher")].args}' | tr ',' '
-' | grep worker-threads || echo "Worker threads not found in args"
-
-            echo "CSI Attacher memory limit:"
-            kubectl get pod $POD_NAME -n $NAMESPACE -o jsonpath='{.spec.containers[?(@.name=="csi-attacher")].resources.limits.memory}'
+            kubectl get pod $POD_NAME -n $NAMESPACE -o jsonpath='{.spec.containers[?(@.name=="csi-attacher")].args}' | tr ',' '\n' | grep -E "(worker-threads|kube-api-qps|kube-api-burst)" || echo "Worker threads not found in args"
 
         else
             echo "⚠️  Could not find running pod, checking deployment spec..."
-            kubectl get deployment $DEPLOYMENT_NAME -n $NAMESPACE -o jsonpath='{.spec.template.spec.containers[?(@.name=="csi-provisioner")].args}' | tr ',' '
-' | grep worker-threads
-            kubectl get deployment $DEPLOYMENT_NAME -n $NAMESPACE -o jsonpath='{.spec.template.spec.containers[?(@.name=="csi-attacher")].args}' | tr ',' '
-' | grep worker-threads
+            kubectl get deployment $DEPLOYMENT_NAME -n $NAMESPACE -o jsonpath='{.spec.template.spec.containers[?(@.name=="csi-provisioner")].args}' | tr ',' '\n' | grep -E "(worker-threads|kube-api-qps|kube-api-burst)" 
+            kubectl get deployment $DEPLOYMENT_NAME -n $NAMESPACE -o jsonpath='{.spec.template.spec.containers[?(@.name=="csi-attacher")].args}' | tr ',' '\n' | grep -E "(worker-threads|kube-api-qps|kube-api-burst)"
         fi
     fi    
         

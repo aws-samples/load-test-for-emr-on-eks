@@ -5,7 +5,7 @@ metadata:
   annotations:
     storageclass.kubernetes.io/is-default-class: "false"
 parameters:
-  csi.storage.k8s.io/fstype: ext4
+  fstype: ext4
   type: gp3
   encrypted: "true"
 provisioner: ebs.csi.aws.com

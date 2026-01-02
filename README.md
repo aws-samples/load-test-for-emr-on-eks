@@ -166,12 +166,12 @@ source env.sh
 
 locust -f locust/locustfiles/locustfile.py --run-time=2m --users=2 --spawn-rate=.5 \
 --job-azs '["us-west-2a","us-west-2b"]' \
---job-ns-count 1 \
+--job-ns-count 2 \
 --skip-log-setup \
 --headless
 ```
 When the load test session is finished or in progress, you can cancel these jobs and delete EMR-on-EKS virtual clusters:
-**WARNING:** `Locust creates a new namespace/VC at each test session. Any previously created VCs must be terminated before starting a new test session. Otherwise, the aggregated job stats will be affected by data from old test sessions, causing fluctuations in the results.`
+**WARNING:** `Locust creates new namespace(s)/VC(s) at each test run. Any previously created VCs must be terminated before starting a new test session. Otherwise, the aggregated job stats will be affected by data from old test sessions, causing fluctuations in the results. Before delete any load test namespaces in EKS, use the "stop_test.py" script to ensure all EMR-EKS jobs and VCs are terminated.`
 ```bash
 # --id, terminate VCs by a test session id. The unique id is used as namespace prefix "emr-{uniqueID}-{date}"
 # --cluster, cancel test jobs across all VCs on the eks cluster.A default value is set.

@@ -137,6 +137,7 @@ def count_emr_jobs():
             break
         current_time = time.time()
         if current_time > next_time:
+            printlog("Collecting EMR job metrics across all virtual clusters at 1 minute interval...")
             job_states = {"PENDING": 0, "SUBMITTED": 0, "RUNNING": 0, "COMPLETED": 0, "FAILED": 0, "NEW": 0}
             try:
                 if 'master' in hostname:
@@ -164,7 +165,6 @@ def count_emr_jobs():
                 new_emr_jobs_gauge.set(job_states.get('NEW', 0))
                 completed_emr_jobs_gauge.set(job_states.get('COMPLETED', 0))
                 failed_emr_jobs_gauge.set(job_states.get('FAILED', 0))
-                printlog("Collecting EMR job metrics across all virtual clusters at 1 minute interval...")
                 printlog(f"EMR Jobs in test session {unique_id} - job_states: {job_states}")
 
             except Exception as e:
@@ -200,4 +200,3 @@ def on_locust_init(environment, **kwargs):
         printlog(f"Starting Prometheus metrics HTTP server on port {metrics_port}")
         start_http_server(metrics_port)
         LoadTestInitializer(namespace_count)
-        printlog("Load test session is initializing ...")

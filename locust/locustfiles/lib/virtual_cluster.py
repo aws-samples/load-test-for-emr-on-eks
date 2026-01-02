@@ -125,7 +125,7 @@ class VirtualCluster:
         if states is None:
             states = VC_DEFAULT_STATES
 
-        console.log(f"Looking for {eks_name}")
+        console.log(f"Looking for VCs in {eks_name}")
         paginator = self.client.get_paginator('list_virtual_clusters')
         page_iterator = paginator.paginate(
             containerProviderType='EKS',

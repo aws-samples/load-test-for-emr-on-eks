@@ -3,20 +3,20 @@ kind: EC2NodeClass
 metadata:
   name: memoryec2
 spec:
+  metadataOptions:
+    httpEndpoint: enabled
+    httpProtocolIPv6: disabled
+    httpPutResponseHopLimit: 1
+    httpTokens: required
   role: "${KARPENTER_NODE_ROLE}"
   amiSelectorTerms:
-    - alias: "al2023@v20251023"
+    - alias: "al2023@v20251217"
   blockDeviceMappings:
   - deviceName: /dev/xvda
     ebs:
       encrypted: true
       volumeSize: 30Gi
       volumeType: gp3
-  metadataOptions:
-    httpEndpoint: enabled
-    httpProtocolIPv6: disabled
-    httpPutResponseHopLimit: 1
-    httpTokens: required
   subnetSelectorTerms:
     - tags:
         karpenter.sh/discovery: "${CLUSTER_NAME}"
