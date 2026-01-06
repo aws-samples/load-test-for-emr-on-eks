@@ -166,7 +166,7 @@ source env.sh
 
 locust -f locust/locustfiles/locustfile.py --run-time=2m --users=2 --spawn-rate=.5 \
 --job-azs '["us-west-2a","us-west-2b"]' \
---job-ns-count 2 \
+--job-ns-count 1 \
 --skip-log-setup \
 --headless
 ```
