@@ -263,10 +263,10 @@ The number of Kubernetes events in EKS emitted by Spark jobs increases significa
 ### 3. Binpacking Application Pods
 
 There are two types of binpacking:
-- **Custom Kubernetes scheduler** - binpack pods at job launch time
-- **Karpenter's consolidation feature** - binpack pods or replace underutilized nodes at job runtime
+- **Custom Kubernetes scheduler** - binpack at pod creation time
+- **Karpenter's consolidation feature** - binpack pods or replace underutilized nodes during job runtime
 
-**Binpack at Launch Time** - A custom Kubernetes scheduler can efficiently assign pods to the least allocated nodes before a new node is requested. The goal is to optimize resource utilization by packing pods as tightly as possible onto a single node while still meeting resource requirements and constraints.
+**Binpack at Pod Launch Time** - A custom Kubernetes scheduler can efficiently assign pods to the least allocated nodes before a new node is requested. The goal is to optimize resource utilization by packing pods as tightly as possible onto a single node while still meeting resource requirements and constraints.
 
 This approach aims to maximize cluster efficiency, reduce costs, and improve overall Spark job shuffle I/O performance by minimizing the number of active nodes required to run the workload. With binpacking enabled, workloads can minimize resources used on network traffic between physical nodes, as most pods will be allocated to a single node at launch time. The Spark configuration at job submission looks like this:
 
