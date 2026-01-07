@@ -1,6 +1,6 @@
 ## EMR on EKS Load Test Benchmark Utility
 
-This repository provides a comprehensive tool to benchmark EMR scalability performance on EKS clusters, supporting the job submission types: **JobRun API**. This out-of-the-box solution includes complete infrastructure setup for EKS clusters and a load testing job generator powered by the Locust Kubernetes Operator. It also features pre-built Grafana dashboard templates that can be used directly to observe your test results and throttling events. With zero to minimal setup overhead, you can quickly establish a large-scale load testing environment using this utility.
+This repository provides a comprehensive tool to benchmark EMR scalability performance on EKS clusters, supporting the job submission types: **JobRun API** (other types are coming soon). This out-of-the-box solution includes complete infrastructure setup for EKS clusters and a load testing job generator powered by the Locust Kubernetes Operator. It also features pre-built Grafana dashboard templates that can be used directly to observe your test results and throttling events. With zero to minimal setup overhead, you can quickly establish a large-scale load testing environment using this utility.
 
 # Table of Contents
 - [Prerequisite](#prerequisite)
