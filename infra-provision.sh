@@ -46,6 +46,18 @@ echo "==============================================="
 echo "retrieve CMK key ARN"
 kubectl apply -f resources/ebs/storageclass.yaml
 
+echo "============================================================="
+echo "  Tune CSI Controller by patch the existing addon ......"
+echo "============================================================="
+echo "Patching existing EBS CSI driver for large scale API calls..."
+bash ./resources/ebs/patch_csi-controller.sh
+
+echo "[OPTIONAL] Enable EBS controller Metrics for monitnoring..."
+# aws eks update-addon --cluster-name ${CLUSTER_NAME} \
+# --addon-name aws-ebs-csi-driver --resolve-conflicts OVERWRITE   \
+# --configuration-values '{"controller":{"enableMetrics":true}}' \
+# --service-account-role-arn arn:aws:iam::${ACCOUNT_ID}:role/${CLUSTER_NAME}-AWSLoadBalancerControllerRole
+
 echo "==============================================="
 echo "  Setup Cluster Autoscaler ......"
 echo "==============================================="
@@ -90,21 +102,6 @@ cd custom-scheduler-eks/deploy
 helm install custom-scheduler-eks charts/custom-scheduler-eks \
 -n kube-system \
 -f ../../resources/binpacking-values.yaml
-
-echo "============================================================="
-echo "  Tune CSI Controller by patch the existing addon ......"
-echo "============================================================="
-echo "Must enable the controller's metrics for Grafana dashboard before patch the CSI controller..."
-an issue raised to EKS team: https://t.corp.amazon.com/P361360332
-aws eks update-addon --cluster-name ${CLUSTER_NAME} \
---addon-name aws-ebs-csi-driver --resolve-conflicts OVERWRITE   \
---configuration-values '{"controller":{"enableMetrics":true}}'
-
-eecho "Patching EBS CSI controller deployment..."
-bash ./resources/ebs/patch_csi-controller.sh
-
-# echo "scale up EBS CSI controller from 2 to 3..."
-# kubectl scale deployment ebs-csi-controller --replicas=3 -n kube-system
 
 echo "==============================================="
 echo "  Create EMR on EKS Execution Role ......"

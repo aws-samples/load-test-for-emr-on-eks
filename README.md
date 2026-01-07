@@ -282,7 +282,7 @@ This approach aims to maximize cluster efficiency, reduce costs, and improve ove
 - **Budget disruptions:** Use disruption budgets to limit how many nodes can be consolidated simultaneously
 - **Monitor churn:** High pod churn can negate binpacking benefits and increase EBS API throttling
 
-Example Karpenter configuration:
+Example of Karpenter configuration:
 ```yaml
 spec:
   disruption:
@@ -303,7 +303,7 @@ EKS cluster autoscaling contains two main types:
   - [Karpenter (default)](https://docs.aws.amazon.com/eks/latest/best-practices/karpenter.html)
 
 **EKS Cluster Autoscaler (CAS)** - This project's EKS cluster is configured with three managed node groups: 
-- **Operational CAS:** For operational services (fixed size: 2 nodes). Used to host Prometheus, Load Balancer, Karpenter, and other operational pods.
+- **Operational NodeGroup:** For operational services (fixed size: 2 nodes). Used to host Prometheus, Load Balancer, Karpenter, and other operational pods.
 - **Two application managed node groups:** One per AZ, scaling between 1 and 350 m5.xlarge EC2 nodes for load test jobs.
 
 To schedule a large volume of nodes, the QPS and burst rate in the [CAS configuration](./resources/autoscaler-values.yaml) need to increase to avoid throttling:
@@ -320,11 +320,11 @@ extraArgs:
 
 **Best practices for CAS:**
 - **Over-provision managed node groups:** Create node groups with higher max size than expected to avoid hitting AWS account limits
-- **Use multiple instance types:** Configure mixed instance policies for better availability
+- **Use multiple instance types:** Configure mixed instance types for better availability
 - **Monitor CAS logs:** Watch for throttling errors or scaling failures
 - **Set appropriate cooldown:** Balance between rapid scaling and API throttling
 
-**Karpenter** - In this project, we only provision load test jobs with Karpenter; the rest of operational pods (e.g., Prometheus, Karpenter, Binpacking) are scheduled in a fixed-size operational NodeGroup, which is outside Karpenter's control.
+**Karpenter** - In this project, we only provision load test jobs with Karpenter; the rest of operational pods (e.g., Prometheus, Karpenter, Binpacking) are scheduled in a fixed-size operational managef NodeGroup, outside of Karpenter's control.
 
 **Karpenter NodePool configuration:**
 To apply best practices for cost and performance, we utilize the `topology.kubernetes.io/zone` node selector to ensure all Spark pods in a single job are allocated to the same AZ:
@@ -332,15 +332,15 @@ To apply best practices for cost and performance, we utilize the `topology.kuber
 ```bash
 "spark.kubernetes.executor.node.selector.karpenter.sh/nodepool": "executor-nodepool",
 "spark.kubernetes.driver.node.selector.karpenter.sh/nodepool": "driver-nodepool",
-"spark.kubernetes.node.selector.topology.kubernetes.io/zone": "us-west-2a",
+"spark.kubernetes.node.selector.topology.kubernetes.io/zone": "${randomly_selected_az}" # eg. us-west-2a
 ```
 
 **Karpenter best practices:**
 - **Diversify instance types:** Use a wide range of instance types in NodePool requirements to improve availability
 - **Set appropriate limits:** Configure `limits.cpu` and `limits.memory` on NodePools to prevent runaway scaling
-- **Use spot instances for executors:** Configure executor NodePools with spot instances for cost savings
-- **Monitor provisioning latency:** Track time from pod pending to pod running; high latency indicates capacity issues
-- **Enable interruption handling:** Use `aws.interruptionQueue` for graceful spot termination
+- **Use Spot instances for executors:** Add Spot instance types to executor's NodePools for cost savings.
+- **Monitor provisioning latency:** Track time from pod pending to pod running; high latency indicates nodepool capacity issues or API Throttlings.
+- **Enable interruption handling:** Use `aws.interruptionQueue` for graceful Spot termination
 
 Example NodePool configuration:
 ```yaml
@@ -353,9 +353,12 @@ spec:
       - key: "karpenter.sh/capacity-type"
         operator: In
         values: ["spot", "on-demand"]
-      - key: "node.kubernetes.io/instance-type"
+      - key: karpenter.k8s.aws/instance-category
         operator: In
-        values: ["m5.xlarge", "m5.2xlarge", "m5a.xlarge", "m5a.2xlarge"]
+        values: ["m", "c"]
+      - key: karpenter.k8s.aws/instance-size
+        operator: In
+        values: ["4xlarge", "8xlarge", "12xlarge", "16xlarge"]
 ```
 
 [^ back to top](#table-of-contents)
@@ -382,13 +385,13 @@ In our tests, the following configurations provide the fastest EC2 startup speed
 - `WARM_PREFIX_TARGET=1` (value can't be 0, but can be overridden by WARM_IP_TARGET > 0)
 
 **Why these settings:**
-- **MINIMUM_IP_TARGET=29:** Pre-warms IPs to match typical pod density (27 executors + driver + system pods)
-- **WARM_IP_TARGET=3:** Keeps a small buffer of IPs ready without excessive waste
+- **MINIMUM_IP_TARGET=29:** Pre-warms IPs to match known pod density ( max 27 executors + driver + system pods)
+- **WARM_IP_TARGET=3:**  Pre-allocate 32 IPs in total (16 IPS per prefix) while keeping a small buffer of IPs ready without excessive waste.
 - **WARM_ENI_TARGET=0:** Disables ENI pre-warming; relies on prefix delegation instead
 - **WARM_PREFIX_TARGET=1:** Maintains one prefix (/28 = 16 IPs) ready for fast pod scheduling
 
 **Additional networking best practices:**
-- **Enable prefix delegation:** Use `ENABLE_PREFIX_DELEGATION=true` for better IP efficiency (16 IPs per prefix)
+- **Enable prefix delegation:** Use `ENABLE_PREFIX_DELEGATION=true` for better IP efficiency & pod density (16 IPs per prefix)
 - **Use security groups for pods:** Enable `ENABLE_POD_ENI=true` for pod-level security groups when needed
 - **Monitor CNI metrics:** Watch `awscni_assigned_ip_addresses` and `awscni_total_ip_addresses` to track IP utilization
 - **Plan for AZ failure:** Ensure each AZ has sufficient IP capacity to handle failover scenarios
@@ -397,7 +400,7 @@ In our tests, the following configurations provide the fastest EC2 startup speed
 **Common pitfalls to avoid:**
 - Setting `WARM_IP_TARGET` too high wastes IPs
 - Setting `MINIMUM_IP_TARGET` too low causes pod startup delays
-- Forgetting to increase subnet size when scaling beyond 250 nodes
+- Forgetting to increase QPS and burst settings after API limit were lifted.
 - Not monitoring CNI logs for IP allocation errors
 
 [^ back to top](#table-of-contents)
