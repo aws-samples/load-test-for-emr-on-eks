@@ -99,16 +99,15 @@ An `infra-provision.sh` script is provided by the project, which creates a brand
 Skip this step if you are using an existing EKS cluster. If required, install missing components individually, such as EBS CSI Driver, based on the infra provision script.
 
 - [Auto Scaler](https://aws.github.io/aws-emr-containers-best-practices/troubleshooting/docs/eks-cluster-auto-scaler/)
-- [Load Balancer Controller](https://docs.aws.amazon.com/eks/latest/userguide/lbc-helm.html)
 - [EBS CSI Driver Addon](https://docs.aws.amazon.com/eks/latest/userguide/ebs-csi.html)
 - [Karpenter](https://aws.github.io/aws-emr-containers-best-practices/troubleshooting/docs/karpenter/)
-- [BinPacking](https://awslabs.github.io/data-on-eks/docs/resources/binpacking-custom-scheduler-eks) 
+- [BinPacking scheduler](https://awslabs.github.io/data-on-eks/docs/resources/binpacking-custom-scheduler-eks) 
 
 Monitoring by default uses managed services:
 - [Amazon Managed Prometheus](https://aws.amazon.com/prometheus/)
 - [Amazon Managed Grafana](https://aws.amazon.com/grafana/)
 
-#### 1. Modify EKS cluster and component configurations before provisioning the environment
+#### 1. If needed, modify the following configurations before provisioning the environment
 - For EKS cluster, update [./resources/eks-cluster-values.yaml](./resources/eks-cluster-values.yaml)
 - For autoscaler, modify [./resources/autoscaler-values.yaml](./resources/autoscaler-values.yaml)
 - For custom k8s scheduler, update [./resources/binpacking-values.yaml](./resources/binpacking-values.yaml)
@@ -116,7 +115,7 @@ Monitoring by default uses managed services:
 - For Prometheus, update [./resources/monitor/prometheus-values.yaml](./resources/monitor/prometheus-values.yaml)
 - For Prometheus PodMonitor and ServiceMonitor settings, update files under [./resources/monitor](./resources/monitor)
 
-#### 2. Run the script after all customizations are done
+#### 2. Start to provision after above customizations are done
 NOTE: at the end of the script, 2 ECR container images will be built and pushed: Spark benchmark and Locust.
 ```bash
 bash ./infra-provision.sh
@@ -125,7 +124,7 @@ bash ./infra-provision.sh
 ### Install Locust Operator on EKS
 [Locust](https://docs.locust.io/en/stable/locust-cloud/locust-cloud.html#kubernetes-operator) is an open source load testing tool based on Python. 
 
-This project offers a provision script `locust-provision.sh` to set up a Locust k8s Operator via a Helm chart. Before running the script, modify the [operator's RBAC permission](./locust/locust-operator/patch-role-binding.yaml) and [IRSA role policy](./locust/locust-operator/eks-role-policy.json) based on your requirements.
+This project offers an automated script `locust-provision.sh` to set up Locust k8s Operator via a Helm chart. Before running the script, modify the [operator's RBAC permission](./locust/locust-operator/patch-role-binding.yaml) and [IRSA role policy](./locust/locust-operator/eks-role-policy.json) based on your requirements.
 ```bash
 # create IRSA role and install locust operator
 bash ./locust-provision.sh
@@ -136,20 +135,26 @@ bash ./locust-provision.sh
 
 To get an optimal load test outcome, you can configure your compute resource allocation via Spark settings. See the best practice section: [How to Allocate Pods](#1-how-to-allocate-spark-driver--executor-pods).
 
+!!! tip "Adjust Job Submission Interval" This project defaults the job submission frequency to every 20-30 seconds (approx. 300jobs/min). To increase the scale in your test, shorten the `wait_time`, for example 2-5 seconds (approx. 800jobs/min), in `locust/locustfiles/locustfile.py`.
+
 ### Prerequisite - Update Job Script
-This project supports most EMR on EKS load test cases with a default monitoring configuration (AWS Managed Prometheus + Managed Grafana). Before getting started, replace the sample job run file [./locust/locustfiles/emr-job-run.sh](./locust/locustfiles/emr-job-run.sh) with your actual EMR on EKS job submission script. Don't change the directory location, because it will be mapped into each Locust container's home directory `/home/locust` via a ConfigMap called `emr-loadtest-locustfile`. More details can be found in the [locust-provision.sh](https://github.com/aws-samples/load-test-for-emr-on-eks/blob/b389458ff4ebb1b829f6fd9c8aa49405c482bfc9/locust-provision.sh#L124) script. The setup looks like this:
+The test utility supports most of Spark application test cases with a pre-build monitoring capability (AWS Managed Prometheus + Managed Grafana). Before getting started, replace the sample file [./locust/locustfiles/emr-job-run.sh](./locust/locustfiles/emr-job-run.sh) by your own EMR on EKS job submission script. Don't change the directory layout, because it will be mapped into Locust container's home directory `/home/locust` via a ConfigMap - `emr-loadtest-locustfile`. More details can be found in the [locust-provision.sh](https://github.com/aws-samples/load-test-for-emr-on-eks/blob/b389458ff4ebb1b829f6fd9c8aa49405c482bfc9/locust-provision.sh#L124) script. The setup looks like this:
 ```bash
 kubectl create configmap emr-loadtest-locustfile --namespace locust --from-file=locust/locustfiles
 ```
 
-NOTE: delete then recreate this ConfigMap if your submission script or other Python scripts are changed. Otherwise, Locust operator will only read from the previous version before any changes. You don't need to refresh the ConfigMap if running a test locally via `locust -f ./locustfiles/locustfile.py ...`.
+!!! warning "Refresh Locustfiles via ConfigMap" delete then recreate the ConfigMap if your job submission script or other locustfiles have been changed. Otherwise, Locust operator will read from the previous version. Don't need to recreate the ConfigMap if a test is triggered locally via the CLI `locust -f ./locustfiles/locustfile.py ...`.
+
 ```bash
 kubectl delete configmap emr-loadtest-locustfile --namespace locust
 ```
+
 [^ back to top](#table-of-contents)
 
 ### 1. Run Load Test Locally
-Let's run a small test from a local terminal window. The following parameters are available to adjust before running the Locust CLI:
+Let's run a small test from a local terminal window. The user triggers the local test must be an admin on the test EKS cluster, who has the permissions to create new namespaces and EMR-EKS virtual clusters.
+
+The following parameters are available to adjust before running the Locust CLI:
 ```bash
 # -u or --users, How many users are going to submit jobs concurrently.
 #     Uses a default wait interval (between 20s-30s per user) before submitting the next job.
@@ -179,7 +184,7 @@ When the load test session is finished or in progress, you can cancel these jobs
 ```bash
 # --id, terminate VCs by a test session id. The unique id is used as namespace prefix "emr-{uniqueID}-{date}"
 # --cluster, cancel test jobs across all VCs on the EKS cluster. A default value is set.
-python3 locust/locustfiles/stop_test.py --cluster $CLUSTER_NAME  
+python3 locust/locustfiles/stop_test.py --cluster $CLUSTER_NAME
 # or 
 python3 locust/locustfiles/stop_test.py
 # delete namespaces if needed

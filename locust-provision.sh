@@ -25,7 +25,7 @@ done
 # aws s3 sync ./locust/resources/ "s3://${BUCKET_NAME}/app-code/"
 
 echo "==============================================="
-echo "  Setup Locust IRSA role ......"
+echo " 1. Setup Locust IRSA role ......"
 echo "==============================================="
 
 echo "Create Locust IRSA role"
@@ -84,7 +84,7 @@ EOF
 fi
 
 echo "==============================================="
-echo " Install Locust Operator to EKS ......"
+echo " 2. Install Locust Operator to EKS ......"
 echo "==============================================="
 # Confirm the eks cluster
 kubectl config current-context
@@ -117,18 +117,24 @@ kubectl annotate serviceaccount -n locust default eks.amazonaws.com/role-arn=arn
 # helm uninstall locust-operator -n locust
 
 echo "=============================================================="
-echo " Configure load test application ......"
+echo " 3. Configure load test application ......"
 echo "=============================================================="
 # map locust entry files
-# dependencies are already created via dockerfile
+# dependencies are baked into a container image via dockerfile
 kubectl create configmap emr-loadtest-locustfile -n locust --from-file=locust/locustfiles
 
-# run an exmaple load test
+# prepare for a load test as an example
+source env.sh
+cp examples/load-test-template.yaml examples/load-test-pvc-reuse.yaml
 export ECR_URL=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
 sed -i='' 's|${CLUSTER_NAME}|'$CLUSTER_NAME'|g' examples/load-test-pvc-reuse.yaml
 sed -i='' 's|${ECR_URL}|'$ECR_URL'|g' examples/load-test-pvc-reuse.yaml
 sed -i='' 's|${REGION}|'$AWS_REGION'|g' examples/load-test-pvc-reuse.yaml
 sed -i='' 's|${JOB_SCRIPT_NAME}|'$JOB_SCRIPT_NAME'|g' examples/load-test-pvc-reuse.yaml
-# kubectl apply -f examples/load-test-pvc-reuse.yaml
-# access to Locust WebUI: http://localhost:8089/
-# kubectl port-forward svc/pvc-reuse-cluster-10-webui -n locust 8089
+
+echo "=============================================================="
+echo "Example: You can trigger a scale test via the Locust Operator (with 2 workers, each of which creates 5 namespaces/VCs)"
+echo "kubectl apply -f examples/load-test-pvc-reuse.yaml"
+echo "check summarized test metrics via this command:"
+echo "kubectl logs -f -n locust -l locust.cloud/component=master"
+echo "=============================================================="

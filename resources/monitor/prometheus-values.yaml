@@ -5,15 +5,17 @@ alertmanager:
 grafana:
   enabled: false
 kubelet:
-  enabled: true
-  serviceMonitor:
-    metricRelabelings:
-      - action: keep
-        regex: csi_operations_seconds_(bucket|count)
-        sourceLabels: [__name__]
-      - action: keep
-        regex: '/csi\.v1\.Node/(Node.*Volume)'
-        sourceLabels: [method_name]
+  enabled: false
+  # only if EBS controller Metrics is enabled via infra-provision.sh
+  # enabled: true
+  # serviceMonitor:
+  #   metricRelabelings:
+  #     - action: keep
+  #       regex: csi_operations_seconds_(bucket|count)
+  #       sourceLabels: [__name__]
+  #     - action: keep
+  #       regex: '/csi\.v1\.Node/(Node.*Volume)'
+  #       sourceLabels: [method_name]
 
 prometheusOperator:
   nodeSelector:
@@ -78,6 +80,8 @@ prometheus:
         value: 30m
       - name: storage.tsdb.max-block-duration
         value: 30m
+      - name: log.level
+        value: WARN   
     terminationGracePeriodSeconds: 90
     maximumStartupDurationSeconds: 600
     minReadySeconds: 90
@@ -143,7 +147,7 @@ prometheus:
     scrapeTimeout: 30s
     additionalScrapeConfigs:
       # Prometheus Operator doesn't scrape metrics by default from pods or endpoints with prometheus.io/scrape: "true"
-      # Hence we are adding this csutom screape config for  'kubernetes-service-endpoints' and 'kubernetes-pods'
+      # Hence we are adding this custom scrape config for  'kubernetes-service-endpoints' and 'kubernetes-pods'
       - job_name: 'kubernetes-service-endpoints'
         kubernetes_sd_configs:
           - role: endpoints

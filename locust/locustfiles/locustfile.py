@@ -58,8 +58,8 @@ class EMRJobUser(User):
     @events.test_start.add_listener
     def on_test_start(environment, **kwargs):
         printlog(f"Start the load test against EKS Cluster {EKS_CLUSTER_NAME} in region {REGION} with {environment.parsed_options.job_ns_count} namespaces per Locust worker ........")
-        printlog(f"Wait time is set between 20-30 seconds")
-        printlog(f"EMR on EKS job submission script is set to {environment.parsed_options.emr_script_name}")
+        printlog(f"Wait time is between 20-30 seconds. Reduce the interval value to scale up your test if needed.")
+        printlog(f"EMR on EKS job submission script is placed to locust/locustfiles/{environment.parsed_options.emr_script_name}")
         printlog("Starting EMR job monitoring thread")
         thread = threading.Thread(target=count_emr_jobs)
         thread.start()

@@ -7,7 +7,7 @@
 source env.sh
 
 echo "==============================================="
-echo "  Setup Bucket ......"
+echo " 1. Setup Bucket ......"
 echo "==============================================="
 # Create S3 bucket for load test
 echo "Creating S3 bucket: $BUCKET_NAME"
@@ -20,7 +20,7 @@ aws s3api create-bucket \
 }
 
 echo "==============================================="
-echo "  Create EKS Cluster ......"
+echo " 2. Create EKS Cluster ......"
 echo "==============================================="
 echo "Create EKS Cluster: ${CLUSTER_NAME}"
 if ! aws eks describe-cluster --name ${CLUSTER_NAME} --region ${AWS_REGION} >/dev/null 2>&1; then
@@ -34,34 +34,63 @@ if ! aws eks describe-cluster --name ${CLUSTER_NAME} --region ${AWS_REGION} >/de
 fi
 
 echo "==============================================="
-echo "  Get OIDC ......"
+echo " 3. Get OIDC ......"
 echo "==============================================="
 echo "Get OIDC"
 OIDC_PROVIDER=$(aws eks describe-cluster --name $CLUSTER_NAME --query "cluster.identity.oidc.issuer" --output text | sed -e "s/^https:\/\///")
 echo $OIDC_PROVIDER
 
 echo "==============================================="
-echo "  Create a default gp3 storageclass ......"
+echo " 4. Create a default gp3 storageclass ......"
 echo "==============================================="
-echo "retrieve CMK key ARN"
+echo "Create a storageclass for EBS"
 kubectl apply -f resources/ebs/storageclass.yaml
 
 echo "============================================================="
-echo "  Tune CSI Controller by patch the existing addon ......"
+echo " 5. Tune EBS Controller by patch the existing addon ......"
 echo "============================================================="
 echo "Patching existing EBS CSI driver for large scale API calls..."
 bash ./resources/ebs/patch_csi-controller.sh
+bash ./resources/ebs/patch_csi-node-daemonset.sh
 
-echo "[OPTIONAL] Enable EBS controller Metrics for monitnoring..."
+# echo "[OPTIONAL] Enable EBS controller Metrics for monitoring..."
 # aws eks update-addon --cluster-name ${CLUSTER_NAME} \
 # --addon-name aws-ebs-csi-driver --resolve-conflicts OVERWRITE   \
 # --configuration-values '{"controller":{"enableMetrics":true}}' \
 # --service-account-role-arn arn:aws:iam::${ACCOUNT_ID}:role/${CLUSTER_NAME}-AWSLoadBalancerControllerRole
 
+# echo "[OPTIONAL]scale up EBS CSI controller"
+# kubectl scale deployment ebs-csi-controller -n kube-system --replicas=3 
+
 echo "==============================================="
-echo "  Setup Cluster Autoscaler ......"
+echo " 6. Scale up CoreDNS ......"
 echo "==============================================="
-echo "  Setup Cluster Autoscaler"
+kubectl scale deployment coredns -n kube-system --replicas=3
+
+echo "==============================================="
+echo " 7. Tune aws-node daemonset for IP efficiency ......"
+echo "==============================================="
+# Enable prefix delegation to reduce ENI, EC2 throttles. 
+# The catch is when subnet becomes fragmented, if IPs were not in contiguous /28 blocks, even if the subnet has enough IPs available, prefix delegation cannot allocate them.
+# NOTE: 1 prefix=16 IPs, only 2 prefixes per node are needed in a normal  case. 
+# However, to avoid "fragmented subnet", we should assign extra warm IPs or enough warm prefixes if needed.
+kubectl set env daemonset aws-node -n kube-system \
+ENABLE_PREFIX_DELEGATION=true \
+WARM_IP_TARGET=0 \
+MINIMUM_IP_TARGET=32 \
+WARM_ENI_TARGET=0 \
+WARM_PREFIX_TARGET=1 \
+ENABLE_IP_COOLDOWN_COUNTING=false
+
+echo "Turn off CNI debug mode to improve node start-up time"
+kubectl set env daemonset aws-node -n kube-system \
+AWS_VPC_K8S_CNI_LOGLEVEL=INFO \
+AWS_VPC_K8S_PLUGIN_LOG_LEVEL=INFO
+
+echo "==============================================="
+echo " 8. Setup Cluster Autoscaler ......"
+echo "==============================================="
+echo " Setup Cluster Autoscaler for an OPS managed NodeGroup"
 sed -i='' 's/${CLUSTER_NAME}/'$CLUSTER_NAME'/g' ./resources/autoscaler-values.yaml
 sed -i='' 's/${AWS_REGION}/'$AWS_REGION'/g' ./resources/autoscaler-values.yaml
 
@@ -78,7 +107,7 @@ for NODEGROUP in $(aws eks list-nodegroups --cluster-name ${CLUSTER_NAME} \
     --scaling-config "minSize=2,maxSize=2,desiredSize=2"
 done
 # echo "==============================================="
-# echo "  Setup Load Balancer Controller ......"
+# echo " 9. Setup Load Balancer Controller ......"
 # echo "==============================================="
 # echo "Setup AWS Load Balancer Controller"
 # helm repo add eks https://aws.github.io/eks-charts
@@ -94,7 +123,7 @@ done
 #     --resources "$(aws ec2 describe-subnets --filters 'Name=tag:Name,Values=PublicSubnet*' --query 'Subnets[*].SubnetId')"
 
 echo "==============================================="
-echo "  Setup BinPacking ......"
+echo " 10. Setup BinPacking ......"
 echo "==============================================="
 echo "Setup BinPacking"
 git clone https://github.com/aws-samples/custom-scheduler-eks
@@ -104,7 +133,7 @@ helm install custom-scheduler-eks charts/custom-scheduler-eks \
 -f ../../resources/binpacking-values.yaml
 
 echo "==============================================="
-echo "  Create EMR on EKS Execution Role ......"
+echo " 11. Create EMR on EKS Execution Role ......"
 echo "==============================================="
 echo "Create EMR on EKS execution role only"
 if aws iam get-policy --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${EXECUTION_ROLE_POLICY}" 2>/dev/null; then
@@ -165,7 +194,7 @@ EOF
 fi
 
 echo "==============================================="
-echo "  Setup Prometheus ......"
+echo " 12. Setup Prometheus ......"
 echo "==============================================="
 echo "Setup Prometheus"
 kubectl create ns prometheus || true
@@ -188,16 +217,26 @@ sed -i -- 's/{ACCOUNTID}/'$ACCOUNT_ID'/g'  ./resources/monitor/prometheus-values
 sed -i -- 's/{WORKSPACE_ID}/'$WORKSPACE_ID'/g'  ./resources/monitor/prometheus-values.yaml
 sed -i -- 's/{CLUSTER_NAME}/'$CLUSTER_NAME'/g'  ./resources/monitor/prometheus-values.yaml
 helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n prometheus -f  ./resources/monitor/prometheus-values.yaml --debug
-echo "Scale up Prometheus server to 2 replicas for high availability..."
 # validate in a web browser - localhost:9090, go to menu of status->targets
 # kubectl --namespace prometheus port-forward service/prometheus-kube-prometheus-prometheus 9090
 
 # Install metrics server
 kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
 
+echo "========================================================="
+echo " 13. Set up Prometheus ServiceMonitor and PodMonitor ......"
+echo "========================================================="
+echo "Create Prometheus service monitor and pod monitor"
+# kubectl apply -f ./resources/monitor/spark-podmonitor.yaml
+kubectl apply -f ./resources/monitor/karpenter-svcmonitor.yaml
+kubectl apply -f ./resources/monitor/aws-cni-podmonitor.yaml
+# kubectl apply -f ./resources/monitor/ebs-csi-controller-svcmonitor.yaml
+kubectl apply -f ./resources/monitor/locust-podmonitor.yaml
+
+
 echo "================================================================================================================"
 echo " Ref to https://karpenter.sh/v1.8/reference/cloudformation/"
-echo " Create Karpenter IAM roles, SQS queue and event rules for EC2 interruption handling ......"
+echo " 14. Create Karpenter IAM roles, SQS queue and event rules for EC2 interruption handling ......"
 echo "================================================================================================================"
 # the CFN stack creates Controller Policy, Node Role, SQS Queue and Event Bridge Rules
 curl https://raw.githubusercontent.com/aws/karpenter-provider-aws/v"${KARPENTER_VERSION}"/website/content/en/preview/getting-started/getting-started-with-karpenter/cloudformation.yaml > ./resources/karpenter/cloudformation-${KARPENTER_VERSION}.yaml
@@ -236,7 +275,7 @@ EOF
 fi
 
 cho "=============================================================================================================="
-echo " Tag Subnets, SGs for Karpenter ......"
+echo " 15. Tag Subnets, SGs for Karpenter ......"
 echo "=============================================================================================================="
 echo "Create karpenter tags for subnets, SGs"
 for NODEGROUP in $(aws eks list-nodegroups --cluster-name "${CLUSTER_NAME}" --query 'nodegroups' --output text); do
@@ -264,7 +303,7 @@ aws ec2 create-tags \
     --resources ${SECURITY_GROUPS} ${SECURITY_GROUPS2}
 
 echo "========================================================="
-echo " Install Karpenter via Helm Chart ....."
+echo " 16. Install Karpenter via Helm Chart ....."
 echo "========================================================="
 echo "Install Karpenter via Helm Chart"
 helm registry logout public.ecr.aws
@@ -305,7 +344,7 @@ kubectl create -f \
 kubectl apply -f ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml
 
 echo "====================================================="
-echo "  Create Karpenter Nodepools and nodeclass ......"
+echo " 17. Create Karpenter Nodepools and nodeclass ......"
 echo "====================================================="
 echo "Create Karpenter nodepools ......"
 sed -i='' 's/${KARPENTER_NODE_ROLE}/'$KARPENTER_NODE_ROLE'/g' ./resources/karpenter/shared-nodeclass.yaml
@@ -316,18 +355,8 @@ kubectl apply -f "./resources/karpenter/*-node*.yaml"
 # Add authorized entry for Karpenter node role
 aws eks create-access-entry --cluster-name ${CLUSTER_NAME} --principal-arn arn:aws:iam::${ACCOUNT_ID}:role/${KARPENTER_NODE_ROLE} --type EC2_LINUX
 
-echo "========================================================="
-echo "  Set up Prometheus ServiceMonitor and PodMonitor ......"
-echo "========================================================="
-echo "Create Prometheus service monitor and pod monitor"
-# kubectl apply -f ./resources/monitor/spark-podmonitor.yaml
-kubectl apply -f ./resources/monitor/karpenter-svcmonitor.yaml
-kubectl apply -f ./resources/monitor/aws-cni-podmonitor.yaml
-kubectl apply -f ./resources/monitor/ebs-csi-controller-svcmonitor.yaml
-kubectl apply -f ./resources/monitor/locust-podmonitor.yaml
-
 echo "==================================================="
-echo "  Set up Amazon Managed Grafana if required ......"
+echo " 18. Set up Amazon Managed Grafana if required ......"
 echo "==================================================="
 if [[ $USE_AMG == "true" ]]
 then 
@@ -363,7 +392,7 @@ then
 fi
 
 echo "================================================================="
-echo "  Create multi-platform Image for Spark benchmark Utility ......"
+echo " 19. Create multi-platform Image for Spark benchmark Utility ......"
 echo "================================================================="   
 
 echo "Logging into ECR..."

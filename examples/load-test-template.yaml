@@ -4,8 +4,7 @@ metadata:
   name: pvc-reuse-${CLUSTER_NAME}
   namespace: locust
 spec:
-  # have to use a custom image due to additional dependencies
-  # image: locustio/locust:2.42.1
+  # use a custom image due to additional dependencies
   image: ${ECR_URL}/locust:latest
   imagePullPolicy: IfNotPresent
   workers: 2
@@ -16,33 +15,40 @@ spec:
     value: ${REGION}
   - name: CLUSTER_NAME
     value: ${CLUSTER_NAME}
+  - name: METRICS_PORT
+    value: "8000"
   - name: JOB_SCRIPT_NAME
     value: ${JOB_SCRIPT_NAME}
-  - name: SPARK_JOB_NS_NUM
-    value: 5
-  extraArgs:
+  - name: SPARK_JOB_NS_NUM # number of namespaces/VCs per Locust worker
+    value: "5"
+  args:
     -f /home/locust/locustfile.py
     --job-azs '["${REGION}a","${REGION}b"]'
     --run-time=60m
     --users=300
-    --spawn-rate=.5
+    --spawn-rate=2
     --skip-log-setup
+    --headless
   locustfile:
     configMap:
       name: emr-loadtest-locustfile
   master:
     resources:
       requests:
-        cpu: "500m"
-        memory: "512Mi"
+        cpu: "10m"
+        memory: "80Mi"
       limits:
-        cpu: "2"
-        memory: "2Gi"
+        cpu: "50m"
+        memory: "250Mi"
   worker:
+    annotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "8000"
+      prometheus.io/path: "/metrics"
     resources:
       requests:
-        cpu: "1"
-        memory: "1Gi"
+        cpu: "4"
+        memory: "4Gi"
       limits:
-        cpu: "8"
-        memory: "8Gi"
+        cpu: "30"
+        memory: "25Gi"
