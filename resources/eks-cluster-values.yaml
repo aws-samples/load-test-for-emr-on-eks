@@ -23,16 +23,17 @@ iam:
   - metadata:
       name: aws-load-balancer-controller
       namespace: kube-system
-      wellKnownPolicies:
       labels: {aws-usage: "cluster-ops"}
-        awsLoadBalancerController: true
-      roleName: ${CLUSTER_NAME}-AWSLoadBalancerControllerRole
+    wellKnownPolicies:
+      awsLoadBalancerController: true
+    roleName: ${CLUSTER_NAME}-aws-load-balancer-controller-role
   - metadata:
       name: ebs-csi-controller-sa
       namespace: kube-system
-      wellKnownPolicies:
-        ebsCSIController: true
-      roleName: ${CLUSTER_NAME}-AmazonEKS_EBS_CSI_DriverRole
+      labels: {aws-usage: "cluster-ops"}
+    wellKnownPolicies:
+      ebsCSIController: true
+    roleName: ${CLUSTER_NAME}-AmazonEKS_EBS_CSI_DriverRole
   - metadata:
       name: amp-iamproxy-ingest-service-account
       namespace: prometheus
@@ -47,19 +48,26 @@ addons:
     version: latest
     wellKnownPolicies:
       ebsCSIController: true
-    serviceAccountRoleARN: arn:aws:iam::${ACCOUNT_ID}:role/${CLUSTER_NAME}-AWSLoadBalancerControllerRole
 cloudWatch:
   clusterLogging:
     enableTypes: ["*"]
     logRetentionInDays: 30     
 managedNodeGroups:
-  - name: ng-10
-    instanceType: r5.8xlarge
-    desiredCapacity: 2
+  # a nodegroup dedicated for operational pods
+  - name: ops-ng
+    instanceType: m5.4xlarge
+    desiredCapacity: 1
+    minSize: 1
+    maxSize: 3
     privateNetworking: true
     labels:
       operational: "true"
       monitor: "true"
+    availabilityZones: ["${AWS_REGION}a","${AWS_REGION}b"]
+    tags:
+      # EC2 tags required for cluster-autoscaler auto-discovery
+      k8s.io/cluster-autoscaler/enabled: "true"
+      k8s.io/cluster-autoscaler/${CLUSTER_NAME}: "owned"
   # - name: ${CLUSTER_NAME}-m5-worker-ng-2a
   # # change the instance type if needed
   #   instanceType: m5.xlarge
