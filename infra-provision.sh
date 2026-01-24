@@ -11,13 +11,22 @@ echo " 1. Setup Bucket ......"
 echo "==============================================="
 # Create S3 bucket for load test
 echo "Creating S3 bucket: $BUCKET_NAME"
-aws s3api create-bucket \
-    --bucket $BUCKET_NAME \
-    --region $AWS_REGION \
-    --create-bucket-configuration LocationConstraint=$AWS_REGION || {
-    echo "Error: Failed to create S3 bucket $BUCKET_NAME"
-    exit 1
-}
+if [ "$AWS_REGION" = "us-east-1" ]; then
+    aws s3api create-bucket \
+        --bucket $BUCKET_NAME \
+        --region $AWS_REGION || {
+        echo "Error: Failed to create S3 bucket $BUCKET_NAME"
+        exit 1
+    }
+else
+    aws s3api create-bucket \
+        --bucket $BUCKET_NAME \
+        --region $AWS_REGION \
+        --create-bucket-configuration LocationConstraint=$AWS_REGION || {
+        echo "Error: Failed to create S3 bucket $BUCKET_NAME"
+        exit 1
+    }
+fi
 
 echo "==============================================="
 echo " 2. Create EKS Cluster ......"
@@ -124,16 +133,6 @@ done
 #     --resources "$(aws ec2 describe-subnets --filters 'Name=tag:Name,Values=PublicSubnet*' --query 'Subnets[*].SubnetId')"
 
 echo "==============================================="
-echo " 10. Setup BinPacking ......"
-echo "==============================================="
-echo "Setup BinPacking"
-git clone https://github.com/aws-samples/custom-scheduler-eks
-cd custom-scheduler-eks/deploy
-helm install custom-scheduler-eks charts/custom-scheduler-eks \
--n kube-system \
--f ../../resources/binpacking-values.yaml
-
-echo "==============================================="
 echo " 11. Create EMR on EKS Execution Role ......"
 echo "==============================================="
 echo "Create EMR on EKS execution role only"
@@ -163,7 +162,7 @@ else
                 "kms:Decrypt",
                 "kms:GenerateDataKey"
 			],
-			"Resource": "$KMS_ARN",
+			"Resource": "*",
 			"Effect": "Allow"
 		}
     ]
@@ -233,6 +232,18 @@ kubectl apply -f ./resources/monitor/karpenter-svcmonitor.yaml
 kubectl apply -f ./resources/monitor/aws-cni-podmonitor.yaml
 # kubectl apply -f ./resources/monitor/ebs-csi-controller-svcmonitor.yaml
 kubectl apply -f ./resources/monitor/locust-podmonitor.yaml
+
+# Must install Prometheus stack first as the chart includes serviceMonitor 
+echo "==============================================="
+echo " 10. Setup BinPacking ......"
+echo "==============================================="
+echo "Setup BinPacking"
+git clone https://github.com/aws-samples/custom-scheduler-eks
+cd custom-scheduler-eks/deploy
+helm install custom-scheduler-eks charts/custom-scheduler-eks \
+-n kube-system \
+-f ../../resources/binpacking-values.yaml
+cd ..
 
 
 # echo "================================================================================================================"
@@ -397,24 +408,32 @@ echo " 19. Create multi-platform Image for Spark benchmark Utility ......"
 echo "================================================================="   
 
 echo "Logging into ECR..."
-export SRC_ECR_URL=${PUB_ECR_REGISTRY_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com
+export SRC_ECR_URL=public.ecr.aws
 export ECR_URL=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
 
-aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin $SRC_ECR_URL
-docker pull $SRC_ECR_URL/spark/emr-${EMR_IMAGE_VERSION}:latest
+#aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin $SRC_ECR_URL
+docker pull $SRC_ECR_URL/emr-on-eks/spark/emr-${EMR_IMAGE_VERSION}:latest
 
 # Custom image on top of the EMR Spark
-aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_URL
+# use aws-ecr-credential-helper on vscode
+# aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_URL
 # One-off task: create new ECR repositories
 aws ecr create-repository --repository-name eks-spark-benchmark --image-scanning-configuration scanOnPush=true || true
-
-wget -O Dockerfile https://raw.githubusercontent.com/aws-samples/emr-on-eks-benchmark/refs/heads/main/docker/benchmark-util/Dockerfile
+git clone https://github.com/aws-samples/emr-on-eks-benchmark
+cd emr-on-eks-benchmark
+# wget -O Dockerfile https://raw.githubusercontent.com/aws-samples/emr-on-eks-benchmark/refs/heads/main/docker/benchmark-util/Dockerfile
 # Spark load test image
+docker run --privileged --rm tonistiigi/binfmt --install all
+# Create multi-arch builder
+docker buildx create --name arm64-builder --driver docker-container --use
 docker buildx build --platform linux/amd64,linux/arm64 \
 -t $ECR_URL/eks-spark-benchmark:emr${EMR_IMAGE_VERSION} \
--f ./Dockerfile \
---build-arg SPARK_BASE_IMAGE=$SRC_ECR_URL/spark/emr-${EMR_IMAGE_VERSION}:latest \
+-f docker/benchmark-util/Dockerfile \
+--build-arg SPARK_BASE_IMAGE=$SRC_ECR_URL/emr-on-eks/spark/emr-${EMR_IMAGE_VERSION}:latest \
 --push .
+
+cd ..
+
 # Locust image
 docker buildx build --platform linux/amd64,linux/arm64 \
 -t $ECR_URL/locust \
