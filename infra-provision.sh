@@ -137,6 +137,19 @@ echo "==============================================="
 echo " 11. Create EMR on EKS Execution Role ......"
 echo "==============================================="
 echo "Create EMR on EKS execution role only"
+
+# Check if the CMK alias exists and create it if necessary
+if ! aws kms list-aliases --query "Aliases[?AliasName=='alias/$CMK_ALIAS']" --output text | grep -q "alias/$CMK_ALIAS"; then
+    echo "CMK alias $CMK_ALIAS not found. Creating a new CMK..."
+    CMK_ID=$(aws kms create-key --description "CMK for Locust PVC Reuse" --query 'KeyMetadata.KeyId' --output text)
+    aws kms create-alias --alias-name alias/$CMK_ALIAS --target-key-id $CMK_ID
+    echo "CMK created with alias $CMK_ALIAS and Key ID $CMK_ID"
+else
+    echo "CMK alias $CMK_ALIAS already exists."
+fi
+export KMS_ARN=$(aws kms describe-key --key-id alias/$CMK_ALIAS --query 'KeyMetadata.Arn' --output text)
+
+
 if aws iam get-policy --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${EXECUTION_ROLE_POLICY}" 2>/dev/null; then
     echo "IAM policy ${EXECUTION_ROLE_POLICY} already exists"
 else
