@@ -7,11 +7,12 @@ spec:
     consolidateAfter: 1m
     consolidationPolicy: WhenEmptyOrUnderutilized
   limits:
-    cpu: "300000"
-    # memory: 500Gi
+    # Upto 215 nodes and 1700 Executor pods for the lab purpose
+    cpu: "3440"
+    # memory: 10420Gi
   template:
     spec:
-      expireAfter: 720h
+      expireAfter: Never
       nodeClassRef:
         group: karpenter.k8s.aws
         kind: EC2NodeClass
@@ -22,9 +23,7 @@ spec:
         values: ["amd64", "arm64"]
       - key: karpenter.sh/capacity-type
         operator: In
-        # values: ["spot", "on-demand"]
-        # internally doesn't allow to use spot
-        values: ["on-demand"]
+        values: ["spot", "on-demand"]
       - key: "karpenter.k8s.aws/instance-hypervisor"
         operator: In
         values: ["nitro"]    # to support prefix delegation

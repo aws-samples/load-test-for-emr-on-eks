@@ -7,11 +7,11 @@ spec:
     consolidateAfter: 1m
     consolidationPolicy: WhenEmpty
   limits:
-    cpu: "30000"
-    # memory: 1000Gi
+    # Upto 8 nodes and 60 Drivers/Jobs for the lab purpose
+    cpu: "128"
   template:
     spec:
-      expireAfter: 720h
+      expireAfter: Never
       nodeClassRef:
         group: karpenter.k8s.aws
         kind: EC2NodeClass

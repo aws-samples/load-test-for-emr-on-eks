@@ -4,10 +4,6 @@
 # NOTE: For internal testings, ensure to use a gamma endpoint to avoid productiomn impact
 
 # "spark.kubernetes.scheduler.name": "custom-scheduler-eks",
-# "jobsubmitter.logging.request.memory": "800Mi",
-# "jobsubmitter.logging.request.cores": "0.4",
-# "logging.request.memory": "800Mi",
-# "logging.request.cores": "0.4"
 
 export SHARED_PREFIX_NAME=emr-on-$CLUSTER_NAME
 export ACCOUNTID=$(aws sts get-caller-identity --query Account --output text)
@@ -48,15 +44,6 @@ aws emr-containers start-job-run \
           "spark.kubernetes.driver.node.selector.karpenter.sh/nodepool": "driver-nodepool",
           "spark.kubernetes.node.selector.topology.kubernetes.io/zone": "'$SELECTED_AZ'",
           "spark.shuffle.sort.io.plugin.class": "org.apache.spark.shuffle.KubernetesLocalDiskShuffleDataIO",
-          
-          "spark.kubernetes.driver.waitToReusePersistentVolumeClaim": "true",
-          "spark.kubernetes.driver.ownPersistentVolumeClaim": "true",
-          "spark.kubernetes.driver.reusePersistentVolumeClaim": "true",
-          "spark.kubernetes.executor.volumes.persistentVolumeClaim.spark-local-dir-1.mount.readOnly": "false",
-          "spark.kubernetes.executor.volumes.persistentVolumeClaim.spark-local-dir-1.options.claimName": "OnDemand",
-          "spark.kubernetes.executor.volumes.persistentVolumeClaim.spark-local-dir-1.options.storageClass": "gp3",
-          "spark.kubernetes.executor.volumes.persistentVolumeClaim.spark-local-dir-1.options.sizeLimit": "5Gi",
-          "spark.kubernetes.executor.volumes.persistentVolumeClaim.spark-local-dir-1.mount.path": "/data1",
 
           "spark.ui.prometheus.enabled":"true",
           "spark.executor.processTreeMetrics.enabled":"true",

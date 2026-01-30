@@ -10,36 +10,41 @@ echo "==============================================="
 echo " 1. Setup Bucket ......"
 echo "==============================================="
 # Create S3 bucket for load test
-echo "Creating S3 bucket: $BUCKET_NAME"
-if [ "$AWS_REGION" = "us-east-1" ]; then
-    aws s3api create-bucket \
-        --bucket $BUCKET_NAME \
-        --region $AWS_REGION || {
-        echo "Error: Failed to create S3 bucket $BUCKET_NAME"
-        exit 1
-    }
+if aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
+    echo "S3 bucket $BUCKET_NAME already exists. Skipping creation."
 else
-    aws s3api create-bucket \
-        --bucket $BUCKET_NAME \
-        --region $AWS_REGION \
-        --create-bucket-configuration LocationConstraint=$AWS_REGION || {
-        echo "Error: Failed to create S3 bucket $BUCKET_NAME"
-        exit 1
-    }
-fi
+    echo "Creating S3 bucket: $BUCKET_NAME"
+    if [ "$AWS_REGION" = "us-east-1" ]; then
+        aws s3api create-bucket \
+            --bucket $BUCKET_NAME \
+            --region $AWS_REGION || {
+            echo "Error: Failed to create S3 bucket $BUCKET_NAME"
+            exit 1
+        }
+    else
+        aws s3api create-bucket \
+            --bucket $BUCKET_NAME \
+            --region $AWS_REGION \
+            --create-bucket-configuration LocationConstraint=$AWS_REGION || {
+            echo "Error: Failed to create S3 bucket $BUCKET_NAME"
+            exit 1
+        }
+    fi
+    echo "S3 bucket $BUCKET_NAME created successfully."
+fi   
 
 echo "==============================================="
 echo " 2. Create EKS Cluster ......"
 echo "==============================================="
-echo "Create EKS Cluster: ${CLUSTER_NAME}"
 if ! aws eks describe-cluster --name ${CLUSTER_NAME} --region ${AWS_REGION} >/dev/null 2>&1; then
-
+    echo "Create EKS Cluster: ${CLUSTER_NAME}"
     sed -i='' 's|${AWS_REGION}|'$AWS_REGION'|g' ./resources/eks-cluster-values.yaml
     sed -i='' 's|${CLUSTER_NAME}|'$CLUSTER_NAME'|g' ./resources/eks-cluster-values.yaml
     sed -i='' 's|${EKS_VERSION}|'$EKS_VERSION'|g' ./resources/eks-cluster-values.yaml
     sed -i='' 's|${EKS_VPC_CIDR}|'$EKS_VPC_CIDR'|g' ./resources/eks-cluster-values.yaml
     
     eksctl create cluster -f ./resources/eks-cluster-values.yaml
+    aws eks update-kubeconfig  --region ${AWS_REGION} --name ${CLUSTER_NAME}
 fi
 
 echo "==============================================="
@@ -97,25 +102,25 @@ kubectl set env daemonset aws-node -n kube-system \
 AWS_VPC_K8S_CNI_LOGLEVEL=INFO \
 AWS_VPC_K8S_PLUGIN_LOG_LEVEL=INFO
 
-echo "==============================================="
-echo " 8. Setup Cluster Autoscaler ......"
-echo "==============================================="
-echo " Setup Cluster Autoscaler for an OPS managed NodeGroup"
-sed -i='' 's/${CLUSTER_NAME}/'$CLUSTER_NAME'/g' ./resources/autoscaler-values.yaml
-sed -i='' 's/${AWS_REGION}/'$AWS_REGION'/g' ./resources/autoscaler-values.yaml
+# echo "==============================================="
+# echo " 8. Setup Cluster Autoscaler ......"
+# echo "==============================================="
+# echo " Setup Cluster Autoscaler for an OPS managed NodeGroup"
+# sed -i='' 's/${CLUSTER_NAME}/'$CLUSTER_NAME'/g' ./resources/autoscaler-values.yaml
+# sed -i='' 's/${AWS_REGION}/'$AWS_REGION'/g' ./resources/autoscaler-values.yaml
 
-helm repo update
-helm repo add autoscaler https://kubernetes.github.io/autoscaler
-helm upgrade --install nodescaler autoscaler/cluster-autoscaler -n kube-system --values ./resources/autoscaler-values.yaml
+# helm repo update
+# helm repo add autoscaler https://kubernetes.github.io/autoscaler
+# helm upgrade --install nodescaler autoscaler/cluster-autoscaler -n kube-system --values ./resources/autoscaler-values.yaml
 
-echo "Disable the autoscaler before using Karpenter first"
-# Enable it manually later on, when testing the scalability based on the autoscaler.
-kubectl scale deploy/nodescaler-aws-cluster-autoscaler  -n kube-system --replicas=0
-for NODEGROUP in $(aws eks list-nodegroups --cluster-name ${CLUSTER_NAME} \
-    --query 'nodegroups' --output text); do aws eks update-nodegroup-config --cluster-name ${CLUSTER_NAME} \
-    --nodegroup-name ${NODEGROUP} \
-    --scaling-config "minSize=2,maxSize=2,desiredSize=2"
-done
+# echo "Disable the autoscaler before using Karpenter first"
+# # Enable it manually later on, when testing the scalability based on the autoscaler.
+# kubectl scale deploy/nodescaler-aws-cluster-autoscaler  -n kube-system --replicas=0
+# for NODEGROUP in $(aws eks list-nodegroups --cluster-name ${CLUSTER_NAME} \
+#     --query 'nodegroups' --output text); do aws eks update-nodegroup-config --cluster-name ${CLUSTER_NAME} \
+#     --nodegroup-name ${NODEGROUP} \
+#     --scaling-config "minSize=2,maxSize=2,desiredSize=2"
+# done
 # echo "==============================================="
 # echo " 9. Setup Load Balancer Controller ......"
 # echo "==============================================="
@@ -222,7 +227,6 @@ echo "==============================================="
 echo "Setup Prometheus"
 kubectl create ns prometheus || true
 # SA name and IRSA role were created at EKS cluster creation time
-# LOCUST_PRIV_HOST_IP=$(kubectl get pod -n locust -l app.kubernetes.io/name=master --field-selector=status.phase=Running -o jsonpath='{.items[*].status.hostIP}')
 amp=$(aws amp list-workspaces --query "workspaces[?alias=='$CLUSTER_NAME'].workspaceId" --output text)
 if [ -z "$amp" ]; then
     echo "Creating a new prometheus workspace..."
@@ -420,26 +424,24 @@ echo "================================================================="
 echo "Logging into ECR..."
 export SRC_ECR_URL=public.ecr.aws
 export ECR_URL=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
-
-# aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin $SRC_ECR_URL
-# docker pull $SRC_ECR_URL/emr-on-eks/spark/emr-${EMR_IMAGE_VERSION}:latest
-
-# Custom image on top of the EMR Spark
 # use aws-ecr-credential-helper on vscode
 # aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_URL
 # One-off task: create new ECR repositories
 aws ecr create-repository --repository-name eks-spark-benchmark --image-scanning-configuration scanOnPush=true || true
 aws ecr create-repository --repository-name locust --image-scanning-configuration scanOnPush=true || true
+
 docker run --privileged --rm tonistiigi/binfmt --install all
 # Create multi-arch builder
 docker buildx create --name arm64-builder --driver docker-container --use
+
 # Locust image
 docker buildx build --platform linux/amd64,linux/arm64 \
 -t $ECR_URL/locust \
 -f ./locust/Dockerfile \
 --push .
 
-# Benchmark images
+# Benchmark images 
+# change if needed, based on lab participants' requirements
 export EMR_VERSIONS=("6.10.0" "7.3.0" "7.9.0")
 for version in "${EMR_VERSIONS[@]}"; do
   echo "Pull the image eks-spark-benchmark:emr${version}..."

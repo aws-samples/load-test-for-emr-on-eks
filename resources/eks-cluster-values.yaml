@@ -56,44 +56,15 @@ managedNodeGroups:
   # a nodegroup dedicated for operational pods
   - name: ops-ng
     instanceType: m5.4xlarge
-    desiredCapacity: 1
-    minSize: 1
+    desiredCapacity: 3
+    minSize: 3
     maxSize: 3
     privateNetworking: true
     labels:
       operational: "true"
       monitor: "true"
     availabilityZones: ["${AWS_REGION}a","${AWS_REGION}b"]
-    tags:
-      # EC2 tags required for cluster-autoscaler auto-discovery
-      k8s.io/cluster-autoscaler/enabled: "true"
-      k8s.io/cluster-autoscaler/${CLUSTER_NAME}: "owned"
-  # - name: ${CLUSTER_NAME}-m5-worker-ng-2a
-  # # change the instance type if needed
-  #   instanceType: m5.xlarge
-  #   desiredCapacity: 1
-  #   minSize: 1
-  #   maxSize: 350 # increase max size on ASG AWS console as needed
-  #   privateNetworking: true
-  #   labels:
-  #     operational: "false"
-  #     monitor: "false"
-  #   availabilityZones: ["${AWS_REGION}a"]
-  #   tags:
-  #     # EC2 tags required for cluster-autoscaler auto-discovery
-  #     k8s.io/cluster-autoscaler/enabled: "true"
-  #     k8s.io/cluster-autoscaler/${CLUSTER_NAME}: "owned"
-  # - name: ${CLUSTER_NAME}-m5-worker-ng-2b
-  #  # change the instance type if needed
-  #   instanceType: m5.xlarge
-  #   desiredCapacity: 1
-  #   minSize: 1
-  #   maxSize: 350
-  #   privateNetworking: true
-  #   labels:
-  #     operational: "false"
-  #     monitor: "false"
-  #   availabilityZones: ["${AWS_REGION}b"]
-  #   tags:
-  #     k8s.io/cluster-autoscaler/enabled: "true"
-  #     k8s.io/cluster-autoscaler/${CLUSTER_NAME}: "owned"
+    # tags:
+    #   # EC2 tags required for cluster-autoscaler auto-discovery
+    #   k8s.io/cluster-autoscaler/enabled: "true"
+    #   k8s.io/cluster-autoscaler/${CLUSTER_NAME}: "owned"
