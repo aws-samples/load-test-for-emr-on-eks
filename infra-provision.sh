@@ -432,6 +432,7 @@ docker pull $SRC_ECR_URL/emr-on-eks/spark/emr-${EMR_IMAGE_VERSION}:latest
 # aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_URL
 # One-off task: create new ECR repositories
 aws ecr create-repository --repository-name eks-spark-benchmark --image-scanning-configuration scanOnPush=true || true
+aws ecr create-repository --repository-name locust --image-scanning-configuration scanOnPush=true || true
 git clone https://github.com/aws-samples/emr-on-eks-benchmark
 cd emr-on-eks-benchmark
 # wget -O Dockerfile https://raw.githubusercontent.com/aws-samples/emr-on-eks-benchmark/refs/heads/main/docker/benchmark-util/Dockerfile
