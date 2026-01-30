@@ -252,11 +252,9 @@ echo " 10. Setup BinPacking ......"
 echo "==============================================="
 echo "Setup BinPacking"
 git clone https://github.com/aws-samples/custom-scheduler-eks
-cd custom-scheduler-eks/deploy
-helm install custom-scheduler-eks charts/custom-scheduler-eks \
+helm install custom-scheduler-eks custom-scheduler-eks/deploy/charts/custom-scheduler-eks \
 -n kube-system \
--f ../../resources/binpacking-values.yaml
-cd ..
+-f ./resources/binpacking-values.yaml
 
 
 # echo "================================================================================================================"
