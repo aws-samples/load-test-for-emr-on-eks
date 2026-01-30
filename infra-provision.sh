@@ -448,5 +448,3 @@ for version in "${EMR_VERSIONS[@]}"; do
   docker push $ECR_URL/eks-spark-benchmark:emr${version}
   echo "Pushed $ECR_URL/eks-spark-benchmark:emr${version}"
 done
-
-
