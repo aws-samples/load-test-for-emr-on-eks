@@ -3,7 +3,11 @@
 # SPDX-License-Identifier: MIT-0   
 # NOTE: For internal testings, ensure to use a gamma endpoint to avoid productiomn impact
 
- # "spark.kubernetes.scheduler.name": "custom-scheduler-eks",
+# "spark.kubernetes.scheduler.name": "custom-scheduler-eks",
+# "jobsubmitter.logging.request.memory": "800Mi",
+# "jobsubmitter.logging.request.cores": "0.4",
+# "logging.request.memory": "800Mi",
+# "logging.request.cores": "0.4"
 
 export SHARED_PREFIX_NAME=emr-on-$CLUSTER_NAME
 export ACCOUNTID=$(aws sts get-caller-identity --query Account --output text)
@@ -30,14 +34,14 @@ aws emr-containers start-job-run \
         "classification": "spark-defaults", 
         "properties": {
           "spark.kubernetes.container.image.pullPolicy": "IfNotPresent",
-          "spark.kubernetes.container.image": "'$ECR_URL'/eks-spark-benchmark:emr7.9.0-tpcds2.4",
+          "spark.kubernetes.container.image": "public.ecr.aws/myang-poc/eks-spark-benchmark:emr7.9.0",
           "spark.network.timeout": "3600s",
           "spark.executor.heartbeatInterval": "1800s",
           "spark.shuffle.io.retryWait": "60s",
           "spark.shuffle.io.maxRetries": "5",
           "spark.hadoop.fs.s3.maxConnections": "200",
           "spark.hadoop.fs.s3.maxRetries": "30",
-          "spark.scheduler.minRegisteredResourcesRatio": "0.6", 
+          "spark.scheduler.minRegisteredResourcesRatio": "1.0", 
           "spark.scheduler.maxRegisteredResourcesWaitingTime": "1800s",
           
           "spark.kubernetes.executor.node.selector.karpenter.sh/nodepool": "executor-memorynodepool",
@@ -71,17 +75,16 @@ aws emr-containers start-job-run \
         "classification": "emr-containers-defaults",
         "properties": {
           "job-start-timeout":"4800",
-          "logging.request.memory": "800Mi",
-          "logging.request.cores": "0.4"
+          "executor.logging": "DISABLED"
       }},
        {
         "classification": "emr-job-submitter",
         "properties": {
-            "jobsubmitter.logging.request.memory": "800Mi",
-            "jobsubmitter.logging.request.cores": "0.4",
+            "jobsubmitter.node.selector.karpenter.sh/nodepool": "driver-nodepool",
             "jobsubmitter.node.selector.topology.kubernetes.io/zone": "'$SELECTED_AZ'",
             "jobsubmitter.container.image.pullPolicy": "IfNotPresent",
-            "jobsubmitter.node.selector.karpenter.sh/nodepool": "driver-nodepool"
+            "jobsubmitter.logging": "DISABLED"
+
         }
       }
     ], 
