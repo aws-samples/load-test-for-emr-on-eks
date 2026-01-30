@@ -426,27 +426,38 @@ export SRC_ECR_URL=public.ecr.aws
 export ECR_URL=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
 # use aws-ecr-credential-helper on vscode
 # aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_URL
-# One-off task: create new ECR repositories
-aws ecr create-repository --repository-name eks-spark-benchmark --image-scanning-configuration scanOnPush=true || true
-aws ecr create-repository --repository-name locust --image-scanning-configuration scanOnPush=true || true
+if aws ecr describe-repositories --repository-names locust 2>/dev/null; then
+    echo "locust ECR repo exists."
+    exit 0
+else
+    echo "Creating repo locus..."
+    aws ecr create-repository --repository-name locust --image-scanning-configuration scanOnPush=true
+    docker run --privileged --rm tonistiigi/binfmt --install all
+    # Create multi-arch builder
+    docker buildx create --name arm64-builder --driver docker-container --use
 
-docker run --privileged --rm tonistiigi/binfmt --install all
-# Create multi-arch builder
-docker buildx create --name arm64-builder --driver docker-container --use
+    # Locust image
+    docker buildx build --platform linux/amd64,linux/arm64 \
+    -t $ECR_URL/locust \
+    -f ./locust/Dockerfile \
+    --push .
+fi
 
-# Locust image
-docker buildx build --platform linux/amd64,linux/arm64 \
--t $ECR_URL/locust \
--f ./locust/Dockerfile \
---push .
-
-# Benchmark images 
-# change if needed, based on lab participants' requirements
-export EMR_VERSIONS=("6.10.0" "7.3.0" "7.9.0")
-for version in "${EMR_VERSIONS[@]}"; do
-  echo "Pull the image eks-spark-benchmark:emr${version}..."
-  docker pull $SRC_ECR_URL/myang-poc/eks-spark-benchmark:emr${version}
-  docker tag "$SRC_ECR_URL/myang-poc/eks-spark-benchmark:emr${version}" "$ECR_URL/eks-spark-benchmark:emr${version}"
-  docker push $ECR_URL/eks-spark-benchmark:emr${version}
-  echo "Pushed $ECR_URL/eks-spark-benchmark:emr${version}"
-done
+if aws ecr describe-repositories --repository-names eks-spark-benchmark 2>/dev/null; then
+    echo "eks-spark-benchmark ECR repo exists"
+    exit 0
+else
+    echo "Creating repo eks-spark-benchmark..."
+    aws ecr create-repository --repository-name eks-spark-benchmark --image-scanning-configuration scanOnPush=true
+    # Benchmark images 
+    # change if needed, based on lab participants' requirements
+    export EMR_VERSIONS=("6.10.0" "7.3.0" "7.9.0")
+    for version in "${EMR_VERSIONS[@]}"; do
+        echo "Pull the image eks-spark-benchmark:emr${version}..."
+        docker pull $SRC_ECR_URL/myang-poc/eks-spark-benchmark:emr${version}
+        docker tag "$SRC_ECR_URL/myang-poc/eks-spark-benchmark:emr${version}" "$ECR_URL/eks-spark-benchmark:emr${version}"
+        docker push $ECR_URL/eks-spark-benchmark:emr${version}
+        echo "Pushed $ECR_URL/eks-spark-benchmark:emr${version}"
+    done
+fi
+echo "Infrastructure provision is completed."
