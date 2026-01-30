@@ -431,20 +431,25 @@ docker pull $SRC_ECR_URL/emr-on-eks/spark/emr-${EMR_IMAGE_VERSION}:latest
 # One-off task: create new ECR repositories
 aws ecr create-repository --repository-name eks-spark-benchmark --image-scanning-configuration scanOnPush=true || true
 aws ecr create-repository --repository-name locust --image-scanning-configuration scanOnPush=true || true
-git clone https://github.com/aws-samples/emr-on-eks-benchmark
-cd emr-on-eks-benchmark
+#git clone https://github.com/aws-samples/emr-on-eks-benchmark
+#cd emr-on-eks-benchmark
 # wget -O Dockerfile https://raw.githubusercontent.com/aws-samples/emr-on-eks-benchmark/refs/heads/main/docker/benchmark-util/Dockerfile
 # Spark load test image
 docker run --privileged --rm tonistiigi/binfmt --install all
 # Create multi-arch builder
 docker buildx create --name arm64-builder --driver docker-container --use
-docker buildx build --platform linux/amd64,linux/arm64 \
--t $ECR_URL/eks-spark-benchmark:emr${EMR_IMAGE_VERSION} \
--f docker/benchmark-util/Dockerfile \
---build-arg SPARK_BASE_IMAGE=$SRC_ECR_URL/emr-on-eks/spark/emr-${EMR_IMAGE_VERSION}:latest \
---push .
+#docker buildx build --platform linux/amd64,linux/arm64 \
+#-t $ECR_URL/eks-spark-benchmark:emr${EMR_IMAGE_VERSION} \
+#-f docker/benchmark-util/Dockerfile \
+#--build-arg SPARK_BASE_IMAGE=$SRC_ECR_URL/emr-on-eks/spark/emr-${EMR_IMAGE_VERSION}:latest \
+#--push .
+#cd ..
 
-cd ..
+for version in 6.10.0 7.3.0 7.9.0; do
+  docker pull public.ecr.aws/myang-poc/eks-spark-benchmark:emr${version}
+  docker tag public.ecr.aws/myang-poc/eks-spark-benchmark:emr${version} $ECR_URL/eks-spark-benchmark:${version}
+  docker push $ECR_URL/eks-spark-benchmark:${version}
+done
 
 # Locust image
 docker buildx build --platform linux/amd64,linux/arm64 \
