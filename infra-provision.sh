@@ -38,12 +38,13 @@ echo " 2. Create EKS Cluster ......"
 echo "==============================================="
 if ! aws eks describe-cluster --name ${CLUSTER_NAME} --region ${AWS_REGION} >/dev/null 2>&1; then
     echo "Create EKS Cluster: ${CLUSTER_NAME}"
-    sed -i='' 's|${AWS_REGION}|'$AWS_REGION'|g' ./resources/eks-cluster-values.yaml
-    sed -i='' 's|${CLUSTER_NAME}|'$CLUSTER_NAME'|g' ./resources/eks-cluster-values.yaml
-    sed -i='' 's|${EKS_VERSION}|'$EKS_VERSION'|g' ./resources/eks-cluster-values.yaml
-    sed -i='' 's|${EKS_VPC_CIDR}|'$EKS_VPC_CIDR'|g' ./resources/eks-cluster-values.yaml
+    cp ./resources/eks-cluster-values.yaml ./resources/eks-cluster-values-${CLUSTER_NAME}.yaml
+    sed -i='' 's|${AWS_REGION}|'$AWS_REGION'|g' ./resources/eks-cluster-values-${CLUSTER_NAME}.yaml
+    sed -i='' 's|${CLUSTER_NAME}|'$CLUSTER_NAME'|g' ./resources/eks-cluster-values-${CLUSTER_NAME}.yaml
+    sed -i='' 's|${EKS_VERSION}|'$EKS_VERSION'|g' ./resources/eks-cluster-values-${CLUSTER_NAME}.yaml
+    sed -i='' 's|${EKS_VPC_CIDR}|'$EKS_VPC_CIDR'|g' ./resources/eks-cluster-values-${CLUSTER_NAME}.yaml
     
-    eksctl create cluster -f ./resources/eks-cluster-values.yaml
+    eksctl create cluster -f ./resources/eks-cluster-values-${CLUSTER_NAME}.yaml
     aws eks update-kubeconfig  --region ${AWS_REGION} --name ${CLUSTER_NAME}
 fi
 
