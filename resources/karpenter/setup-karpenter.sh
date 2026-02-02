@@ -1,0 +1,172 @@
+#!/bin/bash
+
+# Parse command-line arguments
+for arg in "$@"; do
+  case $arg in
+    eks-version=*)
+      EKS_VERSION="${arg#*=}"
+      shift
+      ;;
+    *)
+      echo "Unknown argument: $arg"
+      exit 1
+      ;;
+  esac
+done
+
+if [[ -z "$EKS_VERSION" ]]; then
+  echo "Usage: $0 eks-version=<EKS_VERSION>"
+  exit 1
+fi
+
+setup_karpenter() {
+  local EKS_VERSION="$1"
+  local KARPENTER_VERSION
+  local CLUSTER_NAME
+
+  # Determine Karpenter version and cluster name based on EKS version
+  if [[ "$EKS_VERSION" == "1.30" ]]; then
+    KARPENTER_VERSION="1.0.3"
+    CLUSTER_NAME="eks-test-1-30"
+  elif [[ "$EKS_VERSION" == "1.32" ]]; then
+    KARPENTER_VERSION="1.8.5"
+    CLUSTER_NAME="eks-test-1-32"
+  else
+    echo "Unsupported EKS version: $EKS_VERSION"
+    return 1
+  fi
+
+  local KARPENTER_CONTROLLER_ROLE="KarpenterControllerRole-${CLUSTER_NAME}"
+  local KARPENTER_CONTROLLER_POLICY="KarpenterControllerPolicy-${CLUSTER_NAME}"
+  local KARPENTER_NODE_ROLE="KarpenterNodeRole-${CLUSTER_NAME}"
+
+  echo "====================================================="
+  echo " Starting setup for Karpenter on cluster ${CLUSTER_NAME} (EKS ${EKS_VERSION})."
+  echo "====================================================="
+
+  aws eks update-kubeconfig --name "${CLUSTER_NAME}"
+
+  echo "================================================================================================================"
+  echo " Ref to https://karpenter.sh/v1.8/reference/cloudformation/"
+  echo " Create Karpenter IAM roles, SQS queue, and event rules for EC2 interruption handling."
+  echo "================================================================================================================"
+
+  curl https://raw.githubusercontent.com/aws/karpenter-provider-aws/v"${KARPENTER_VERSION}"/website/content/en/preview/getting-started/getting-started-with-karpenter/cloudformation.yaml > ./resources/karpenter/cloudformation-${KARPENTER_VERSION}.yaml
+  aws cloudformation deploy \
+    --stack-name "karpenter-infra-${CLUSTER_NAME}" \
+    --template-file ./resources/karpenter/cloudformation-${KARPENTER_VERSION}.yaml \
+    --capabilities CAPABILITY_NAMED_IAM \
+    --parameter-overrides "ClusterName=${CLUSTER_NAME}" \
+    --region $AWS_REGION
+
+  OIDC_PROVIDER=$(aws eks describe-cluster --name $CLUSTER_NAME --query "cluster.identity.oidc.issuer" --output text | sed -e "s/^https:\/\///")
+  eksctl utils associate-iam-oidc-provider --cluster $CLUSTER_NAME --approve
+  echo $OIDC_PROVIDER
+
+  echo "Create Karpenter controller role"
+  if aws iam get-role --role-name "${KARPENTER_CONTROLLER_ROLE}" >/dev/null 2>&1; then
+      echo "Role ${KARPENTER_CONTROLLER_ROLE} already exists"
+  else
+      cat <<EOF > /tmp/controller-trust.json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Principal": {
+                "Federated": "arn:aws:iam::${ACCOUNT_ID}:oidc-provider/${OIDC_PROVIDER}"
+            },
+            "Action": "sts:AssumeRoleWithWebIdentity",
+            "Condition": {
+                "StringEquals": {
+                    "${OIDC_PROVIDER}:sub": "system:serviceaccount:kube-system:karpenter"
+                }
+            }
+        }
+    ]
+}
+EOF
+      aws iam create-role --role-name "${KARPENTER_CONTROLLER_ROLE}" --assume-role-policy-document file:///tmp/controller-trust.json
+      aws iam attach-role-policy --role-name "${KARPENTER_CONTROLLER_ROLE}" --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${KARPENTER_CONTROLLER_POLICY}"
+  fi
+
+  echo "Tag Subnets and Security Groups for Karpenter"
+  for NODEGROUP in $(aws eks list-nodegroups --cluster-name "${CLUSTER_NAME}" --query 'nodegroups' --output text); do
+      aws ec2 create-tags \
+          --tags "Key=karpenter.sh/discovery,Value=${CLUSTER_NAME}" \
+          --resources $(aws eks describe-nodegroup --cluster-name "${CLUSTER_NAME}" \
+          --nodegroup-name "${NODEGROUP}" --query 'nodegroup.subnets' --output text )
+  done
+
+  NODEGROUP=$(aws eks list-nodegroups --cluster-name "${CLUSTER_NAME}" --query 'nodegroups[0]' --output text)
+  LAUNCH_TEMPLATE=$(aws eks describe-nodegroup --cluster-name "${CLUSTER_NAME}" \
+      --nodegroup-name "${NODEGROUP}" --query 'nodegroup.launchTemplate.{id:id,version:version}' \
+      --output text | tr -s "\t" ",")
+
+  SECURITY_GROUPS=$(aws eks describe-cluster \
+      --name "${CLUSTER_NAME}" --query "cluster.resourcesVpcConfig.clusterSecurityGroupId" --output text)
+  SECURITY_GROUPS2=$(aws ec2 describe-launch-template-versions \
+      --launch-template-id "${LAUNCH_TEMPLATE%,*}" --versions "${LAUNCH_TEMPLATE#*,}" \
+      --query 'LaunchTemplateVersions[0].LaunchTemplateData.[NetworkInterfaces[0].Groups||SecurityGroupIds]' \
+      --output text || true)
+
+  aws ec2 create-tags \
+      --tags "Key=karpenter.sh/discovery,Value=${CLUSTER_NAME}" \
+      --resources ${SECURITY_GROUPS} ${SECURITY_GROUPS2}
+
+  echo "Install Karpenter via Helm Chart"
+  helm registry logout public.ecr.aws
+  helm template karpenter oci://public.ecr.aws/karpenter/karpenter --version "${KARPENTER_VERSION}" --namespace kube-system \
+      --set "settings.clusterName=${CLUSTER_NAME}" \
+      --set "settings.interruptionQueue=${CLUSTER_NAME}" \
+      --set "serviceAccount.annotations.eks\.amazonaws\.com/role-arn=arn:aws:iam::${ACCOUNT_ID}:role/KarpenterControllerRole-${CLUSTER_NAME}" \
+      --set controller.resources.requests.cpu=2 \
+      --set controller.resources.requests.memory=2Gi \
+      --set controller.resources.limits.cpu=10 \
+      --set controller.resources.limits.memory=20Gi \
+      --set webhook.serviceName="karpenter" \
+      --set webhook.port=8443 > ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml
+
+  export NG=$(aws eks list-nodegroups --cluster-name $CLUSTER_NAME --output json | jq -r '.nodegroups[0]')
+  sed -i='' '/operator: DoesNotExist/a\
+              - key: eks.amazonaws.com/nodegroup\
+                operator: In\
+                values:\
+                - '"$(eval echo \$NG)"'\
+' ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml
+
+  sed -i='' '/livenessProbe:/,/timeoutSeconds: 30/c\
+          livenessProbe:\
+            initialDelaySeconds: 30\
+            periodSeconds: 30\
+            timeoutSeconds: 10\
+            failureThreshold: 5\
+' ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml
+
+  kubectl create -f \
+      "https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.sh_nodepools.yaml"
+  kubectl create -f \
+      "https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.k8s.aws_ec2nodeclasses.yaml"
+  kubectl create -f \
+      "https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.sh_nodeclaims.yaml"
+  kubectl apply -f ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml
+
+  echo "Create Karpenter Nodepools and Nodeclass"
+  cp ./resources/karpenter/shared-nodeclass.yaml ./resources/karpenter/nodeclass-${KARPENTER_VERSION}.yaml
+
+  sed -i='' 's/${KARPENTER_NODE_ROLE}/'$KARPENTER_NODE_ROLE'/g' ./resources/karpenter/nodeclass-${KARPENTER_VERSION}.yaml
+  sed -i='' 's/${CLUSTER_NAME}/'$CLUSTER_NAME'/g' ./resources/karpenter/nodeclass-${KARPENTER_VERSION}.yaml
+
+  rm ./resources/karpenter/*=
+  kubectl apply -f "./resources/karpenter/*-nodepool.yaml"
+  kubectl apply -f ./resources/karpenter/nodeclass-${KARPENTER_VERSION}.yaml
+
+  aws eks create-access-entry --cluster-name ${CLUSTER_NAME} --principal-arn arn:aws:iam::${ACCOUNT_ID}:role/${KARPENTER_NODE_ROLE} --type EC2_LINUX
+
+  echo "====================================================="
+  echo " Completed setup for Karpenter on cluster ${CLUSTER_NAME} (EKS ${EKS_VERSION})."
+  echo "====================================================="
+}
+
+# Call the function with the parsed EKS version
+setup_karpenter "$EKS_VERSION"
