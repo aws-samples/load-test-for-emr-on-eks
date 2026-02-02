@@ -7,6 +7,10 @@ for arg in "$@"; do
       EKS_VERSION="${arg#*=}"
       shift
       ;;
+    karpenter-version=*)
+      KARPENTER_VERSION="${arg#*=}"
+      shift
+      ;;
     *)
       echo "Unknown argument: $arg"
       exit 1
@@ -14,25 +18,25 @@ for arg in "$@"; do
   esac
 done
 
-if [[ -z "$EKS_VERSION" ]]; then
-  echo "Usage: $0 eks-version=<EKS_VERSION>"
+if [[ -z "$EKS_VERSION" ]] || [[ -z "$KARPENTER_VERSION" ]]; then
+  echo "Usage: $0 eks-version=<EKS_VERSION> karpenter-version=<KARPENTER_VERSION>"
+  echo "Example: $0 eks-version=1.30 karpenter-version=1.0.3"
+  echo "Example: $0 eks-version=1.32 karpenter-version=1.8.5"
   exit 1
 fi
 
 remove_karpenter() {
   local EKS_VERSION="$1"
-  local KARPENTER_VERSION
+  local KARPENTER_VERSION="$2"
   local CLUSTER_NAME
 
-  # Determine Karpenter version and cluster name based on EKS version
+  # Map EKS version to cluster name
   if [[ "$EKS_VERSION" == "1.30" ]]; then
-    KARPENTER_VERSION="1.0.3"
     CLUSTER_NAME="eks-test-1-30"
   elif [[ "$EKS_VERSION" == "1.32" ]]; then
-    KARPENTER_VERSION="1.8.5"
     CLUSTER_NAME="eks-test-1-32"
   else
-    echo "Unsupported EKS version: $EKS_VERSION"
+    echo "Unsupported EKS version: $EKS_VERSION (supported: 1.30, 1.32)"
     return 1
   fi
 
@@ -41,22 +45,36 @@ remove_karpenter() {
   echo "====================================================="
 
   # Delete Karpenter Nodepools and Nodeclass
+  # Use --wait=false to avoid blocking on finalizers
   echo "Deleting Karpenter Nodepools and Nodeclass..."
-  kubectl delete -f "./resources/karpenter/*-nodepool.yaml" --ignore-not-found
-  kubectl delete -f "./resources/karpenter/nodeclass-${KARPENTER_VERSION}.yaml" --ignore-not-found
+  if kubectl get crd nodepools.karpenter.sh &>/dev/null; then
+    kubectl delete -f "./resources/karpenter/*-nodepool.yaml" --ignore-not-found --wait=false
+  else
+    echo "  Skipping nodepools - CRD not found"
+  fi
+
+  if kubectl get crd ec2nodeclasses.karpenter.k8s.aws &>/dev/null; then
+    kubectl delete -f "./resources/karpenter/nodeclass-${KARPENTER_VERSION}.yaml" --ignore-not-found --wait=false
+  else
+    echo "  Skipping nodeclass - CRD not found"
+  fi
 
   # Delete Karpenter Helm resources
   echo "Deleting Karpenter Helm resources..."
-  kubectl delete -f ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml --ignore-not-found
+  if [[ -f "./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml" ]]; then
+    kubectl delete -f ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml --ignore-not-found --wait=false
+  else
+    echo "  Skipping - karpenter-${KARPENTER_VERSION}.yaml not found"
+  fi
 
   # Delete Karpenter CRDs
   echo "Deleting Karpenter CRDs..."
   kubectl delete -f \
-      "https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.sh_nodepools.yaml" --ignore-not-found
+      "https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.sh_nodepools.yaml" --ignore-not-found --wait=false
   kubectl delete -f \
-      "https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.k8s.aws_ec2nodeclasses.yaml" --ignore-not-found
+      "https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.k8s.aws_ec2nodeclasses.yaml" --ignore-not-found --wait=false
   kubectl delete -f \
-      "https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.sh_nodeclaims.yaml" --ignore-not-found
+      "https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.sh_nodeclaims.yaml" --ignore-not-found --wait=false
 
   # Delete Karpenter namespace
   echo "Deleting Karpenter namespace..."
@@ -93,9 +111,32 @@ remove_karpenter() {
     aws iam delete-role --role-name "${KARPENTER_CONTROLLER_ROLE}" || true
   fi
 
-  # Delete CloudFormation stack
+  # Delete CloudFormation stack and wait for completion
   echo "Deleting CloudFormation stack..."
-  aws cloudformation delete-stack --stack-name "karpenter-infra-${CLUSTER_NAME}" || true
+  local STACK_NAME="karpenter-infra-${CLUSTER_NAME}"
+  
+  if aws cloudformation describe-stacks --stack-name "${STACK_NAME}" &>/dev/null; then
+    aws cloudformation delete-stack --stack-name "${STACK_NAME}"
+    echo "Waiting for CloudFormation stack ${STACK_NAME} to be deleted..."
+    
+    while true; do
+      STACK_STATUS=$(aws cloudformation describe-stacks --stack-name "${STACK_NAME}" --query 'Stacks[0].StackStatus' --output text 2>/dev/null)
+      
+      if [[ -z "$STACK_STATUS" ]] || [[ "$STACK_STATUS" == "None" ]]; then
+        echo "Stack ${STACK_NAME} deleted successfully."
+        break
+      elif [[ "$STACK_STATUS" == "DELETE_FAILED" ]]; then
+        echo "ERROR: Stack deletion failed. Check AWS Console for details."
+        aws cloudformation describe-stack-events --stack-name "${STACK_NAME}" --query 'StackEvents[?ResourceStatus==`DELETE_FAILED`].[LogicalResourceId,ResourceStatusReason]' --output table
+        break
+      else
+        echo "  Stack status: ${STACK_STATUS}. Waiting..."
+        sleep 10
+      fi
+    done
+  else
+    echo "  Stack ${STACK_NAME} does not exist, skipping."
+  fi
 
   # Remove tags from subnets and security groups
   echo "Removing tags from subnets and security groups..."
@@ -115,5 +156,5 @@ remove_karpenter() {
   echo "====================================================="
 }
 
-# Call the function with the parsed EKS version
-remove_karpenter "$EKS_VERSION"
+# Call the function with the parsed arguments
+remove_karpenter "$EKS_VERSION" "$KARPENTER_VERSION"
