@@ -11,6 +11,10 @@ for arg in "$@"; do
       KARPENTER_VERSION="${arg#*=}"
       shift
       ;;
+    cluster-name=*)
+      CLUSTER_NAME="${arg#*=}"
+      shift
+      ;;    
     *)
       echo "Unknown argument: $arg"
       exit 1
@@ -18,35 +22,29 @@ for arg in "$@"; do
   esac
 done
 
-if [[ -z "$EKS_VERSION" ]] || [[ -z "$KARPENTER_VERSION" ]]; then
-  echo "Usage: $0 eks-version=<EKS_VERSION> karpenter-version=<KARPENTER_VERSION>"
-  echo "Example: $0 eks-version=1.30 karpenter-version=1.0.3"
-  echo "Example: $0 eks-version=1.32 karpenter-version=1.8.5"
+if [[ -z "$EKS_VERSION" ]] || [[ -z "$KARPENTER_VERSION" ]] || [[ -z "$CLUSTER_NAME" ]]; then
+  echo "Usage: $0 eks-version=<EKS_VERSION> karpenter-version=<KARPENTER_VERSION> cluster-name=<CLUSTER_NAME>"
+  echo "Example: $0 eks-version=1.32 karpenter-version=1.8.5 cluster-name=eks-test-1-32"
   exit 1
 fi
 
 remove_karpenter() {
   local EKS_VERSION="$1"
   local KARPENTER_VERSION="$2"
-  local CLUSTER_NAME
+  local CLUSTER_NAME="$3"
 
-  # Map EKS version to cluster name
-  if [[ "$EKS_VERSION" == "1.30" ]]; then
-    CLUSTER_NAME="eks-test-1-30"
-  elif [[ "$EKS_VERSION" == "1.32" ]]; then
-    CLUSTER_NAME="eks-test-1-32"
-  else
-    echo "Unsupported EKS version: $EKS_VERSION (supported: 1.30, 1.32)"
+  # Validate EKS version and cluster name
+  CLUSTER_VERSION=$(echo "$CLUSTER_NAME" | grep -oE '([0-9]+\.[0-9]+|[0-9]+-[0-9]+)' | tail -1 | sed 's/-/\./')
+  if [[ "$EKS_VERSION" != "$CLUSTER_VERSION" ]]; then
+    echo "$EKS_VERSION and $CLUSTER_NAME suffix do not match. Please provide matching EKS version and cluster name."
     return 1
   fi
 
   echo "====================================================="
-  echo " Removing Karpenter resources from cluster ${CLUSTER_NAME} (EKS ${EKS_VERSION})."
+  echo " 1. Deleting Karpenter Nodepools and Nodeclass..."
   echo "====================================================="
-
   # Delete Karpenter Nodepools and Nodeclass
   # Use --wait=false to avoid blocking on finalizers
-  echo "Deleting Karpenter Nodepools and Nodeclass..."
   if kubectl get crd nodepools.karpenter.sh &>/dev/null; then
     kubectl delete -f "./resources/karpenter/*-nodepool.yaml" --ignore-not-found --wait=false
   else
@@ -59,16 +57,19 @@ remove_karpenter() {
     echo "  Skipping nodeclass - CRD not found"
   fi
 
-  # Delete Karpenter Helm resources
-  echo "Deleting Karpenter Helm resources..."
+
+  echo "====================================================="
+  echo " 2. Deleting Karpenter Controller via helm chart..."
+  echo "====================================================="
   if [[ -f "./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml" ]]; then
     kubectl delete -f ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml --ignore-not-found --wait=false
   else
     echo "  Skipping - karpenter-${KARPENTER_VERSION}.yaml not found"
   fi
 
-  # Delete Karpenter CRDs
-  echo "Deleting Karpenter CRDs..."
+  echo "====================================================="
+  echo " 3. Deleting Karpenter CRDs..."
+  echo "====================================================="
   kubectl delete -f \
       "https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.sh_nodepools.yaml" --ignore-not-found --wait=false
   kubectl delete -f \
@@ -76,12 +77,16 @@ remove_karpenter() {
   kubectl delete -f \
       "https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.sh_nodeclaims.yaml" --ignore-not-found --wait=false
 
-  # Delete Karpenter namespace
-  echo "Deleting Karpenter namespace..."
+
+  echo "====================================================="
+  echo " 4. Deleting Karpenter namespace..."
+  echo "====================================================="
   kubectl delete namespace karpenter --ignore-not-found
 
-  # Remove IAM roles and policies
-  echo "Removing IAM roles and policies..."
+
+  echo "====================================================="
+  echo " 5. Removing IAM roles and policies..."
+  echo "====================================================="
   local KARPENTER_CONTROLLER_ROLE="KarpenterControllerRole-${CLUSTER_NAME}"
   local KARPENTER_CONTROLLER_POLICY="KarpenterControllerPolicy-${CLUSTER_NAME}"
   local KARPENTER_NODE_ROLE="KarpenterNodeRole-${CLUSTER_NAME}"
@@ -111,8 +116,10 @@ remove_karpenter() {
     aws iam delete-role --role-name "${KARPENTER_CONTROLLER_ROLE}" || true
   fi
 
-  # Delete CloudFormation stack and wait for completion
-  echo "Deleting CloudFormation stack..."
+  echo "====================================================="
+  echo " 6. Deleting CloudFormation stack..."
+  echo "====================================================="
+
   local STACK_NAME="karpenter-infra-${CLUSTER_NAME}"
   
   if aws cloudformation describe-stacks --stack-name "${STACK_NAME}" &>/dev/null; then
@@ -138,8 +145,9 @@ remove_karpenter() {
     echo "  Stack ${STACK_NAME} does not exist, skipping."
   fi
 
-  # Remove tags from subnets and security groups
-  echo "Removing tags from subnets and security groups..."
+  echo "====================================================="
+  echo " 7. Removing tags from subnets and security groups..."
+  echo "====================================================="
   for NODEGROUP in $(aws eks list-nodegroups --cluster-name "${CLUSTER_NAME}" --query 'nodegroups' --output text); do
       aws ec2 delete-tags \
           --tags "Key=karpenter.sh/discovery" \
@@ -147,14 +155,16 @@ remove_karpenter() {
           --nodegroup-name "${NODEGROUP}" --query 'nodegroup.subnets' --output text ) || true
   done
 
-  # Remove access entry
-  echo "Removing access entry for Karpenter node role..."
+  echo "====================================================="
+  echo " 8. Removing access entry for Karpenter node role..."
+  echo "====================================================="
+
   aws eks delete-access-entry --cluster-name ${CLUSTER_NAME} --principal-arn arn:aws:iam::${ACCOUNT_ID}:role/${KARPENTER_NODE_ROLE} || true
 
   echo "====================================================="
-  echo " Completed removal of Karpenter resources from cluster ${CLUSTER_NAME} (EKS ${EKS_VERSION})."
+  echo " Completed removal of Karpenter resources from cluster ${CLUSTER_NAME} (Karpenter v${KARPENTER_VERSION}, EKS v${EKS_VERSION})."
   echo "====================================================="
 }
 
 # Call the function with the parsed arguments
-remove_karpenter "$EKS_VERSION" "$KARPENTER_VERSION"
+remove_karpenter "$EKS_VERSION" "$KARPENTER_VERSION" "$CLUSTER_NAME"
