@@ -69,6 +69,9 @@ kubeApiServer:
       sourceLabels: [__name__,le]
 
 prometheus:
+  nodeSelector:
+    operational: "true"
+    monitor: "true"
   serviceAccount:
     create: true
     name: amp-iamproxy-ingest-service-account
