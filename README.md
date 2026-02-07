@@ -62,7 +62,7 @@ Alternatively, use the default configurations shown below:
 # General
 export AWS_REGION=us-west-2
 export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-export LOAD_TEST_PREFIX=load-test-cluster
+export LOAD_TEST_PREFIX=eks-test
 export CLUSTER_NAME=${LOAD_TEST_PREFIX}-10
 export BUCKET_NAME=emr-on-${CLUSTER_NAME}-$ACCOUNT_ID-${AWS_REGION}
 # Locust
@@ -79,7 +79,6 @@ export JOB_SCRIPT_NAME="emr-job-run.sh"
 export EKS_VPC_CIDR=192.164.0.0/16
 export EKS_VERSION=1.34
 # EMR on EKS
-export PUB_ECR_REGISTRY_ACCOUNT=895885662937
 export EXECUTION_ROLE=emr-on-${CLUSTER_NAME}-execution-role
 export EXECUTION_ROLE_POLICY=${CLUSTER_NAME}-SparkJobS3AccessPolicy
 # Karpenter

@@ -4,6 +4,8 @@ metadata:
   name: ${CLUSTER_NAME}
   region: ${AWS_REGION}
   version: "${EKS_VERSION}"
+autoModeConfig:
+  enabled: false  
 vpc:
   cidr: "${EKS_VPC_CIDR}"
   clusterEndpoints:
@@ -43,11 +45,21 @@ iam:
     - "arn:aws:iam::aws:policy/AmazonPrometheusQueryAccess"
     roleName: ${CLUSTER_NAME}-prometheus-ingest 
     roleOnly: true    
+  - metadata:
+      name: cloudwatch-agent
+      namespace: amazon-cloudwatch
+      labels: {aws-usage: "monitoring"}
+    attachPolicyARNs:
+    - "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+    roleName: ${CLUSTER_NAME}-cloudwatch-observability-role    
 addons:
   - name: aws-ebs-csi-driver
     version: latest
     wellKnownPolicies:
       ebsCSIController: true
+  - name: amazon-cloudwatch-observability
+    version: latest
+    serviceAccountRoleARN: arn:aws:iam::${ACCOUNT_ID}:role/${CLUSTER_NAME}-cloudwatch-observability-role
 cloudWatch:
   clusterLogging:
     enableTypes: ["*"]

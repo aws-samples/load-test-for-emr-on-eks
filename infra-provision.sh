@@ -10,27 +10,43 @@ echo "==============================================="
 echo " 1. Setup Bucket ......"
 echo "==============================================="
 # Create S3 bucket for load test
-echo "Creating S3 bucket: $BUCKET_NAME"
-aws s3api create-bucket \
-    --bucket $BUCKET_NAME \
-    --region $AWS_REGION \
-    --create-bucket-configuration LocationConstraint=$AWS_REGION || {
-    echo "Error: Failed to create S3 bucket $BUCKET_NAME"
-    exit 1
-}
+if aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
+    echo "S3 bucket $BUCKET_NAME already exists. Skipping creation."
+else
+    echo "Creating S3 bucket: $BUCKET_NAME"
+    if [ "$AWS_REGION" = "us-east-1" ]; then
+        aws s3api create-bucket \
+            --bucket $BUCKET_NAME \
+            --region $AWS_REGION || {
+            echo "Error: Failed to create S3 bucket $BUCKET_NAME"
+            exit 1
+        }
+    else
+        aws s3api create-bucket \
+            --bucket $BUCKET_NAME \
+            --region $AWS_REGION \
+            --create-bucket-configuration LocationConstraint=$AWS_REGION || {
+            echo "Error: Failed to create S3 bucket $BUCKET_NAME"
+            exit 1
+        }
+    fi
+    echo "S3 bucket $BUCKET_NAME created successfully."
+fi   
 
 echo "==============================================="
 echo " 2. Create EKS Cluster ......"
 echo "==============================================="
-echo "Create EKS Cluster: ${CLUSTER_NAME}"
 if ! aws eks describe-cluster --name ${CLUSTER_NAME} --region ${AWS_REGION} >/dev/null 2>&1; then
+    echo "Create EKS Cluster: ${CLUSTER_NAME}"
+    cp ./resources/eks-cluster-values.yaml ./resources/eks-cluster-values-${CLUSTER_NAME}.yaml
+    sed -i='' 's|${AWS_REGION}|'$AWS_REGION'|g' ./resources/eks-cluster-values-${CLUSTER_NAME}.yaml
+    sed -i='' 's|${CLUSTER_NAME}|'$CLUSTER_NAME'|g' ./resources/eks-cluster-values-${CLUSTER_NAME}.yaml
+    sed -i='' 's|${EKS_VERSION}|'$EKS_VERSION'|g' ./resources/eks-cluster-values-${CLUSTER_NAME}.yaml
+    sed -i='' 's|${EKS_VPC_CIDR}|'$EKS_VPC_CIDR'|g' ./resources/eks-cluster-values-${CLUSTER_NAME}.yaml
+    sed -i='' 's|${ACCOUNT_ID}|'$ACCOUNT_ID'|g' ./resources/eks-cluster-values-${CLUSTER_NAME}.yaml 
 
-    sed -i='' 's|${AWS_REGION}|'$AWS_REGION'|g' ./resources/eks-cluster-values.yaml
-    sed -i='' 's|${CLUSTER_NAME}|'$CLUSTER_NAME'|g' ./resources/eks-cluster-values.yaml
-    sed -i='' 's|${EKS_VERSION}|'$EKS_VERSION'|g' ./resources/eks-cluster-values.yaml
-    sed -i='' 's|${EKS_VPC_CIDR}|'$EKS_VPC_CIDR'|g' ./resources/eks-cluster-values.yaml
-    
-    eksctl create cluster -f ./resources/eks-cluster-values.yaml
+    eksctl create cluster -f ./resources/eks-cluster-values-${CLUSTER_NAME}.yaml
+    aws eks update-kubeconfig  --region ${AWS_REGION} --name ${CLUSTER_NAME}
 fi
 
 echo "==============================================="
@@ -38,6 +54,7 @@ echo " 3. Get OIDC ......"
 echo "==============================================="
 echo "Get OIDC"
 OIDC_PROVIDER=$(aws eks describe-cluster --name $CLUSTER_NAME --query "cluster.identity.oidc.issuer" --output text | sed -e "s/^https:\/\///")
+# eksctl utils associate-iam-oidc-provider --cluster $CLUSTER_NAME --approve
 echo $OIDC_PROVIDER
 
 echo "==============================================="
@@ -127,14 +144,26 @@ echo " 10. Setup BinPacking ......"
 echo "==============================================="
 echo "Setup BinPacking"
 git clone https://github.com/aws-samples/custom-scheduler-eks
-cd custom-scheduler-eks/deploy
-helm install custom-scheduler-eks charts/custom-scheduler-eks \
+helm install custom-scheduler-eks custom-scheduler-eks/deploy/charts/custom-scheduler-eks \
 -n kube-system \
--f ../../resources/binpacking-values.yaml
+--set eksVersion="1.34" \
+--set schedulerName="custom-scheduler-eks" \
+-f ./resources/binpacking-values.yaml
 
 echo "==============================================="
 echo " 11. Create EMR on EKS Execution Role ......"
 echo "==============================================="
+# Check if the CMK alias exists and create it if necessary
+if ! aws kms list-aliases --query "Aliases[?AliasName=='alias/$CMK_ALIAS']" --output text | grep -q "alias/$CMK_ALIAS"; then
+    echo "CMK alias $CMK_ALIAS not found. Creating a new CMK..."
+    CMK_ID=$(aws kms create-key --description "CMK for Locust PVC Reuse" --query 'KeyMetadata.KeyId' --output text)
+    aws kms create-alias --alias-name alias/$CMK_ALIAS --target-key-id $CMK_ID
+    echo "CMK created with alias $CMK_ALIAS and Key ID $CMK_ID"
+else
+    echo "CMK alias $CMK_ALIAS already exists."
+fi
+export KMS_ARN=$(aws kms describe-key --key-id alias/$CMK_ALIAS --query 'KeyMetadata.Arn' --output text)
+
 echo "Create EMR on EKS execution role only"
 if aws iam get-policy --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${EXECUTION_ROLE_POLICY}" 2>/dev/null; then
     echo "IAM policy ${EXECUTION_ROLE_POLICY} already exists"
@@ -199,7 +228,6 @@ echo "==============================================="
 echo "Setup Prometheus"
 kubectl create ns prometheus || true
 # SA name and IRSA role were created at EKS cluster creation time
-# LOCUST_PRIV_HOST_IP=$(kubectl get pod -n locust -l app.kubernetes.io/name=master --field-selector=status.phase=Running -o jsonpath='{.items[*].status.hostIP}')
 amp=$(aws amp list-workspaces --query "workspaces[?alias=='$CLUSTER_NAME'].workspaceId" --output text)
 if [ -z "$amp" ]; then
     echo "Creating a new prometheus workspace..."
@@ -396,26 +424,40 @@ echo " 19. Create multi-platform Image for Spark benchmark Utility ......"
 echo "================================================================="   
 
 echo "Logging into ECR..."
-export SRC_ECR_URL=${PUB_ECR_REGISTRY_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com
+export SRC_ECR_URL=public.ecr.aws
 export ECR_URL=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+if aws ecr describe-repositories --repository-names locust 2>/dev/null; then
+    echo "locust ECR repo exists."
+else
+    echo "Creating repo locus..."
+    aws ecr create-repository --repository-name locust --image-scanning-configuration scanOnPush=true
+    docker run --privileged --rm tonistiigi/binfmt --install all
+    # Create multi-arch builder
+    docker buildx create --name arm64-builder --driver docker-container --use
+    # Build Locust image
+    docker buildx build --platform linux/amd64,linux/arm64 \
+    -t $ECR_URL/locust \
+    -f ./locust/Dockerfile \
+    --push 
+fi   
 
-aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin $SRC_ECR_URL
-docker pull $SRC_ECR_URL/spark/emr-${EMR_IMAGE_VERSION}:latest
-
-# Custom image on top of the EMR Spark
-aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_URL
-# One-off task: create new ECR repositories
-aws ecr create-repository --repository-name eks-spark-benchmark --image-scanning-configuration scanOnPush=true || true
-
-wget -O Dockerfile https://raw.githubusercontent.com/aws-samples/emr-on-eks-benchmark/refs/heads/main/docker/benchmark-util/Dockerfile
-# Spark load test image
+if aws ecr describe-repositories --repository-names eks-spark-benchmark 2>/dev/null; then
+    echo "eks-spark-benchmark ECR repo exists"
+    exit 0
+else
+    # Custom image on top of the EMR Spark
+    echo "Creating repo eks-spark-benchmark..."
+    aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_URL
+    # One-off task: create new ECR repositories
+    aws ecr create-repository --repository-name eks-spark-benchmark --image-scanning-configuration scanOnPush=true
+fi    
+# Build benchmark images 
+git clone https://github.com/aws-samples/emr-on-eks-benchmark
+docker logout $SRC_ECR_URL
 docker buildx build --platform linux/amd64,linux/arm64 \
 -t $ECR_URL/eks-spark-benchmark:emr${EMR_IMAGE_VERSION} \
--f ./Dockerfile \
---build-arg SPARK_BASE_IMAGE=$SRC_ECR_URL/spark/emr-${EMR_IMAGE_VERSION}:latest \
+-f emr-on-eks-benchmark/docker/benchmark-util/Dockerfile \
+--build-arg SPARK_BASE_IMAGE=$SRC_ECR_URL/emr-on-eks/spark/emr-${EMR_IMAGE_VERSION}:latest \
 --push .
-# Locust image
-docker buildx build --platform linux/amd64,linux/arm64 \
--t $ECR_URL/locust \
--f ./locust/Dockerfile \
---push .
+
+echo "Infrastructure provision is completed."
