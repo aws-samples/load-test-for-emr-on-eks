@@ -11,7 +11,7 @@ echo "Starting cleanup process..."
 echo "Finding EMR virtual clusters for EKS cluster: $CLUSTER_NAME"
 CLUSTER_IDS=$(aws emr-containers list-virtual-clusters \
     --region "$AWS_REGION" \
-    --query "virtualClusters[?state=='RUNNING' && contains(containerProvider.id, '$CLUSTER_NAME')].id"
+    --query "virtualClusters[?state=='RUNNING' && contains(containerProvider.id, '$CLUSTER_NAME')].id" \
     --output text)
 
 if [ -z "$CLUSTER_IDS" ]; then
@@ -64,9 +64,62 @@ echo "Deleting S3 bucket..."
 aws s3 rm s3://${BUCKET_NAME} --recursive
 aws s3api delete-bucket --bucket ${BUCKET_NAME} --region ${AWS_REGION}
 
-# Delete EKS cluster 
+echo "Delete EKS cluster..."
 # eksctl automatically deletes managed nodegroups,addons,iam,vpc,CFN stacks created by eksctl)
 echo "Deleting EKS cluster..."
-eksctl delete cluster -f ./resources/eks-cluster-values.yaml --region ${AWS_REGION}
+cp ./resources/eks-cluster-values.yaml ./resources/eks-cluster-values-${CLUSTER_NAME}.yaml
+sed -i='' 's|${AWS_REGION}|'$AWS_REGION'|g' ./resources/eks-cluster-values-${CLUSTER_NAME}.yaml
+sed -i='' 's|${CLUSTER_NAME}|'$CLUSTER_NAME'|g' ./resources/eks-cluster-values-${CLUSTER_NAME}.yaml
+sed -i='' 's|${EKS_VERSION}|'$EKS_VERSION'|g' ./resources/eks-cluster-values-${CLUSTER_NAME}.yaml
+sed -i='' 's|${EKS_VPC_CIDR}|'$EKS_VPC_CIDR'|g' ./resources/eks-cluster-values-${CLUSTER_NAME}.yaml
+sed -i='' 's|${ACCOUNT_ID}|'$ACCOUNT_ID'|g' ./resources/eks-cluster-values-${CLUSTER_NAME}.yaml 
+
+eksctl delete cluster -f ./resources/eks-cluster-values-${CLUSTER_NAME}.yaml
+
+echo "Delete all IAM roles created for this cluster..."
+iam_roles=$(aws iam list-roles --query "Roles[?contains(RoleName, '${CLUSTER_NAME}')].RoleName" --output text)
+for role in $iam_roles; do
+    echo "Detaching managed policies..."
+    policies=$(aws iam list-attached-role-policies --role-name "$role" \
+        --query 'AttachedPolicies[*].PolicyArn' --output text 2>/dev/null)
+
+    if [ -n "$policies" ] && [ "$policies" != "None" ]; then
+        echo "$policies" | tr '\t' '\n' | while read policy_arn; do
+            if [ -n "$policy_arn" ]; then
+                echo "Detaching $policy_arn from $role"
+                aws iam detach-role-policy --role-name "$role" --policy-arn "$policy_arn"
+            fi
+        done
+    fi
+
+    echo "Deleting inline policies..."
+    inline_policies=$(aws iam list-role-policies --role-name "$role" \
+        --query 'PolicyNames' --output text 2>/dev/null)
+
+    if [ -n "$inline_policies" ] && [ "$inline_policies" != "None" ]; then
+        echo "$inline_policies" | tr '\t' '\n' | while read policy_name; do
+            if [ -n "$policy_name" ]; then
+                echo "Deleting inline policy $policy_name from $role"
+                aws iam delete-role-policy --role-name "$role" --policy-name "$policy_name"
+            fi
+        done
+    fi
+    sleep 2
+
+    echo "Deleting IAM role: $role"
+    aws iam delete-role --role-name "$role"
+done
+
+
+# Delete Karpenter resources for Interruption handler
+stacks=$(aws cloudformation list-stacks \
+  --query 'StackSummaries[? StackStatus==`CREATE_COMPLETE` && contains(StackName, `'"$CLUSTER_NAME"'`)].StackName' \
+  --output text)
+if [ -n "$stacks" ]; then
+  for stack in $stacks; do
+    echo "Deleting stack: $stack"
+    aws cloudformation delete-stack --stack-name "$stack"
+  done
+fi
 
 echo "Cleanup completed!"

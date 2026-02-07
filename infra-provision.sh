@@ -43,7 +43,8 @@ if ! aws eks describe-cluster --name ${CLUSTER_NAME} --region ${AWS_REGION} >/de
     sed -i='' 's|${CLUSTER_NAME}|'$CLUSTER_NAME'|g' ./resources/eks-cluster-values-${CLUSTER_NAME}.yaml
     sed -i='' 's|${EKS_VERSION}|'$EKS_VERSION'|g' ./resources/eks-cluster-values-${CLUSTER_NAME}.yaml
     sed -i='' 's|${EKS_VPC_CIDR}|'$EKS_VPC_CIDR'|g' ./resources/eks-cluster-values-${CLUSTER_NAME}.yaml
-    
+    sed -i='' 's|${ACCOUNT_ID}|'$ACCOUNT_ID'|g' ./resources/eks-cluster-values-${CLUSTER_NAME}.yaml 
+
     eksctl create cluster -f ./resources/eks-cluster-values-${CLUSTER_NAME}.yaml
     aws eks update-kubeconfig  --region ${AWS_REGION} --name ${CLUSTER_NAME}
 fi
@@ -53,7 +54,7 @@ echo " 3. Get OIDC ......"
 echo "==============================================="
 echo "Get OIDC"
 OIDC_PROVIDER=$(aws eks describe-cluster --name $CLUSTER_NAME --query "cluster.identity.oidc.issuer" --output text | sed -e "s/^https:\/\///")
-eksctl utils associate-iam-oidc-provider --cluster $CLUSTER_NAME --approve
+# eksctl utils associate-iam-oidc-provider --cluster $CLUSTER_NAME --approve
 echo $OIDC_PROVIDER
 
 echo "==============================================="
@@ -145,6 +146,8 @@ echo "Setup BinPacking"
 git clone https://github.com/aws-samples/custom-scheduler-eks
 helm install custom-scheduler-eks custom-scheduler-eks/deploy/charts/custom-scheduler-eks \
 -n kube-system \
+--set eksVersion="1.34" \
+--set schedulerName="custom-scheduler-eks" \
 -f ./resources/binpacking-values.yaml
 
 
@@ -191,7 +194,7 @@ else
                 "kms:Decrypt",
                 "kms:GenerateDataKey"
 			],
-			"Resource": "*",
+			"Resource": "$KMS_ARN",
 			"Effect": "Allow"
 		}
     ]
@@ -429,7 +432,6 @@ export ECR_URL=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
 # aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_URL
 if aws ecr describe-repositories --repository-names locust 2>/dev/null; then
     echo "locust ECR repo exists."
-    exit 0
 else
     echo "Creating repo locus..."
     aws ecr create-repository --repository-name locust --image-scanning-configuration scanOnPush=true

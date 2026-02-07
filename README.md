@@ -61,9 +61,9 @@ Alternatively, use the default configurations shown below:
 ```bash
 # General
 export AWS_REGION=us-west-2
-export EKS_VERSION=1.34
+export EKS_VERSION=1.32
 export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-export LOAD_TEST_PREFIX=eks-test
+export LOAD_TEST_PREFIX=workshop-test
 export CLUSTER_NAME=${LOAD_TEST_PREFIX}-${EKS_VERSION//./-}
 
 export BUCKET_NAME=emr-on-${CLUSTER_NAME}-$ACCOUNT_ID-${AWS_REGION}

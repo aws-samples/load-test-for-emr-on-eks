@@ -1,8 +1,8 @@
 # General
 export AWS_REGION=us-west-2
-export EKS_VERSION=1.34
+export EKS_VERSION=1.32
 export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-export LOAD_TEST_PREFIX=eks-test
+export LOAD_TEST_PREFIX=workshop-test
 export CLUSTER_NAME=${LOAD_TEST_PREFIX}-${EKS_VERSION//./-}
 export BUCKET_NAME=emr-on-${CLUSTER_NAME}-$ACCOUNT_ID-${AWS_REGION}
 # Locust
@@ -27,5 +27,5 @@ export KARPENTER_CONTROLLER_ROLE="KarpenterControllerRole-${CLUSTER_NAME}"
 export KARPENTER_CONTROLLER_POLICY="KarpenterControllerPolicy-${CLUSTER_NAME}"
 export KARPENTER_NODE_ROLE="KarpenterNodeRole-${CLUSTER_NAME}"
 # Create Amazon Managed Grafana workspace or not
-export USE_AMG="true"
+# export USE_AMG="true"
 # =======================================================================
