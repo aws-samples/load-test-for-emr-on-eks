@@ -438,7 +438,7 @@ else
     docker buildx build --platform linux/amd64,linux/arm64 \
     -t $ECR_URL/locust \
     -f ./locust/Dockerfile \
-    --push 
+    --push . 
 fi   
 
 if aws ecr describe-repositories --repository-names eks-spark-benchmark 2>/dev/null; then
