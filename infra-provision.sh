@@ -108,13 +108,13 @@ AWS_VPC_K8S_PLUGIN_LOG_LEVEL=INFO
 # echo " 8. Setup Cluster Autoscaler ......"
 # echo "==============================================="
 # echo " Setup Cluster Autoscaler for an OPS managed NodeGroup"
-# sed -i='' 's/${CLUSTER_NAME}/'$CLUSTER_NAME'/g' ./resources/autoscaler-values.yaml
-# sed -i='' 's/${AWS_REGION}/'$AWS_REGION'/g' ./resources/autoscaler-values.yaml
+# cp ./resources/autoscaler-values.yaml ./resources/autoscaler-values-${CLUSTER_NAME}.yaml
+# sed -i='' 's/${CLUSTER_NAME}/'$CLUSTER_NAME'/g' ./resources/autoscaler-values-${CLUSTER_NAME}.yaml
+# sed -i='' 's/${AWS_REGION}/'$AWS_REGION'/g' ./resources/autoscaler-values-${CLUSTER_NAME}.yaml
 
 # helm repo update
 # helm repo add autoscaler https://kubernetes.github.io/autoscaler
-# helm upgrade --install nodescaler autoscaler/cluster-autoscaler -n kube-system --values ./resources/autoscaler-values.yaml
-
+# helm upgrade --install nodescaler autoscaler/cluster-autoscaler -n kube-system --values ./resources/autoscaler-values-${CLUSTER_NAME}.yaml
 # echo "Disable the autoscaler before using Karpenter first"
 # # Enable it manually later on, when testing the scalability based on the autoscaler.
 # kubectl scale deploy/nodescaler-aws-cluster-autoscaler  -n kube-system --replicas=0
@@ -146,7 +146,7 @@ echo "Setup BinPacking"
 git clone https://github.com/aws-samples/custom-scheduler-eks
 helm install custom-scheduler-eks custom-scheduler-eks/deploy/charts/custom-scheduler-eks \
 -n kube-system \
---set eksVersion="1.34" \
+--set eksVersion="$EKS_VERSION" \
 --set schedulerName="custom-scheduler-eks" \
 -f ./resources/binpacking-values.yaml
 
@@ -243,11 +243,12 @@ helm repo add prometheus-community https://prometheus-community.github.io/helm-c
 helm repo add kube-state-metrics https://kubernetes.github.io/kube-state-metrics
 helm repo update
 
-sed -i -- 's/{AWS_REGION}/'$AWS_REGION'/g'  ./resources/monitor/prometheus-values.yaml
-sed -i -- 's/{ACCOUNTID}/'$ACCOUNT_ID'/g'  ./resources/monitor/prometheus-values.yaml
-sed -i -- 's/{WORKSPACE_ID}/'$WORKSPACE_ID'/g'  ./resources/monitor/prometheus-values.yaml
-sed -i -- 's/{CLUSTER_NAME}/'$CLUSTER_NAME'/g'  ./resources/monitor/prometheus-values.yaml
-helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n prometheus -f  ./resources/monitor/prometheus-values.yaml --debug
+cp ./resources/monitor/prometheus-values.yaml ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
+sed -i -- 's/{AWS_REGION}/'$AWS_REGION'/g'  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
+sed -i -- 's/{ACCOUNTID}/'$ACCOUNT_ID'/g'  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
+sed -i -- 's/{WORKSPACE_ID}/'$WORKSPACE_ID'/g'  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
+sed -i -- 's/{CLUSTER_NAME}/'$CLUSTER_NAME'/g'  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
+helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n prometheus -f  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml --debug
 # validate in a web browser - localhost:9090, go to menu of status->targets
 # kubectl --namespace prometheus port-forward service/prometheus-kube-prometheus-prometheus 9090
 
