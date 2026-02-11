@@ -139,7 +139,7 @@ rm examples/*=
 echo "=============================================================="
 echo "Example_1: Trigger a scale test locally via the locust CLI (with 1 test user)"
 echo "cd load-test-for-emr-on-eks"
-echo "python -m venv .venv"
+echo "python3 -m venv .venv"
 echo "source .venv/bin/activate"
 echo "sudo pip install -r locust/requirements.txt"
 echo "source env.sh"
