@@ -15,6 +15,10 @@ for arg in "$@"; do
       CLUSTER_NAME="${arg#*=}"
       shift
       ;;  
+    aws-region=*)
+      AWS_REGION="${arg#*=}"
+      shift
+      ;;  
     *)
       echo "Unknown argument: $arg"
       exit 1
@@ -22,16 +26,81 @@ for arg in "$@"; do
   esac
 done
 
-if [[ -z "$EKS_VERSION" ]] || [[ -z "$KARPENTER_VERSION" ]] || [[ -z "$CLUSTER_NAME" ]]; then
-  echo "Usage: $0 eks-version=<EKS_VERSION> karpenter-version=<KARPENTER_VERSION> cluster-name=<CLUSTER_NAME>"
-  echo "Example: $0 eks-version=1.32 karpenter-version=1.8.5 cluster-name=eks-test-1-32"
+if [[ -z "$EKS_VERSION" ]] || [[ -z "$KARPENTER_VERSION" ]] || [[ -z "$CLUSTER_NAME" ]] || [[ -z "$AWS_REGION" ]]; then
+  echo "Usage: $0 eks-version=<EKS_VERSION> karpenter-version=<KARPENTER_VERSION> cluster-name=<CLUSTER_NAME> aws-region=<AWS_REGION>"
+  echo "Example: $0 eks-version=1.32 karpenter-version=1.8.5 cluster-name=eks-test-1-32 aws-region=us-west-2"
   exit 1
 fi
+
+create_and_attach_ebs_encryption_policy() {
+  local ROLE_NAME="$1"
+  local CLUSTER_NAME="$2"
+  local POLICY_NAME="KarpenterEBSEncryptionPolicy-${CLUSTER_NAME}"
+
+  echo "Creating EBS encryption policy: ${POLICY_NAME}"
+
+  # Create the EBS encryption policy document
+  cat <<EOF > /tmp/ebs-encryption-policy.json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "kms:CreateGrant",
+                "kms:Decrypt",
+                "kms:DescribeKey",
+                "kms:Encrypt",
+                "kms:GenerateDataKey",
+                "kms:GenerateDataKeyWithoutPlaintext",
+                "kms:ReEncrypt*"
+            ],
+            "Resource": "*",
+            "Condition": {
+                "StringEquals": {
+                    "kms:ViaService": [
+                        "ec2.${AWS_REGION}.amazonaws.com"
+                    ]
+                }
+            }
+        }
+    ]
+}
+EOF
+
+  # Check if policy already exists
+  POLICY_ARN=$(aws iam list-policies --scope Local --query "Policies[?PolicyName=='${POLICY_NAME}'].Arn" --output text)
+
+  if [[ -z "$POLICY_ARN" ]]; then
+    echo "Creating new policy: ${POLICY_NAME}"
+    POLICY_ARN=$(aws iam create-policy \
+      --policy-name "${POLICY_NAME}" \
+      --policy-document file:///tmp/ebs-encryption-policy.json \
+      --query 'Policy.Arn' \
+      --output text)
+    echo "Created policy with ARN: ${POLICY_ARN}"
+  else
+    echo "Policy ${POLICY_NAME} already exists with ARN: ${POLICY_ARN}"
+  fi
+
+  # Attach the policy to the role
+  if aws iam list-attached-role-policies --role-name "${ROLE_NAME}" --query "AttachedPolicies[?PolicyArn=='${POLICY_ARN}'].PolicyArn" --output text | grep -q "${POLICY_ARN}"; then
+    echo "Policy ${POLICY_NAME} is already attached to role ${ROLE_NAME}"
+  else
+    echo "Attaching policy ${POLICY_NAME} to role ${ROLE_NAME}"
+    aws iam attach-role-policy --role-name "${ROLE_NAME}" --policy-arn "${POLICY_ARN}"
+    echo "Successfully attached EBS encryption policy to ${ROLE_NAME}"
+  fi
+
+  # Clean up temporary file
+  rm -f /tmp/ebs-encryption-policy.json
+}
 
 setup_karpenter() {
   local EKS_VERSION="$1"
   local KARPENTER_VERSION="$2"
   local CLUSTER_NAME="$3"
+  local AWS_REGION="$4"
 
   # Validate EKS version and cluster name
   CLUSTER_VERSION=$(echo "$CLUSTER_NAME" | grep -oE '([0-9]+\.[0-9]+|[0-9]+-[0-9]+)' | tail -1 | sed 's/-/\./')
@@ -96,6 +165,12 @@ EOF
       aws iam create-role --role-name "${KARPENTER_CONTROLLER_ROLE}" --assume-role-policy-document file:///tmp/controller-trust.json
       aws iam attach-role-policy --role-name "${KARPENTER_CONTROLLER_ROLE}" --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${KARPENTER_CONTROLLER_POLICY}"
   fi
+
+  echo "================================================================================================================"
+  echo " 3a. Create and attach EBS encryption policy to Karpenter controller role"
+  echo "================================================================================================================"
+  
+  create_and_attach_ebs_encryption_policy "${KARPENTER_CONTROLLER_ROLE}" "${CLUSTER_NAME}"
   
   echo "================================================================================================================"
   echo " 4. Tag Subnets and Security Groups for Karpenter"
@@ -139,7 +214,7 @@ EOF
       --set webhook.serviceName="karpenter" \
       --set webhook.port=8443 > ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml
 
-  export NG=$(aws eks list-nodegroups --cluster-name $CLUSTER_NAME --output json | jq -r '.nodegroups[0]')
+  export NG=$(aws eks list-nodegroups --cluster-name $CLUSTER_NAME --region $AWS_REGION --output json | jq -r '.nodegroups[0]')
   sed -i='' '/operator: DoesNotExist/a\
               - key: eks.amazonaws.com/nodegroup\
                 operator: In\
@@ -187,4 +262,4 @@ EOF
 }
 
 # Call the function with the parsed arguments
-setup_karpenter "$EKS_VERSION" "$KARPENTER_VERSION" "$CLUSTER_NAME"
+setup_karpenter "$EKS_VERSION" "$KARPENTER_VERSION" "$CLUSTER_NAME" "$AWS_REGION"
