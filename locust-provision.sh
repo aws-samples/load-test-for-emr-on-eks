@@ -78,9 +78,12 @@ EOF
     aws iam create-role --role-name ${LOCUST_EKS_ROLE} --assume-role-policy-document "file:///tmp/locust-trust.json"
     aws iam attach-role-policy --role-name "${LOCUST_EKS_ROLE}" --policy-arn "arn:aws:iam::aws:policy/AmazonEKSServicePolicy"
     aws iam attach-role-policy --role-name "${LOCUST_EKS_ROLE}" --policy-arn "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
-    sed -i='' 's|${BUCKET_NAME}|'$BUCKET_NAME'|g' locust/locust-operator/eks-role-policy.json
-    sed -i='' 's|${KMS_ARN}|'$KMS_ARN'|g' locust/locust-operator/eks-role-policy.json
-    aws iam put-role-policy --role-name "$LOCUST_EKS_ROLE" --policy-name "LocustCustomPolicy" --policy-document "file://locust/locust-operator/eks-role-policy.json"
+
+    cp locust/locust-operator/eks-role-policy.json locust/locust-operator/eks-role-policy-${LOCUST_EKS_ROLE}.json
+    sed -i='' 's|${BUCKET_NAME}|'$BUCKET_NAME'|g' locust/locust-operator/eks-role-policy-${LOCUST_EKS_ROLE}.json
+    sed -i='' 's|${KMS_ARN}|'$KMS_ARN'|g' locust/locust-operator/eks-role-policy-${LOCUST_EKS_ROLE}.json
+    aws iam put-role-policy --role-name "$LOCUST_EKS_ROLE" --policy-name "LocustCustomPolicy" --policy-document "file://locust/locust-operator/eks-role-policy-${LOCUST_EKS_ROLE}.json"
+    rm ./locust/locust-operator/*=
 fi
 
 echo "==============================================="
@@ -131,9 +134,22 @@ sed -i='' 's|${CLUSTER_NAME}|'$CLUSTER_NAME'|g' examples/load-test-pvc-reuse.yam
 sed -i='' 's|${ECR_URL}|'$ECR_URL'|g' examples/load-test-pvc-reuse.yaml
 sed -i='' 's|${REGION}|'$AWS_REGION'|g' examples/load-test-pvc-reuse.yaml
 sed -i='' 's|${JOB_SCRIPT_NAME}|'$JOB_SCRIPT_NAME'|g' examples/load-test-pvc-reuse.yaml
+rm examples/*=
 
 echo "=============================================================="
-echo "Example: You can trigger a scale test via the Locust Operator (with 2 workers, each of which creates 5 namespaces/VCs)"
+echo "Example_1: Trigger a scale test locally via the locust CLI (with 1 test user)"
+echo "cd load-test-for-emr-on-eks"
+echo "python -m venv .venv"
+echo "source .venv/bin/activate"
+echo "sudo pip install -r locust/requirements.txt"
+echo "source env.sh"
+echo "locust -f locust/locustfiles/locustfile.py --run-time=2m --users=1 --spawn-rate=.5"
+echo "--job-azs '[\"${AWS_REGION}a\",\"${AWS_REGION}b\"]' "
+echo "--job-ns-count 1 "
+echo "--skip-log-setup "
+echo "--headless"
+echo "\n"
+echo "Example_2: Trigger a scale test via the Locust Operator (with 2 workers, each of which creates 5 namespaces/VCs)"
 echo "kubectl apply -f examples/load-test-pvc-reuse.yaml"
 echo "check summarized test metrics via this command:"
 echo "kubectl logs -f -n locust -l locust.cloud/component=master"

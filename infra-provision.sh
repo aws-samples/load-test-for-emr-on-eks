@@ -48,6 +48,7 @@ if ! aws eks describe-cluster --name ${CLUSTER_NAME} --region ${AWS_REGION} >/de
     eksctl create cluster -f ./resources/eks-cluster-values-${CLUSTER_NAME}.yaml
     aws eks update-kubeconfig  --region ${AWS_REGION} --name ${CLUSTER_NAME}
 fi
+rm ./resources/*.yaml=
 
 echo "==============================================="
 echo " 3. Get OIDC ......"
