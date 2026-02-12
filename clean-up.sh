@@ -110,6 +110,9 @@ for role in $iam_roles; do
     aws iam delete-role --role-name "$role"
 done
 
+echo "Deleting spark execution policy: $EXECUTION_ROLE_POLICY"
+EXECUTION_ROLE_POLICY_ARN=$(aws iam list-policies --scope Local --query "Policies[?PolicyName=='$EXECUTION_ROLE_POLICY'].Arn" --output text)
+aws iam delete-policy --policy-arn $EXECUTION_ROLE_POLICY_ARN
 
 # Delete Karpenter resources for Interruption handler
 stacks=$(aws cloudformation list-stacks \
