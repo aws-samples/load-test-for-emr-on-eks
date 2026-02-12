@@ -11,7 +11,7 @@ echo "Checking required environment variables..."
 REQUIRED_VARS=(
     "AWS_REGION"
     "CLUSTER_NAME"
-    "LOCUST_EKS_ROLE",
+    "LOCUST_EKS_ROLE"
     "JOB_SCRIPT_NAME"
 )
 for VAR in "${REQUIRED_VARS[@]}"; do
@@ -29,8 +29,8 @@ echo " 1. Setup Locust IRSA role ......"
 echo "==============================================="
 
 echo "Create Locust IRSA role"
-KMS_ARN=$(aws kms describe-key --key-id arn:aws:kms:$AWS_REGION:$ACCOUNT_ID:alias/${CMK_ALIAS} --query 'KeyMetadata.Arn' --output text)
-OIDC_PROVIDER=$(aws eks describe-cluster --name $CLUSTER_NAME --query "cluster.identity.oidc.issuer" --output text | sed -e "s/^https:\/\///")
+KMS_ARN=$(aws kms describe-key --key-id arn:aws:kms:$AWS_REGION:$ACCOUNT_ID:alias/${CMK_ALIAS} --query 'KeyMetadata.Arn' --region $AWS_REGION --output text)
+OIDC_PROVIDER=$(aws eks describe-cluster --name $CLUSTER_NAME --query "cluster.identity.oidc.issuer" --region $AWS_REGION --output text | sed -e "s/^https:\/\///")
 if aws iam get-role --role-name $LOCUST_EKS_ROLE >/dev/null 2>&1; then
     echo "Role ${LOCUST_EKS_ROLE} already exists"
 else
