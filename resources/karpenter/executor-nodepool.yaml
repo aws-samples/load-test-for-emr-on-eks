@@ -4,8 +4,13 @@ metadata:
   name: executor-memorynodepool
 spec:
   disruption:
-    consolidateAfter: 1m
+    consolidateAfter: 5m
     consolidationPolicy: WhenEmptyOrUnderutilized
+    budgets:
+    - nodes: "100%"             
+      reasons: [Empty]
+    - nodes: "25%" # greater stability, less disruption during a job run
+      reasons: [Underutilized]
   limits:
     # Upto 215 nodes and 1700 Executor pods for the lab purpose
     cpu: "3440"

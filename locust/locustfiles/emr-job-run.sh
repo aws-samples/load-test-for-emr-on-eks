@@ -37,7 +37,7 @@ aws emr-containers start-job-run \
           "spark.shuffle.io.maxRetries": "5",
           "spark.hadoop.fs.s3.maxConnections": "200",
           "spark.hadoop.fs.s3.maxRetries": "30",
-          "spark.scheduler.minRegisteredResourcesRatio": "1.0", 
+          "spark.scheduler.minRegisteredResourcesRatio": "0.6",
           "spark.scheduler.maxRegisteredResourcesWaitingTime": "1800s",
           
           "spark.kubernetes.executor.node.selector.karpenter.sh/nodepool": "executor-memorynodepool",

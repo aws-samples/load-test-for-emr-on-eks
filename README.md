@@ -167,9 +167,9 @@ The following parameters are available to adjust before running the Locust CLI:
 # --job-ns-count, Default: 2 namespaces. Total number of namespaces/VCs that jobs will be submitted to.
 
 cd load-test-for-emr-on-eks
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
-sudo pip install -r locust/requirements.txt
+pip3 install -r locust/requirements.txt
 source env.sh
 
 locust -f locust/locustfiles/locustfile.py --run-time=2m --users=2 --spawn-rate=.5 \
