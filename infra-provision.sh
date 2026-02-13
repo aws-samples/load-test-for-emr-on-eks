@@ -186,7 +186,9 @@ else
               ],
             "Resource": [
                 "arn:aws:s3:::${BUCKET_NAME}",
-                "arn:aws:s3:::${BUCKET_NAME}/*"
+                "arn:aws:s3:::${BUCKET_NAME}/*",
+                "arn:aws:s3:::blogpost-sparkoneks-us-east-1",
+                "arn:aws:s3:::blogpost-sparkoneks-us-east-1/*"
             ]
         },
 		{
@@ -201,6 +203,7 @@ else
     ]
 }
 EOF
+
     aws iam create-policy --policy-name ${EXECUTION_ROLE_POLICY} --policy-document file:///tmp/spark-job-s3-policy.json
 fi
 
@@ -218,6 +221,18 @@ else
         "Service": "eks.amazonaws.com"
       },
       "Action": "sts:AssumeRole"
+    },
+    {
+        "Effect": "Allow",
+        "Principal": {
+            "Federated": "arn:aws:iam::${ACCOUNT_ID}:oidc-provider/${OIDC_PROVIDER}"
+        },
+        "Action": "sts:AssumeRoleWithWebIdentity",
+        "Condition": {
+            "StringLike": {
+                "${OIDC_PROVIDER}:sub": "system:serviceaccount:*:emr-containers-sa-*-*-${ACCOUNT_ID}-*"
+            }
+        }
     }
   ]
 }
