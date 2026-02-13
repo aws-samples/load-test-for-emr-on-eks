@@ -181,8 +181,8 @@ else
                 "s3:ListBucket"
               ],
             "Resource": [
-                "arn:aws:s3:::${BUCKET_NAME}",
-                "arn:aws:s3:::${BUCKET_NAME}/*"
+                "arn:aws:s3:::${BUCKET_NAME}*",
+                "arn:aws:s3:::blogpost-sparkoneks-us-east-1*"
             ]
         },
 		{
@@ -200,7 +200,7 @@ EOF
     aws iam create-policy --policy-name ${EXECUTION_ROLE_POLICY} --policy-document file:///tmp/spark-job-s3-policy.json
 fi
 
-if aws iam get-role --role-name "$EXECUTION_ROLE" 2>/dev/null; then
+if aws iam get-role --role-name "$EXECUTION_ROLE" >/dev/null 2>&1; then
     echo "IAM role ${EXECUTION_ROLE} already exists"
 else
     echo "Creating IAM role ${EXECUTION_ROLE}..."
@@ -214,6 +214,17 @@ else
         "Service": "eks.amazonaws.com"
       },
       "Action": "sts:AssumeRole"
+    },
+    {
+    "Effect": "Allow",
+    "Principal": {
+        "Federated": "arn:aws:iam::${ACCOUNT_ID}:oidc-provider/${OIDC_PROVIDER}"
+    },
+    "Action": "sts:AssumeRoleWithWebIdentity",
+    "Condition": {
+        "StringLike": {
+            "${OIDC_PROVIDER}:sub": "system:serviceaccount:*:emr-containers-sa-*-*-${ACCOUNT_ID}-*"
+        }
     }
   ]
 }
@@ -275,6 +286,46 @@ aws cloudformation deploy \
   --parameter-overrides "ClusterName=${CLUSTER_NAME}" \
   --region $AWS_REGION
 
+# Encrypt all EBS volumes when Karpenter provisions nodes
+echo "Creating EBS encryption policy ${EBS_POLICY_NAME} for Karpenter Controller Role"
+EBS_POLICY_NAME=KarpenterEBSEncryptionPolicy-${CLUSTER_NAME}
+if [ -n "$(aws iam list-policies --scope Local --query "Policies[?PolicyName=='${EBS_POLICY_NAME}'].Arn" --output text)" ]; then
+    echo "Policy ${EBS_POLICY_NAME} already exists"
+else
+    cat <<EOF > /tmp/ebs-encryption-policy.json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "kms:CreateGrant",
+                "kms:Decrypt",
+                "kms:DescribeKey",
+                "kms:Encrypt",
+                "kms:GenerateDataKey",
+                "kms:GenerateDataKeyWithoutPlaintext",
+                "kms:ReEncrypt*"
+            ],
+            "Resource": "*",
+            "Condition": {
+                "StringEquals": {
+                    "kms:ViaService": [
+                        "ec2.${AWS_REGION}.amazonaws.com"
+                    ]
+                }
+            }
+        }
+    ]
+}
+EOF
+    aws iam create-policy --policy-name "${EBS_POLICY_NAME}" \
+      --policy-document file:///tmp/ebs-encryption-policy.json \
+      --query 'Policy.Arn' \
+      --output text
+    rm -f /tmp/ebs-encryption-policy.json  
+fi
+
 echo "Create Karpenter controller role"
 if aws iam get-role --role-name "${KARPENTER_CONTROLLER_ROLE}" >/dev/null 2>&1; then
     echo "Role ${KARPENTER_CONTROLLER_ROLE} already exists"
@@ -300,6 +351,7 @@ else
 EOF
     aws iam create-role --role-name "${KARPENTER_CONTROLLER_ROLE}" --assume-role-policy-document file:///tmp/controller-trust.json
     aws iam attach-role-policy --role-name "${KARPENTER_CONTROLLER_ROLE}" --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${KARPENTER_CONTROLLER_POLICY}"
+    aws iam attach-role-policy --role-name "${KARPENTER_CONTROLLER_ROLE}" --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${EBS_POLICY_NAME}"
 fi
 
 cho "=============================================================================================================="
@@ -347,7 +399,7 @@ helm template karpenter oci://public.ecr.aws/karpenter/karpenter --version "${KA
     --set webhook.serviceName="karpenter" \
     --set webhook.port=8443 > ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml
 # run Karpenter pods on a managed nodegroup
-export NG=$(aws eks list-nodegroups --cluster-name $CLUSTER_NAME --output json | jq -r '.nodegroups[0]')
+export NG=$(aws eks list-nodegroups --cluster-name $CLUSTER_NAME --region $AWS_REGION --output json | jq -r '.nodegroups[0]')
 sed -i='' '/operator: DoesNotExist/a\
               - key: eks.amazonaws.com/nodegroup\
                 operator: In\
