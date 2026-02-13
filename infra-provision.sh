@@ -71,6 +71,57 @@ echo "Patching existing EBS CSI driver for large scale API calls..."
 bash ./resources/ebs/patch_csi-controller.sh
 bash ./resources/ebs/patch_csi-node-daemonset.sh
 
+echo "Adding KMS permissions to EBS CSI driver IAM role for encrypted volumes..."
+# Get the EBS CSI driver IAM role name
+EBS_CSI_ROLE=$(aws iam list-roles --query "Roles[?contains(RoleName, '${CLUSTER_NAME}') && contains(RoleName, 'ebs-csi')].RoleName" --output text | head -1)
+if [ -z "$EBS_CSI_ROLE" ]; then
+    echo "Warning: Could not find EBS CSI driver IAM role. Skipping KMS policy attachment."
+else
+    echo "Found EBS CSI driver role: $EBS_CSI_ROLE"
+    
+    # Create KMS policy for EBS CSI driver
+    cat <<EOF > /tmp/ebs-csi-kms-policy.json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "kms:CreateGrant",
+        "kms:ListGrants",
+        "kms:RevokeGrant"
+      ],
+      "Resource": ["arn:aws:kms:${AWS_REGION}:${ACCOUNT_ID}:key/*"],
+      "Condition": {
+        "Bool": {
+          "kms:GrantIsForAWSResource": "true"
+        }
+      }
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "kms:Encrypt",
+        "kms:Decrypt",
+        "kms:ReEncrypt*",
+        "kms:GenerateDataKey*",
+        "kms:DescribeKey"
+      ],
+      "Resource": ["arn:aws:kms:${AWS_REGION}:${ACCOUNT_ID}:key/*"]
+    }
+  ]
+}
+EOF
+    
+    # Attach the KMS policy to the EBS CSI driver role
+    aws iam put-role-policy \
+        --role-name "$EBS_CSI_ROLE" \
+        --policy-name EBS-CSI-KMS-Policy \
+        --policy-document file:///tmp/ebs-csi-kms-policy.json
+    
+    echo "KMS policy attached to EBS CSI driver role successfully."
+fi
+
 # echo "[OPTIONAL] Enable EBS controller Metrics for monitoring..."
 # aws eks update-addon --cluster-name ${CLUSTER_NAME} \
 # --addon-name aws-ebs-csi-driver --resolve-conflicts OVERWRITE   \
@@ -247,23 +298,23 @@ echo "==============================================="
 echo "Setup Prometheus"
 kubectl create ns prometheus || true
 # SA name and IRSA role were created at EKS cluster creation time
-amp=$(aws amp list-workspaces --query "workspaces[?alias=='$CLUSTER_NAME'].workspaceId" --output text)
-if [ -z "$amp" ]; then
-    echo "Creating a new prometheus workspace..."
-    export WORKSPACE_ID=$(aws amp create-workspace --alias $CLUSTER_NAME --query workspaceId --output text)
-else
-    echo "A prometheus workspace already exists"
-    export WORKSPACE_ID=$amp
-fi
+# amp=$(aws amp list-workspaces --query "workspaces[?alias=='$CLUSTER_NAME'].workspaceId" --output text)
+# if [ -z "$amp" ]; then
+#     echo "Creating a new prometheus workspace..."
+#     export WORKSPACE_ID=$(aws amp create-workspace --alias $CLUSTER_NAME --query workspaceId --output text)
+# else
+#     echo "A prometheus workspace already exists"
+#     export WORKSPACE_ID=$amp
+# fi
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm repo add kube-state-metrics https://kubernetes.github.io/kube-state-metrics
 helm repo update
 
 cp ./resources/monitor/prometheus-values.yaml ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
-sed -i -- 's/{AWS_REGION}/'$AWS_REGION'/g'  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
-sed -i -- 's/{ACCOUNTID}/'$ACCOUNT_ID'/g'  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
-sed -i -- 's/{WORKSPACE_ID}/'$WORKSPACE_ID'/g'  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
-sed -i -- 's/{CLUSTER_NAME}/'$CLUSTER_NAME'/g'  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
+# sed -i -- 's/{AWS_REGION}/'$AWS_REGION'/g'  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
+# sed -i -- 's/{ACCOUNTID}/'$ACCOUNT_ID'/g'  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
+# sed -i -- 's/{WORKSPACE_ID}/'$WORKSPACE_ID'/g'  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
+# sed -i -- 's/{CLUSTER_NAME}/'$CLUSTER_NAME'/g'  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
 helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n prometheus -f  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml --debug
 # validate in a web browser - localhost:9090, go to menu of status->targets
 # kubectl --namespace prometheus port-forward service/prometheus-kube-prometheus-prometheus 9090
@@ -271,15 +322,15 @@ helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n 
 # Install metrics server
 kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
 
-echo "========================================================="
-echo " 13. Set up Prometheus ServiceMonitor and PodMonitor ......"
-echo "========================================================="
-echo "Create Prometheus service monitor and pod monitor"
-# kubectl apply -f ./resources/monitor/spark-podmonitor.yaml
-kubectl apply -f ./resources/monitor/karpenter-svcmonitor.yaml
-kubectl apply -f ./resources/monitor/aws-cni-podmonitor.yaml
-# kubectl apply -f ./resources/monitor/ebs-csi-controller-svcmonitor.yaml
-kubectl apply -f ./resources/monitor/locust-podmonitor.yaml
+# echo "========================================================="
+# echo " 13. Set up Prometheus ServiceMonitor and PodMonitor ......"
+# echo "========================================================="
+# echo "Create Prometheus service monitor and pod monitor"
+# # kubectl apply -f ./resources/monitor/spark-podmonitor.yaml
+# kubectl apply -f ./resources/monitor/karpenter-svcmonitor.yaml
+# kubectl apply -f ./resources/monitor/aws-cni-podmonitor.yaml
+# # kubectl apply -f ./resources/monitor/ebs-csi-controller-svcmonitor.yaml
+# kubectl apply -f ./resources/monitor/locust-podmonitor.yaml
 
 # echo "================================================================================================================"
 # echo " Ref to https://karpenter.sh/v1.8/reference/cloudformation/"
