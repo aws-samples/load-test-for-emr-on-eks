@@ -172,7 +172,7 @@ source .venv/bin/activate
 pip3 install -r locust/requirements.txt
 source env.sh
 
-locust -f locust/locustfiles/locustfile.py --run-time=2m --users=2 --spawn-rate=.5 \
+locust -f locust/locustfiles/locustfile.py --run-time=5m --users=1 --spawn-rate=.5 \
 --job-azs '["us-west-2a","us-west-2b"]' \
 --job-ns-count 1 \
 --skip-log-setup \

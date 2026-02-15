@@ -56,7 +56,7 @@ else
             "Action": "sts:AssumeRoleWithWebIdentity",
             "Condition": {
                 "StringEquals": {
-                    "${OIDC_PROVIDER}:sub": "system:serviceaccount::locust:locust-operator"
+                    "${OIDC_PROVIDER}:sub": "system:serviceaccount:locust:locust-operator"
                 }
             }
         },
@@ -68,21 +68,21 @@ else
             "Action": "sts:AssumeRoleWithWebIdentity",
             "Condition": {
                 "StringEquals": {
-                    "${OIDC_PROVIDER}:sub": "system:serviceaccount::locust:default"
+                    "${OIDC_PROVIDER}:sub": "system:serviceaccount:locust:default"
                 }
             }
         }
     ]
 }
 EOF
-    aws iam create-role --role-name ${LOCUST_EKS_ROLE} --assume-role-policy-document "file:///tmp/locust-trust.json"
+    locust_role=$(aws iam create-role --role-name ${LOCUST_EKS_ROLE} --assume-role-policy-document "file:///tmp/locust-trust.json")
     aws iam attach-role-policy --role-name "${LOCUST_EKS_ROLE}" --policy-arn "arn:aws:iam::aws:policy/AmazonEKSServicePolicy"
     aws iam attach-role-policy --role-name "${LOCUST_EKS_ROLE}" --policy-arn "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
 
-    cp locust/locust-operator/eks-role-policy.json locust/locust-operator/eks-role-policy-${LOCUST_EKS_ROLE}.json
-    sed -i='' 's|${BUCKET_NAME}|'$BUCKET_NAME'|g' locust/locust-operator/eks-role-policy-${LOCUST_EKS_ROLE}.json
-    sed -i='' 's|${KMS_ARN}|'$KMS_ARN'|g' locust/locust-operator/eks-role-policy-${LOCUST_EKS_ROLE}.json
-    aws iam put-role-policy --role-name "$LOCUST_EKS_ROLE" --policy-name "LocustCustomPolicy" --policy-document "file://locust/locust-operator/eks-role-policy-${LOCUST_EKS_ROLE}.json"
+    cp locust/locust-operator/eks-role-policy.json locust/locust-operator/eks-role-policy-${CLUSTER_NAME}.json
+    sed -i='' 's|${BUCKET_NAME}|'$BUCKET_NAME'|g' locust/locust-operator/eks-role-policy-${CLUSTER_NAME}.json
+    sed -i='' 's|${KMS_ARN}|'$KMS_ARN'|g' locust/locust-operator/eks-role-policy-${CLUSTER_NAME}.json
+    aws iam put-role-policy --role-name "$LOCUST_EKS_ROLE" --policy-name "LocustCustomPolicy" --policy-document "file://locust/locust-operator/eks-role-policy-${CLUSTER_NAME}.json"
     rm ./locust/locust-operator/*=
 fi
 

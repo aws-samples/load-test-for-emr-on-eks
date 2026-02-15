@@ -30,7 +30,7 @@ aws emr-containers start-job-run \
         "classification": "spark-defaults", 
         "properties": {
           "spark.kubernetes.container.image.pullPolicy": "IfNotPresent",
-          "spark.kubernetes.container.image": "public.ecr.aws/myang-poc/eks-spark-benchmark:emr7.9.0",
+          "spark.kubernetes.container.image": "'$ECR_URL'/eks-spark-benchmark:emr7.9.0",
           "spark.network.timeout": "3600s",
           "spark.executor.heartbeatInterval": "1800s",
           "spark.shuffle.io.retryWait": "60s",
