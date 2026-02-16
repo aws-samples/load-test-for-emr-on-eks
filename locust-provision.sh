@@ -85,6 +85,7 @@ EOF
     aws iam put-role-policy --role-name "$LOCUST_EKS_ROLE" --policy-name "LocustCustomPolicy" --policy-document "file://locust/locust-operator/eks-role-policy-${CLUSTER_NAME}.json"
     rm ./locust/locust-operator/*=
 fi
+sleep 5 # wait for the role to be fully propagated before proceeding
 
 echo "==============================================="
 echo " 2. Install Locust Operator to EKS ......"

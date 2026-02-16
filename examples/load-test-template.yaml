@@ -1,7 +1,7 @@
 apiVersion: locust.cloud/v1
 kind: LocustTest
 metadata:
-  name: pvc-reuse-${CLUSTER_NAME}
+  name: tpcds-job-${CLUSTER_NAME}
   namespace: locust
 spec:
   # use a custom image due to additional dependencies
@@ -24,8 +24,8 @@ spec:
   args:
     -f /home/locust/locustfile.py
     --job-azs '["${REGION}a","${REGION}b"]'
-    --run-time=60m
-    --users=300
+    --run-time=10m
+    --users=4
     --spawn-rate=2
     --skip-log-setup
     --headless
