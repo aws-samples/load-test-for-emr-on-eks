@@ -403,11 +403,10 @@ else
     # change if needed, based on lab participants' requirements
     export EMR_VERSIONS=("6.10.0" "7.3.0" "7.9.0")
     for version in "${EMR_VERSIONS[@]}"; do
-        echo "Pull the image eks-spark-benchmark:emr${version}..."
-        docker pull $SRC_ECR_URL/myang-poc/eks-spark-benchmark:emr${version}
-        docker tag "$SRC_ECR_URL/myang-poc/eks-spark-benchmark:emr${version}" "$ECR_URL/eks-spark-benchmark:emr${version}"
-        docker push $ECR_URL/eks-spark-benchmark:emr${version}
-        echo "Pushed $ECR_URL/eks-spark-benchmark:emr${version}"
+        docker buildx imagetools create \
+            --tag "$ECR_URL/eks-spark-benchmark:emr${version}" \
+            "$SRC_ECR_URL/myang-poc/eks-spark-benchmark:emr${version}"
+        echo "Copied $ECR_URL/eks-spark-benchmark:emr${version} with all architectures"        
     done
 fi
 echo "Infrastructure provision is completed."

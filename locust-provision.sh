@@ -129,12 +129,12 @@ kubectl create configmap emr-loadtest-locustfile -n locust --from-file=locust/lo
 
 # prepare for a load test as an example
 source env.sh
-cp examples/load-test-template.yaml examples/load-test-pvc-reuse.yaml
+cp examples/load-test-template.yaml examples/load-test-on-eks-${CLUSTER_NAME}.yaml
 export ECR_URL=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
-sed -i='' 's|${CLUSTER_NAME}|'$CLUSTER_NAME'|g' examples/load-test-pvc-reuse.yaml
-sed -i='' 's|${ECR_URL}|'$ECR_URL'|g' examples/load-test-pvc-reuse.yaml
-sed -i='' 's|${REGION}|'$AWS_REGION'|g' examples/load-test-pvc-reuse.yaml
-sed -i='' 's|${JOB_SCRIPT_NAME}|'$JOB_SCRIPT_NAME'|g' examples/load-test-pvc-reuse.yaml
+sed -i='' 's|${CLUSTER_NAME}|'$CLUSTER_NAME'|g' examples/load-test-on-eks-${CLUSTER_NAME}.yaml
+sed -i='' 's|${ECR_URL}|'$ECR_URL'|g' examples/load-test-on-eks-${CLUSTER_NAME}.yaml
+sed -i='' 's|${REGION}|'$AWS_REGION'|g' examples/load-test-on-eks-${CLUSTER_NAME}.yaml
+sed -i='' 's|${JOB_SCRIPT_NAME}|'$JOB_SCRIPT_NAME'|g' examples/load-test-on-eks-${CLUSTER_NAME}.yaml
 rm examples/*=
 
 echo "=============================================================="
@@ -151,7 +151,7 @@ echo "--skip-log-setup "
 echo "--headless"
 echo "\n"
 echo "Example_2: Trigger a scale test via the Locust Operator (with 2 workers, each of which creates 5 namespaces/VCs)"
-echo "kubectl apply -f examples/load-test-pvc-reuse.yaml"
+echo "kubectl apply -f examples/load-test-on-eks-${CLUSTER_NAME}.yaml"
 echo "check summarized test metrics via this command:"
 echo "kubectl logs -f -n locust -l locust.cloud/component=master"
 echo "=============================================================="

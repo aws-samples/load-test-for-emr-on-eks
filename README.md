@@ -199,7 +199,7 @@ Locust Operator supports distributed load testing. By default, it fires up load 
 Update the Locust test CRD manifest file with actual environment attributes, then start the load test from an EKS cluster:
 ```bash
 cd load-test-for-emr-on-eks
-kubectl apply -f examples/load-test-pvc-reuse.yaml
+kubectl apply -f examples/load-test-on-eks.yaml
 
 # check summarized load test metrics at master node
 kubectl logs -f -n locust -l locust.cloud/component=master
