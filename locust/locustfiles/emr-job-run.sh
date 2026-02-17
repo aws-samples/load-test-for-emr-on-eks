@@ -16,7 +16,7 @@ export KMS_ARN=$(aws kms describe-key --key-id arn:aws:kms:${AWS_REGION}:${ACCOU
 
 aws emr-containers start-job-run \
 --virtual-cluster-id $VIRTUAL_CLUSTER_ID \
---name $JOB_UNIQUE_ID-tpcds-job \
+--name $JOB_UNIQUE_ID-$EMR_IMAGE_VERSION \
 --execution-role-arn $EMR_ROLE_ARN \
 --release-label $EMR_VERSION \
 --job-driver '{
@@ -30,7 +30,7 @@ aws emr-containers start-job-run \
         "classification": "spark-defaults", 
         "properties": {
           "spark.kubernetes.container.image.pullPolicy": "IfNotPresent",
-          "spark.kubernetes.container.image": "'$ECR_URL'/eks-spark-benchmark:emr7.9.0",
+          "spark.kubernetes.container.image": "'$ECR_URL'/eks-spark-benchmark:emr'$EMR_IMAGE_VERSION'",
           "spark.network.timeout": "3600s",
           "spark.executor.heartbeatInterval": "1800s",
           "spark.shuffle.io.retryWait": "60s",

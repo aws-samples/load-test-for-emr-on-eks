@@ -207,6 +207,17 @@ kubectl logs -f -n locust -l locust.cloud/component=master
 kubectl logs -f -n locust -l locust.cloud/component=worker
 ```
 
+If need to rerun the test with modified emr-job-run.sh, or EMR versions, remove the Locust operator and configmap first:
+```bash
+kubectl delete -f examples/load-test-pvc-reuse.yaml
+kubectl delete configmap emr-loadtest-locustfile -n locust
+```
+Then rerun
+```bash
+kubectl create configmap emr-loadtest-locustfile -n locust --from-file=locust/locustfiles
+kubectl apply -f examples/load-test-pvc-reuse.yaml
+```
+
 <!-- ```bash
 # access to Locust WebUI: http://localhost:8089/
 kubectl port-forward svc/pvc-reuse-cluster-10-webui -n locust 8089
@@ -412,7 +423,7 @@ In our tests, the following configurations provide the fastest EC2 startup speed
 
 ## Monitoring
 
-We have built insightful monitoring dashboards for the load test, with [Amazon Managed Prometheus](https://aws.amazon.com/prometheus/) and [Amazon Managed Grafana](https://aws.amazon.com/grafana/) set up in `infra-provision.sh` by default.
+We have built insightful monitoring dashboards for the load test. In this lab, we have pre-installed a Community Prometheus stack with build-in Grafana enabled, which is set up in `infra-provision.sh` by default.
 
 <table align="center">
   <tr>
@@ -437,51 +448,16 @@ We have built insightful monitoring dashboards for the load test, with [Amazon M
   </tr>
 </table>
 
-### 1. Observe Load Testing with Amazon Managed Prometheus and Amazon Managed Grafana
-
-#### 1.1 Set up AMP & AMG
-Please be aware that `./infra-provision.sh` includes Amazon Managed Prometheus setup by default. Please follow the guidance below to set up Amazon Managed Grafana:
-<details>
-<summary>Steps to install Amazon Managed Grafana</summary>
-
-- In `./env.sh`, keep the default value as shown below, which creates an AMG workspace automatically:
+### 1. Login to Grafana Dashboard
 ```bash
-export USE_AMG="true"
+gf_url=$(kubectl get ingress prometheus-grafana -n prometheus -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+gf_secret=$(kubectl --namespace prometheus get secrets prometheus-grafana -o jsonpath="{.data.admin-password}" | base64 -d ; echo)
+echo "=================================="
+echo "Grafana Login URL: ${gf_url}"
+echo "Login User: admin"
+echo "Login secret: ${gf_secret}"
+echo "=================================="
 ```
-If you do not have IAM Identity Center (IDC) enabled in your test region and AWS account, follow the instructions [here](https://docs.aws.amazon.com/databrew/latest/dg/sso-setup.html) to create one.
-
-- Set up access for Amazon Grafana:
-    - Access the AWS console → search "Amazon Grafana" → click the three-line icon at the top left of the page → choose "All workspaces"
-    - Click on the workspace name, which matches the `CLUSTER_NAME` value
-    - From the Authentication tab → click "Assign new user or group"
-    - Select your account → click "Assign Users and groups"
-    - Select your account again → click "Action" → "Make admin"
-    - Finally, find the "Grafana workspace URL" from the workspace detail page → click on the URL
-
-- Sign in to the Grafana UI via IAM Identity Center access
-- Set up Amazon Managed Prometheus as a data source:
-    - Navigate to Apps → Amazon Data Sources → `Amazon Managed Service for Prometheus`
-    - Select the `region` aligned with your load test region, e.g., `us-west-2`
-    - Select the region then click "Add data source"
-    - Click `Go to Settings`, scroll down to the bottom and click `Save & test` to verify the connection
-
-- Import pre-built Grafana dashboard templates:
-    - Navigate to the `Dashboards` side menu, hit the "New" button → choose `Import` from the dropdown list
-    - You can either use "file upload" or "Copy & Paste" approaches to import the raw content of `./grafana/dashboard-template/spark-operator-dashboard.json`, then click `Load`
-    - Select your data source, which aligns with the AMP connection set up previously, e.g., `Prometheus ws-xxxx.....`
-    - Repeat the above steps to import the rest of the templates under the directory: `./grafana/dashboard-template/`
-
-Please be aware that the following charts are not working by default, which is expected because `kubelet` generates a large volume of metrics and will significantly boost Prometheus memory usage:
-- Prometheus Kubelet Metrics Series Count
-- Spark Operator Pod CPU Core Usage
-
-If you want to enable them, update `./resources/monitor/prometheus-values.yaml` as follows:
-```yaml
-kubelet:
-  enabled: true
-```
-
-</details>
 
 [^ back to top](#table-of-contents)
 

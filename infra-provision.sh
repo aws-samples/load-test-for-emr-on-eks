@@ -55,7 +55,6 @@ echo " 3. Get OIDC ......"
 echo "==============================================="
 echo "Get OIDC"
 OIDC_PROVIDER=$(aws eks describe-cluster --name $CLUSTER_NAME --query "cluster.identity.oidc.issuer" --output text | sed -e "s/^https:\/\///")
-# eksctl utils associate-iam-oidc-provider --cluster $CLUSTER_NAME --approve
 echo $OIDC_PROVIDER
 
 echo "==============================================="
@@ -297,24 +296,16 @@ echo " 12. Setup Prometheus ......"
 echo "==============================================="
 echo "Setup Prometheus"
 kubectl create ns prometheus || true
-# SA name and IRSA role were created at EKS cluster creation time
-# amp=$(aws amp list-workspaces --query "workspaces[?alias=='$CLUSTER_NAME'].workspaceId" --output text)
-# if [ -z "$amp" ]; then
-#     echo "Creating a new prometheus workspace..."
-#     export WORKSPACE_ID=$(aws amp create-workspace --alias $CLUSTER_NAME --query workspaceId --output text)
-# else
-#     echo "A prometheus workspace already exists"
-#     export WORKSPACE_ID=$amp
-# fi
+
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm repo add kube-state-metrics https://kubernetes.github.io/kube-state-metrics
 helm repo update
 
 cp ./resources/monitor/prometheus-values.yaml ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
+sed -i -- 's/{ACCOUNTID}/'$ACCOUNT_ID'/g'  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
+sed -i -- 's/{CLUSTER_NAME}/'$CLUSTER_NAME'/g'  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
 # sed -i -- 's/{AWS_REGION}/'$AWS_REGION'/g'  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
-# sed -i -- 's/{ACCOUNTID}/'$ACCOUNT_ID'/g'  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
 # sed -i -- 's/{WORKSPACE_ID}/'$WORKSPACE_ID'/g'  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
-# sed -i -- 's/{CLUSTER_NAME}/'$CLUSTER_NAME'/g'  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
 helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n prometheus -f  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml --debug
 # validate in a web browser - localhost:9090, go to menu of status->targets
 # kubectl --namespace prometheus port-forward service/prometheus-kube-prometheus-prometheus 9090
@@ -327,10 +318,10 @@ kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/late
 # echo "========================================================="
 # echo "Create Prometheus service monitor and pod monitor"
 # # kubectl apply -f ./resources/monitor/spark-podmonitor.yaml
-# kubectl apply -f ./resources/monitor/karpenter-svcmonitor.yaml
-# kubectl apply -f ./resources/monitor/aws-cni-podmonitor.yaml
+kubectl apply -f ./resources/monitor/karpenter-svcmonitor.yaml
+kubectl apply -f ./resources/monitor/aws-cni-podmonitor.yaml
 # # kubectl apply -f ./resources/monitor/ebs-csi-controller-svcmonitor.yaml
-# kubectl apply -f ./resources/monitor/locust-podmonitor.yaml
+kubectl apply -f ./resources/monitor/locust-podmonitor.yaml
 
 # echo "==================================================="
 # echo " 18. Set up Amazon Managed Grafana if required ......"
