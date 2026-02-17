@@ -103,10 +103,10 @@ class EMRJobUser(User):
             env.update({
                 'CLUSTER_NAME': EKS_CLUSTER_NAME,
                 'VIRTUAL_CLUSTER_ID': virtual_cluster_id,
-                'METRICS_PORT': str(metrics_port),
                 'AWS_REGION': REGION,
                 'JOB_UNIQUE_ID': job_unique_id,
-                'SELECTED_AZ': selected_az
+                'SELECTED_AZ': selected_az,
+                'EMR_IMAGE_VERSION': str(environ["EMR_IMAGE_VERSION"])
             })
 
             result = subprocess.run(['sh', script_path],env=env,

@@ -15,6 +15,8 @@ spec:
     value: ${REGION}
   - name: CLUSTER_NAME
     value: ${CLUSTER_NAME}
+  - name: EMR_IMAGE_VERSION
+    value: ${EMR_IMAGE_VERSION}
   - name: METRICS_PORT
     value: "8000"
   - name: JOB_SCRIPT_NAME

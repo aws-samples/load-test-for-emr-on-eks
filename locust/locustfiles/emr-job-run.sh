@@ -11,7 +11,7 @@ export EMR_ROLE_ARN="arn:aws:iam::$ACCOUNTID:role/$SHARED_PREFIX_NAME-execution-
 export S3BUCKET="${SHARED_PREFIX_NAME}-${ACCOUNTID}-${AWS_REGION}"
 export ECR_URL="${ACCOUNTID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 export EMR_VERSION="emr-${EMR_IMAGE_VERSION:-"7.9.0"}-latest"
-export SELECTED_AZ=${SELECTED_AZ:-"us-west-2a"}
+export SELECTED_AZ=${SELECTED_AZ}
 export KMS_ARN=$(aws kms describe-key --key-id arn:aws:kms:${AWS_REGION}:${ACCOUNTID}:alias/cmk_locust_pvc_reuse --query 'KeyMetadata.Arn' --output text)
 
 aws emr-containers start-job-run \
@@ -42,8 +42,8 @@ aws emr-containers start-job-run \
           
           "spark.kubernetes.executor.node.selector.karpenter.sh/nodepool": "executor-memorynodepool",
           "spark.kubernetes.driver.node.selector.karpenter.sh/nodepool": "driver-nodepool",
-          "spark.kubernetes.node.selector.topology.kubernetes.io/zone": "'$SELECTED_AZ'",
-          "spark.shuffle.sort.io.plugin.class": "org.apache.spark.shuffle.KubernetesLocalDiskShuffleDataIO",
+          "spark.kubernetes.driver.node.selector.topology.kubernetes.io/zone": "'$SELECTED_AZ'",
+          "spark.kubernetes.executor.node.selector.topology.kubernetes.io/zone": "'$SELECTED_AZ'",
 
           "spark.ui.prometheus.enabled":"true",
           "spark.executor.processTreeMetrics.enabled":"true",

@@ -135,6 +135,7 @@ sed -i='' 's|${CLUSTER_NAME}|'$CLUSTER_NAME'|g' examples/load-test-on-eks-${CLUS
 sed -i='' 's|${ECR_URL}|'$ECR_URL'|g' examples/load-test-on-eks-${CLUSTER_NAME}.yaml
 sed -i='' 's|${REGION}|'$AWS_REGION'|g' examples/load-test-on-eks-${CLUSTER_NAME}.yaml
 sed -i='' 's|${JOB_SCRIPT_NAME}|'$JOB_SCRIPT_NAME'|g' examples/load-test-on-eks-${CLUSTER_NAME}.yaml
+sed -i='' 's|${EMR_IMAGE_VERSION}|'$EMR_IMAGE_VERSION'|g' examples/load-test-on-eks-${CLUSTER_NAME}.yaml
 rm examples/*=
 
 echo "=============================================================="
