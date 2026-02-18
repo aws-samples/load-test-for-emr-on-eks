@@ -21,9 +21,6 @@ for VAR in "${REQUIRED_VARS[@]}"; do
     fi
 done
 
-# # Upload load test artifacts to s3
-# aws s3 sync ./locust/resources/ "s3://${BUCKET_NAME}/app-code/"
-
 echo "==============================================="
 echo " 1. Setup Locust IRSA role ......"
 echo "==============================================="
@@ -85,7 +82,7 @@ EOF
     aws iam put-role-policy --role-name "$LOCUST_EKS_ROLE" --policy-name "LocustCustomPolicy" --policy-document "file://locust/locust-operator/eks-role-policy-${CLUSTER_NAME}.json"
     rm ./locust/locust-operator/*=
 fi
-sleep 5 # wait for the role to be fully propagated before proceeding
+sleep 10 # wait for the role to be fully propagated before proceeding
 
 echo "==============================================="
 echo " 2. Install Locust Operator to EKS ......"
