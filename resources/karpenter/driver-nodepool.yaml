@@ -24,7 +24,7 @@ spec:
         operator: In
         # This is not a best practice, requiring a manual fix in lab2
         values: ["on-demand","spot"]
-        # this is a best practice
+        # this is the best practice
         # values: ["on-demand"]
       - key: "karpenter.k8s.aws/instance-hypervisor"
         operator: In

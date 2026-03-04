@@ -202,7 +202,7 @@ EOF
   echo "================================================================================================================"
   echo " 5. Install Karpenter via Helm Chart"
   echo "================================================================================================================"
-  helm registry logout public.ecr.aws
+  # helm registry logout public.ecr.aws
   helm template karpenter oci://public.ecr.aws/karpenter/karpenter --version "${KARPENTER_VERSION}" --namespace kube-system \
       --set "settings.clusterName=${CLUSTER_NAME}" \
       --set "settings.interruptionQueue=${CLUSTER_NAME}" \
