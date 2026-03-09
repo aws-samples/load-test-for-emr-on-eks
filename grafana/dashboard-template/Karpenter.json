@@ -1,53 +1,4 @@
 {
-  "__inputs": [
-    {
-      "name": "DS_PROMETHEUS-CLUSTER-10",
-      "label": "prometheus",
-      "description": "",
-      "type": "datasource",
-      "pluginId": "prometheus",
-      "pluginName": "Prometheus"
-    }
-  ],
-  "__elements": {},
-  "__requires": [
-    {
-      "type": "grafana",
-      "id": "grafana",
-      "name": "Grafana",
-      "version": "10.4.1"
-    },
-    {
-      "type": "panel",
-      "id": "piechart",
-      "name": "Pie chart",
-      "version": ""
-    },
-    {
-      "type": "datasource",
-      "id": "prometheus",
-      "name": "Prometheus",
-      "version": "1.0.0"
-    },
-    {
-      "type": "panel",
-      "id": "stat",
-      "name": "Stat",
-      "version": ""
-    },
-    {
-      "type": "panel",
-      "id": "table",
-      "name": "Table",
-      "version": ""
-    },
-    {
-      "type": "panel",
-      "id": "timeseries",
-      "name": "Time series",
-      "version": ""
-    }
-  ],
   "annotations": {
     "list": [
       {
@@ -73,11 +24,8 @@
   "description": "Display all useful Karpenter metrics",
   "editable": true,
   "fiscalYearStartMonth": 0,
-  "gnetId": 20398,
   "graphTooltip": 1,
-  "id": null,
   "links": [],
-  "liveNow": false,
   "panels": [
     {
       "collapsed": false,
@@ -95,7 +43,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+        "uid": "prometheus"
       },
       "description": "Total number of cpu resources requested by all pods on the current Nodepool",
       "fieldConfig": {
@@ -109,7 +57,7 @@
             "steps": [
               {
                 "color": "semi-dark-blue",
-                "value": null
+                "value": 0
               }
             ]
           },
@@ -129,6 +77,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -140,12 +89,12 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "10.4.1",
+      "pluginVersion": "12.4.0",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum(karpenter_nodes_total_pod_requests{nodepool=~\"$nodepool\",resource_type=\"cpu\"})",
@@ -160,7 +109,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+        "uid": "prometheus"
       },
       "description": "Total number of memory resources requested by all pods on the current Nodepool",
       "fieldConfig": {
@@ -174,7 +123,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               }
             ]
           },
@@ -194,6 +143,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -205,12 +155,12 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "10.4.1",
+      "pluginVersion": "12.4.0",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum(karpenter_nodes_total_pod_requests{nodepool=~\"$nodepool\",resource_type=\"memory\"})",
@@ -225,7 +175,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -238,7 +188,7 @@
             "steps": [
               {
                 "color": "semi-dark-purple",
-                "value": null
+                "value": 0
               }
             ]
           }
@@ -257,6 +207,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -268,12 +219,12 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "10.4.1",
+      "pluginVersion": "12.4.0",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum(karpenter_pods_state{nodepool=~\"$nodepool\"})",
@@ -288,7 +239,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -301,7 +252,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               }
             ]
           },
@@ -321,6 +272,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -332,12 +284,12 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "10.4.1",
+      "pluginVersion": "12.4.0",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "(count(karpenter_nodes_allocatable{capacity_type=\"spot\",instance_type=~\"$instance_type\",nodepool=~\"$nodepool\",zone=~\"$zone\"}) or vector(0)) / count(karpenter_nodes_allocatable{instance_type=~\"$instance_type\",nodepool=~\"$nodepool\",zone=~\"$zone\"})*100",
@@ -352,7 +304,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -391,16 +343,19 @@
           "fields": "",
           "values": false
         },
+        "sort": "desc",
         "tooltip": {
+          "hideZeros": false,
           "mode": "single",
           "sort": "none"
         }
       },
+      "pluginVersion": "12.4.0",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -417,7 +372,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -456,16 +411,19 @@
           "fields": "",
           "values": false
         },
+        "sort": "desc",
         "tooltip": {
+          "hideZeros": false,
           "mode": "single",
           "sort": "none"
         }
       },
+      "pluginVersion": "12.4.0",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -482,7 +440,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+        "uid": "prometheus"
       },
       "description": "Percentage of resources requested by all pods from those available on the current Nodepool nodes",
       "fieldConfig": {
@@ -498,7 +456,7 @@
             "steps": [
               {
                 "color": "semi-dark-blue",
-                "value": null
+                "value": 0
               }
             ]
           },
@@ -518,6 +476,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -529,12 +488,12 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "10.4.1",
+      "pluginVersion": "12.4.0",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum(karpenter_nodes_total_pod_requests{nodepool=~\"$nodepool\",resource_type=\"cpu\"}) / sum(karpenter_nodes_allocatable{nodepool=~\"$nodepool\", resource_type=\"cpu\"})",
@@ -549,7 +508,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+        "uid": "prometheus"
       },
       "description": "Percentage of resources requested by all pods from those available on the current Nodepool nodes",
       "fieldConfig": {
@@ -565,7 +524,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "red",
@@ -589,6 +548,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -600,12 +560,12 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "10.4.1",
+      "pluginVersion": "12.4.0",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum(karpenter_nodes_total_pod_requests{nodepool=~\"$nodepool\",resource_type=\"memory\"}) / sum(karpenter_nodes_allocatable{nodepool=~\"$nodepool\", resource_type=\"memory\"})",
@@ -620,7 +580,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -633,7 +593,7 @@
             "steps": [
               {
                 "color": "semi-dark-purple",
-                "value": null
+                "value": 0
               }
             ]
           }
@@ -652,6 +612,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -663,15 +624,15 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "10.4.1",
+      "pluginVersion": "12.4.0",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "count(karpenter_nodes_allocatable{nodepool=\"$nodepool\",resource_type=\"pods\"})",
+          "expr": "count(karpenter_nodes_allocatable{nodepool=~\"$nodepool\",resource_type=\"pods\"})",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -683,7 +644,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -722,16 +683,19 @@
           "fields": "",
           "values": false
         },
+        "sort": "desc",
         "tooltip": {
+          "hideZeros": false,
           "mode": "single",
           "sort": "none"
         }
       },
+      "pluginVersion": "12.4.0",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -748,7 +712,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -787,16 +751,19 @@
           "fields": "",
           "values": false
         },
+        "sort": "desc",
         "tooltip": {
+          "hideZeros": false,
           "mode": "single",
           "sort": "none"
         }
       },
+      "pluginVersion": "12.4.0",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -826,7 +793,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+        "uid": "prometheus"
       },
       "description": "Percentage of how many resources Karpenter launched from the total Nodepool limit",
       "fieldConfig": {
@@ -841,6 +808,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -857,6 +825,7 @@
               "type": "linear"
             },
             "showPoints": "auto",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -873,7 +842,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "red",
@@ -900,19 +869,20 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "multi",
           "sort": "desc"
         }
       },
-      "pluginVersion": "9.4.7",
+      "pluginVersion": "12.4.0",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (nodepool,resource_type) (karpenter_nodepool_usage{nodepool=~\"$nodepool\",resource_type=~\"memory|cpu\"} / karpenter_nodepool_limit{nodepool=~\"$nodepool\",resource_type=~\"memory|cpu\"} * 100) ",
+          "expr": "sum by (nodepool,resource_type) (karpenter_nodepools_usage{nodepool=~\"$nodepool\",resource_type=~\"memory|cpu\"} / karpenter_nodepools_limit{nodepool=~\"$nodepool\",resource_type=~\"memory|cpu\"} * 100) ",
           "legendFormat": "{{resource_type}}-{{nodepool}}",
           "range": true,
           "refId": "A"
@@ -924,7 +894,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -938,6 +908,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -954,6 +925,7 @@
               "type": "linear"
             },
             "showPoints": "auto",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -970,7 +942,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "red",
@@ -1028,16 +1000,17 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "multi",
           "sort": "desc"
         }
       },
-      "pluginVersion": "9.4.7",
+      "pluginVersion": "12.4.0",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum(karpenter_nodes_allocatable{nodepool=~\"$nodepool\", resource_type=\"cpu\"})",
@@ -1048,11 +1021,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum(karpenter_nodes_total_pod_requests{nodepool=~\"$nodepool\",resource_type=\"cpu\"})",
-          "hide": false,
           "legendFormat": "Requested",
           "range": true,
           "refId": "B"
@@ -1064,7 +1036,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -1078,6 +1050,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -1094,6 +1067,7 @@
               "type": "linear"
             },
             "showPoints": "auto",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -1110,7 +1084,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "red",
@@ -1168,16 +1142,17 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "multi",
           "sort": "desc"
         }
       },
-      "pluginVersion": "9.4.7",
+      "pluginVersion": "12.4.0",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum(karpenter_nodes_allocatable{nodepool=~\"$nodepool\", resource_type=\"cpu\"})",
@@ -1188,11 +1163,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum(karpenter_nodes_total_pod_requests{nodepool=~\"$nodepool\",resource_type=\"cpu\"})",
-          "hide": false,
           "legendFormat": "Requested",
           "range": true,
           "refId": "B"
@@ -1204,7 +1178,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -1218,6 +1192,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -1234,6 +1209,7 @@
               "type": "linear"
             },
             "showPoints": "auto",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -1250,7 +1226,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "red",
@@ -1308,16 +1284,17 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "multi",
           "sort": "desc"
         }
       },
-      "pluginVersion": "9.4.7",
+      "pluginVersion": "12.4.0",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum by (nodepool) (karpenter_nodeclaims_launched) - sum by (nodepool)(karpenter_nodeclaims_registered)",
@@ -1332,7 +1309,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -1346,6 +1323,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -1362,6 +1340,7 @@
               "type": "linear"
             },
             "showPoints": "auto",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -1378,7 +1357,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "red",
@@ -1436,16 +1415,17 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "multi",
           "sort": "desc"
         }
       },
-      "pluginVersion": "9.4.7",
+      "pluginVersion": "12.4.0",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "karpenter_cloudprovider_errors_total{controller!~\"node.termination|nodeclaim.termination\", error!=\"NodeClaimNotFoundError\"}",
@@ -1473,7 +1453,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -1486,6 +1466,9 @@
               "type": "auto"
             },
             "filterable": true,
+            "footer": {
+              "reducers": []
+            },
             "inspect": false,
             "minWidth": 150
           },
@@ -1495,7 +1478,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "red",
@@ -1545,7 +1528,7 @@
                   "steps": [
                     {
                       "color": "green",
-                      "value": null
+                      "value": 0
                     },
                     {
                       "color": "red",
@@ -1587,15 +1570,7 @@
       "id": 4,
       "options": {
         "cellHeight": "sm",
-        "footer": {
-          "countRows": false,
-          "enablePagination": false,
-          "fields": [],
-          "reducer": [
-            "sum"
-          ],
-          "show": false
-        },
+        "enablePagination": false,
         "showHeader": true,
         "sortBy": [
           {
@@ -1604,18 +1579,17 @@
           }
         ]
       },
-      "pluginVersion": "10.4.1",
+      "pluginVersion": "12.4.0",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "exemplar": false,
           "expr": "((karpenter_nodes_total_daemon_requests{resource_type=\"cpu\",arch=~\"$arch\",capacity_type=~\"$capacity_type\",instance_type=~\"$instance_type\",nodepool=~\"$nodepool\",zone=~\"$zone\"} or karpenter_nodes_allocatable*0) + \n(karpenter_nodes_total_pod_requests{resource_type=\"cpu\",arch=~\"$arch\",capacity_type=~\"$capacity_type\",instance_type=~\"$instance_type\",nodepool=~\"$nodepool\",zone=~\"$zone\"} or karpenter_nodes_allocatable*0)) / \nkarpenter_nodes_allocatable{resource_type=\"cpu\",arch=~\"$arch\",capacity_type=~\"$capacity_type\",instance_type=~\"$instance_type\",nodepool=~\"$nodepool\",zone=~\"$zone\"}",
           "format": "table",
-          "hide": false,
           "instant": true,
           "legendFormat": "CPU Utilization",
           "range": false,
@@ -1624,13 +1598,12 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "exemplar": false,
           "expr": "((karpenter_nodes_total_daemon_requests{resource_type=\"memory\",arch=~\"$arch\",capacity_type=~\"$capacity_type\",instance_type=~\"$instance_type\",nodepool=~\"$nodepool\",zone=~\"$zone\"} or karpenter_nodes_allocatable*0) + \n(karpenter_nodes_total_pod_requests{resource_type=\"memory\",arch=~\"$arch\",capacity_type=~\"$capacity_type\",instance_type=~\"$instance_type\",nodepool=~\"$nodepool\",zone=~\"$zone\"} or karpenter_nodes_allocatable*0)) / \nkarpenter_nodes_allocatable{resource_type=\"memory\",arch=~\"$arch\",capacity_type=~\"$capacity_type\",instance_type=~\"$instance_type\",nodepool=~\"$nodepool\",zone=~\"$zone\"}",
           "format": "table",
-          "hide": false,
           "instant": true,
           "legendFormat": "Memory Utilization",
           "range": false,
@@ -1639,13 +1612,12 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "exemplar": false,
           "expr": "karpenter_nodes_total_daemon_requests{resource_type=\"pods\",arch=~\"$arch\",capacity_type=~\"$capacity_type\",instance_type=~\"$instance_type\",nodepool=~\"$nodepool\",zone=~\"$zone\"} + \nkarpenter_nodes_total_pod_requests{resource_type=\"pods\",arch=~\"$arch\",capacity_type=~\"$capacity_type\",instance_type=~\"$instance_type\",nodepool=~\"$nodepool\",zone=~\"$zone\"}",
           "format": "table",
-          "hide": false,
           "instant": true,
           "legendFormat": "Memory Utilization",
           "range": false,
@@ -1654,13 +1626,12 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "exemplar": false,
           "expr": "label_replace(\n    sum by (node)(node_time_seconds) - sum by (node)(node_boot_time_seconds),\n    \"node_name\", \"$1\", \"node\", \"(.+)\"\n)",
           "format": "table",
-          "hide": false,
           "instant": true,
           "legendFormat": "Uptime",
           "range": false,
@@ -1914,7 +1885,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -1928,6 +1899,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -1944,6 +1916,7 @@
               "type": "linear"
             },
             "showPoints": "auto",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -1960,7 +1933,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "red",
@@ -1986,19 +1959,20 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "multi",
           "sort": "desc"
         }
       },
+      "pluginVersion": "12.4.0",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "increase(karpenter_nodeclaims_created_total{nodepool=~\"$nodepool\"}[5m])",
-          "hide": false,
           "legendFormat": "created-\"{{nodepool}}\"-{{reason}}",
           "range": true,
           "refId": "A"
@@ -2006,11 +1980,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "increase(karpenter_nodeclaims_created{nodepool=~\"$nodepool\"}[1m])",
-          "hide": false,
           "legendFormat": "terminated-\"{{nodepool}}\"-{{reason}}",
           "range": true,
           "refId": "B"
@@ -2022,7 +1995,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -2036,6 +2009,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 25,
             "gradientMode": "none",
@@ -2052,6 +2026,7 @@
               "type": "linear"
             },
             "showPoints": "auto",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -2069,7 +2044,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "red",
@@ -2095,15 +2070,17 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "multi",
           "sort": "none"
         }
       },
+      "pluginVersion": "12.4.0",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "count(karpenter_nodes_total_pod_requests{nodepool=~\"$nodepool\",resource_type=\"pods\"}) by (zone)",
@@ -2118,7 +2095,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -2132,6 +2109,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -2148,6 +2126,7 @@
               "type": "linear"
             },
             "showPoints": "auto",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -2165,7 +2144,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "red",
@@ -2192,15 +2171,17 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "multi",
           "sort": "desc"
         }
       },
+      "pluginVersion": "12.4.0",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "karpenter_nodes_total_pod_requests{nodepool=~\"$nodepool\",resource_type=\"cpu\"} / karpenter_nodes_allocatable{nodepool=~\"$nodepool\",resource_type=\"cpu\"}",
@@ -2215,7 +2196,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -2229,6 +2210,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -2245,6 +2227,7 @@
               "type": "linear"
             },
             "showPoints": "auto",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -2262,7 +2245,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "red",
@@ -2289,15 +2272,17 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "multi",
           "sort": "desc"
         }
       },
+      "pluginVersion": "12.4.0",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "karpenter_nodes_total_pod_requests{nodepool=~\"$nodepool\",resource_type=\"memory\"} / karpenter_nodes_allocatable{nodepool=~\"$nodepool\", resource_type=\"memory\"}",
@@ -2312,7 +2297,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -2326,6 +2311,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -2342,6 +2328,7 @@
               "type": "linear"
             },
             "showPoints": "auto",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -2358,7 +2345,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "red",
@@ -2384,19 +2371,20 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "multi",
           "sort": "desc"
         }
       },
+      "pluginVersion": "12.4.0",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "idelta(karpenter_interruption_received_messages_total[1m])",
-          "hide": false,
           "legendFormat": "{{message_type}}",
           "range": true,
           "refId": "A"
@@ -2408,7 +2396,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -2422,6 +2410,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -2438,6 +2427,7 @@
               "type": "linear"
             },
             "showPoints": "auto",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -2454,7 +2444,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "red",
@@ -2480,15 +2470,17 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "multi",
           "sort": "desc"
         }
       },
+      "pluginVersion": "12.4.0",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -2517,7 +2509,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -2563,8 +2555,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -2598,7 +2589,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum(karpenter_pods_state{nodepool=~\"$nodepool\", name=~\"$application.*\"})",
@@ -2613,7 +2604,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -2659,8 +2650,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -2694,7 +2684,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum(karpenter_pods_state{nodepool=~\"$nodepool\",name=~\"$application.*\"}) by (zone)",
@@ -2709,7 +2699,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -2755,8 +2745,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -2790,7 +2779,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "max(sum(karpenter_pods_state{nodepool=~\"$nodepool\", name=~\"$application.*\"}) by (zone)) - min(sum(karpenter_pods_state{nodepool=~\"$nodepool\", name=~\"$application.*\"}) by (zone))",
@@ -2803,40 +2792,36 @@
       "type": "timeseries"
     }
   ],
+  "preload": false,
   "refresh": "5s",
-  "revision": 1,
-  "schemaVersion": 39,
+  "schemaVersion": 42,
   "tags": [],
   "templating": {
     "list": [
       {
         "current": {
-          "selected": false,
-          "text": "prometheus-cluster-10",
-          "value": "df1pcznat7itcc"
+          "text": "Prometheus",
+          "value": "prometheus"
         },
-        "hide": 0,
         "includeAll": false,
-        "multi": false,
         "name": "datasource",
         "options": [],
         "query": "prometheus",
-        "queryValue": "",
         "refresh": 1,
         "regex": "",
-        "skipUrlSync": false,
         "type": "datasource"
       },
       {
-        "current": {},
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+          "uid": "prometheus"
         },
         "definition": "label_values(karpenter_nodepools_usage,nodepool)",
-        "hide": 0,
         "includeAll": true,
-        "multi": false,
         "name": "nodepool",
         "options": [],
         "query": {
@@ -2846,21 +2831,21 @@
         },
         "refresh": 1,
         "regex": "",
-        "skipUrlSync": false,
-        "sort": 0,
+        "regexApplyTo": "value",
         "type": "query"
       },
       {
         "allValue": ".*",
-        "current": {},
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+          "uid": "prometheus"
         },
         "definition": "query_result(kube_deployment_created OR kube_statefulset_created)",
-        "hide": 0,
         "includeAll": true,
-        "multi": false,
         "name": "application",
         "options": [],
         "query": {
@@ -2869,20 +2854,21 @@
         },
         "refresh": 1,
         "regex": "/.*(?:statefulset|deployment)=\"([^\"]*).*/",
-        "skipUrlSync": false,
+        "regexApplyTo": "value",
         "sort": 1,
         "type": "query"
       },
       {
-        "current": {},
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+          "uid": "prometheus"
         },
         "definition": "label_values(karpenter_nodes_allocatable,zone)",
-        "hide": 0,
         "includeAll": true,
-        "multi": false,
         "name": "zone",
         "options": [],
         "query": {
@@ -2892,20 +2878,20 @@
         },
         "refresh": 1,
         "regex": "",
-        "skipUrlSync": false,
-        "sort": 0,
+        "regexApplyTo": "value",
         "type": "query"
       },
       {
-        "current": {},
+        "current": {
+          "text": "arm64",
+          "value": "arm64"
+        },
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+          "uid": "prometheus"
         },
         "definition": "label_values(karpenter_nodes_allocatable,arch)",
-        "hide": 0,
         "includeAll": false,
-        "multi": false,
         "name": "arch",
         "options": [],
         "query": {
@@ -2915,20 +2901,20 @@
         },
         "refresh": 1,
         "regex": "",
-        "skipUrlSync": false,
-        "sort": 0,
+        "regexApplyTo": "value",
         "type": "query"
       },
       {
-        "current": {},
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+          "uid": "prometheus"
         },
         "definition": "label_values(karpenter_nodes_allocatable,capacity_type)",
-        "hide": 0,
         "includeAll": true,
-        "multi": false,
         "name": "capacity_type",
         "options": [],
         "query": {
@@ -2938,20 +2924,20 @@
         },
         "refresh": 1,
         "regex": "",
-        "skipUrlSync": false,
-        "sort": 0,
+        "regexApplyTo": "value",
         "type": "query"
       },
       {
-        "current": {},
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS-CLUSTER-10}"
+          "uid": "prometheus"
         },
         "definition": "label_values(karpenter_nodes_allocatable,instance_type)",
-        "hide": 0,
         "includeAll": true,
-        "multi": false,
         "name": "instance_type",
         "options": [],
         "query": {
@@ -2961,72 +2947,31 @@
         },
         "refresh": 1,
         "regex": "",
-        "skipUrlSync": false,
-        "sort": 0,
+        "regexApplyTo": "value",
         "type": "query"
       },
       {
         "current": {
-          "selected": true,
           "text": "zone",
           "value": "zone"
         },
-        "hide": 0,
         "includeAll": false,
-        "multi": false,
         "name": "distribution_filter",
-        "options": [
-          {
-            "selected": false,
-            "text": "arch",
-            "value": "arch"
-          },
-          {
-            "selected": false,
-            "text": "capacity_type",
-            "value": "capacity_type"
-          },
-          {
-            "selected": false,
-            "text": "instance_type",
-            "value": "instance_type"
-          },
-          {
-            "selected": false,
-            "text": "namespace",
-            "value": "namespace"
-          },
-          {
-            "selected": false,
-            "text": "node",
-            "value": "node"
-          },
-          {
-            "selected": false,
-            "text": "nodepool",
-            "value": "nodepool"
-          },
-          {
-            "selected": true,
-            "text": "zone",
-            "value": "zone"
-          }
-        ],
+        "options": [],
         "query": "arch, capacity_type, instance_type, namespace, node, nodepool, zone",
-        "queryValue": "",
-        "skipUrlSync": false,
-        "type": "custom"
+        "type": "custom",
+        "valuesFormat": "csv"
       }
     ]
   },
   "time": {
-    "from": "now-12h",
+    "from": "now-5m",
     "to": "now"
   },
   "timepicker": {},
-  "timezone": "",
+  "timezone": "browser",
   "title": "Karpenter",
   "uid": "karpenter",
-  "version": 8,
+  "version": 1,
   "weekStart": ""
 }
