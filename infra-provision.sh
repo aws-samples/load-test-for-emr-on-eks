@@ -301,27 +301,29 @@ helm repo add prometheus-community https://prometheus-community.github.io/helm-c
 helm repo add kube-state-metrics https://kubernetes.github.io/kube-state-metrics
 helm repo update
 
-cp ./resources/monitor/prometheus-values.yaml ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
-sed -i -- 's/{ACCOUNTID}/'$ACCOUNT_ID'/g'  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
-sed -i -- 's/{CLUSTER_NAME}/'$CLUSTER_NAME'/g'  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
+# cp ./resources/monitor/prometheus-values.yaml ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
+# sed -i -- 's/{ACCOUNTID}/'$ACCOUNT_ID'/g'  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
+# sed -i -- 's/{CLUSTER_NAME}/'$CLUSTER_NAME'/g'  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
 # sed -i -- 's/{AWS_REGION}/'$AWS_REGION'/g'  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
 # sed -i -- 's/{WORKSPACE_ID}/'$WORKSPACE_ID'/g'  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
-helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n prometheus -f  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml --debug
+# helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n prometheus -f  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml --debug
+
+# helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n prometheus -f  ./resources/monitor/prometheus-values.yaml --debug
 # validate in a web browser - localhost:9090, go to menu of status->targets
 # kubectl --namespace prometheus port-forward service/prometheus-kube-prometheus-prometheus 9090
 
 # Install metrics server
-kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+# kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
 
 # echo "========================================================="
 # echo " 13. Set up Prometheus ServiceMonitor and PodMonitor ......"
 # echo "========================================================="
 # echo "Create Prometheus service monitor and pod monitor"
-# # kubectl apply -f ./resources/monitor/spark-podmonitor.yaml
-kubectl apply -f ./resources/monitor/karpenter-svcmonitor.yaml
-kubectl apply -f ./resources/monitor/aws-cni-podmonitor.yaml
-# # kubectl apply -f ./resources/monitor/ebs-csi-controller-svcmonitor.yaml
-kubectl apply -f ./resources/monitor/locust-podmonitor.yaml
+# kubectl apply -f ./resources/monitor/spark-podmonitor.yaml
+# kubectl apply -f ./resources/monitor/karpenter-svcmonitor.yaml
+# kubectl apply -f ./resources/monitor/aws-cni-podmonitor.yaml
+# kubectl apply -f ./resources/monitor/ebs-csi-controller-svcmonitor.yaml
+# kubectl apply -f ./resources/monitor/locust-podmonitor.yaml
 
 # echo "==================================================="
 # echo " 18. Set up Amazon Managed Grafana if required ......"

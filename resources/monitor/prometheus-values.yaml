@@ -15,17 +15,12 @@ grafana:
     size: 10Gi
     storageClassName: gp3
 kubelet:
-  enabled: false
-  # only if EBS controller Metrics is enabled via infra-provision.sh
-  # enabled: true
-  # serviceMonitor:
-  #   metricRelabelings:
-  #     - action: keep
-  #       regex: csi_operations_seconds_(bucket|count)
-  #       sourceLabels: [__name__]
-  #     - action: keep
-  #       regex: '/csi\.v1\.Node/(Node.*Volume)'
-  #       sourceLabels: [method_name]
+  enabled: true
+  serviceMonitor:
+    cAdvisorMetricRelabelings:
+    - action: keep
+      regex: container_cpu_usage_seconds_total|container_memory_working_set_bytes|container_network_receive_bytes_total|container_network_transmit_bytes_total|container_network_receive_packets_dropped_total|container_network_transmit_packets_dropped_total|container_fs_reads_bytes_total|container_fs_writes_bytes_total
+      sourceLabels: [__name__]
 
 prometheusOperator:
   nodeSelector:
@@ -51,15 +46,27 @@ prometheus-node-exporter:
     monitor:
       metricRelabelings:
       - action: keep
-        regex: 'node_cpu_seconds_total;idle'
-        sourceLabels: [__name__, mode]
+        regex: node_cpu_seconds_total|node_memory_MemFree_bytes|node_memory_Cached_bytes|node_memory_Buffers_bytes|node_memory_MemTotal_bytes|node_network_transmit_bytes_total|node_network_receive_bytes_total|node_disk_read_bytes_total|node_disk_written_bytes_total|node_filesystem_free_bytes|node_filesystem_size_bytes
+        sourceLabels: [__name__]
 
 kube-state-metrics:
+  metricLabelsAllowlist:
+  - pods=[*]
+  - nodes=[*]
+  - namespaces=[*]
+  - deployments=[*]
+  - statefulsets=[*]
+  collectors:
+  - pods
+  - nodes
+  - namespaces
+  - deployments
+  - statefulsets
   prometheus:
     monitor:
       metricRelabelings:
       - action: keep
-        regex: 'kube_pod_container_status_running|kube_node_status_allocatable|kube_node_status_capacity'
+        regex: kube_pod_container_status_running|kube_pod_status_phase|kube_pod_info|kube_pod_container_resource_limits|kube_pod_container_resource_requests|kube_node_status_capacity|kube_node_status_allocatable|kube_namespace_labels|kube_node_info|kube_deployment_created|kube_statefulset_created
         sourceLabels: [__name__]
 
 kubeApiServer:
@@ -79,11 +86,11 @@ kubeApiServer:
       sourceLabels: [__name__,le]
 
 prometheus:
-  serviceAccount:
-    create: true
-    name: amp-iamproxy-ingest-service-account
-    annotations: 
-      eks.amazonaws.com/role-arn: arn:aws:iam::{ACCOUNTID}:role/{CLUSTER_NAME}-prometheus-ingest
+#  serviceAccount:
+#    create: true
+#    name: amp-iamproxy-ingest-service-account
+#    annotations: 
+#      eks.amazonaws.com/role-arn: arn:aws:iam::{ACCOUNTID}:role/{CLUSTER_NAME}-prometheus-ingest
   prometheusSpec:
     additionalArgs:
       - name: storage.tsdb.min-block-duration
@@ -191,7 +198,11 @@ prometheus:
           - source_labels: [__meta_kubernetes_service_name]
             regex: '.*state-metrics.*'
             action: drop
-
+      - job_name: 'locust'
+        static_configs:
+          - targets: ['{LOCUST_IP_PRIV}:8000']
+            labels:
+              instance: 'ec2-instance'
       - job_name: 'kubernetes-pods'
         kubernetes_sd_configs:
           - role: pod
