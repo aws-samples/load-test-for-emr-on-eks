@@ -39,24 +39,10 @@ aws emr-containers start-job-run \
           "spark.hadoop.fs.s3.maxRetries": "30",
           "spark.scheduler.minRegisteredResourcesRatio": "0.6",
           "spark.scheduler.maxRegisteredResourcesWaitingTime": "1800s",
-          
           "spark.kubernetes.executor.node.selector.karpenter.sh/nodepool": "executor-memorynodepool",
           "spark.kubernetes.driver.node.selector.karpenter.sh/nodepool": "driver-nodepool",
           "spark.kubernetes.driver.node.selector.topology.kubernetes.io/zone": "'$SELECTED_AZ'",
-          "spark.kubernetes.executor.node.selector.topology.kubernetes.io/zone": "'$SELECTED_AZ'",
-
-          "spark.ui.prometheus.enabled":"true",
-          "spark.executor.processTreeMetrics.enabled":"true",
-          "spark.kubernetes.driver.annotation.prometheus.io/scrape":"true",
-          "spark.kubernetes.driver.annotation.prometheus.io/path":"/metrics/executors/prometheus/",
-          "spark.kubernetes.driver.annotation.prometheus.io/port":"4040",
-          "spark.kubernetes.driver.service.annotation.prometheus.io/scrape":"true",
-          "spark.kubernetes.driver.service.annotation.prometheus.io/path":"/metrics/driver/prometheus/",
-          "spark.kubernetes.driver.service.annotation.prometheus.io/port":"4040",
-          "spark.metrics.conf.*.sink.prometheusServlet.class":"org.apache.spark.metrics.sink.PrometheusServlet",
-          "spark.metrics.conf.*.sink.prometheusServlet.path":"/metrics/driver/prometheus/",
-          "spark.metrics.conf.master.sink.prometheusServlet.path":"/metrics/master/prometheus/",
-          "spark.metrics.conf.applications.sink.prometheusServlet.path":"/metrics/applications/prometheus/"
+          "spark.kubernetes.executor.node.selector.topology.kubernetes.io/zone": "'$SELECTED_AZ'"
       }},
       {
         "classification": "emr-containers-defaults",

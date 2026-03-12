@@ -671,7 +671,7 @@
             "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
-          "expr": "count(karpenter_nodes_allocatable{nodepool=\"$nodepool\",resource_type=\"pods\"})",
+          "expr": "count(karpenter_nodes_allocatable{nodepool=~\"$nodepool\",resource_type=\"pods\"})",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -912,7 +912,7 @@
             "uid": "${DS_PROMETHEUS-CLUSTER-10}"
           },
           "editorMode": "code",
-          "expr": "sum by (nodepool,resource_type) (karpenter_nodepool_usage{nodepool=~\"$nodepool\",resource_type=~\"memory|cpu\"} / karpenter_nodepool_limit{nodepool=~\"$nodepool\",resource_type=~\"memory|cpu\"} * 100) ",
+          "expr": "sum by (nodepool,resource_type) (karpenter_nodepools_usage{nodepool=~\"$nodepool\",resource_type=~\"memory|cpu\"} / karpenter_nodepools_limit{nodepool=~\"$nodepool\",resource_type=~\"memory|cpu\"} * 100) ",
           "legendFormat": "{{resource_type}}-{{nodepool}}",
           "range": true,
           "refId": "A"
