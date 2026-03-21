@@ -4,7 +4,7 @@ metadata:
   name: executor-memorynodepool
 spec:
   disruption:
-    consolidateAfter: 5m
+    consolidateAfter: 2m
     consolidationPolicy: WhenEmptyOrUnderutilized
     budgets:
     - nodes: "100%"             
