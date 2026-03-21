@@ -20,7 +20,7 @@ spec:
   - name: JOB_SCRIPT_NAME
     value: ${JOB_SCRIPT_NAME}
   - name: SPARK_JOB_NS_NUM # number of namespaces/VCs per Locust worker
-    value: "5"
+    value: ${SPARK_JOB_NS_NUM}
   args:
     -f /home/locust/locustfile.py
     --job-azs '["${REGION}a","${REGION}b"]'
