@@ -3813,7 +3813,7 @@
         "name": "job_id",
         "options": [],
         "query": {
-          "query": "spark_info{}",
+          "query": "spark_info{emr_containers_amazonaws_com_virtual_cluster_id=\"$vc_id\"}",
           "refId": "StandardVariableQuery"
         },
         "refresh": 2,
@@ -4055,8 +4055,8 @@
     ]
   },
   "time": {
-    "from": "2023-02-17T08:00:00.000Z",
-    "to": "2023-02-23T07:59:59.000Z"
+    "from": "now-1h",
+    "to": "now"
   },
   "timepicker": {
     "refresh_intervals": [
