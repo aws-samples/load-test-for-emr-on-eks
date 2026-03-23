@@ -7,7 +7,7 @@ export CLUSTER_NAME=${LOAD_TEST_PREFIX}-${EKS_VERSION//./-}
 export BUCKET_NAME=emr-on-${CLUSTER_NAME}-$ACCOUNT_ID-${AWS_REGION}
 # Locust
 export EMR_IMAGE_VERSION=7.9.0
-export SPARK_JOB_NS_NUM=2 # number of namespaces/VC to create
+export SPARK_JOB_NS_NUM="2" # number of namespaces/VC to create
 export LOCUST_EKS_ROLE="${CLUSTER_NAME}-locust-role"
 export JOB_SCRIPT_NAME="emr-job-run.sh"
 
