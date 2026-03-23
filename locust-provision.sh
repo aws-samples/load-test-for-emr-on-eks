@@ -56,7 +56,7 @@ else
             "Action": "sts:AssumeRoleWithWebIdentity",
             "Condition": {
                 "StringEquals": {
-                    "${OIDC_PROVIDER}:sub": "system:serviceaccount::locust:locust-operator"
+                    "${OIDC_PROVIDER}:sub": "system:serviceaccount:locust:locust-operator"
                 }
             }
         },
@@ -68,7 +68,7 @@ else
             "Action": "sts:AssumeRoleWithWebIdentity",
             "Condition": {
                 "StringEquals": {
-                    "${OIDC_PROVIDER}:sub": "system:serviceaccount::locust:default"
+                    "${OIDC_PROVIDER}:sub": "system:serviceaccount:locust:default"
                 }
             }
         }
