@@ -53,7 +53,7 @@ aws emr-containers start-job-run \
        {
         "classification": "emr-job-submitter",
         "properties": {
-            "jobsubmitter.node.selector.karpenter.sh/nodepool": "driver-nodepool",
+            "jobsubmitter.node.selector.karpenter.sh/nodepool": "executor-memorynodepool",
             "jobsubmitter.node.selector.topology.kubernetes.io/zone": "'$SELECTED_AZ'",
             "jobsubmitter.container.image.pullPolicy": "IfNotPresent",
             "jobsubmitter.logging": "DISABLED"
