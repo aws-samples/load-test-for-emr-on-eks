@@ -98,10 +98,10 @@ aws eks create-access-entry --cluster-name $CLUSTER_NAME \
     --principal-arn arn:aws:iam::${ACCOUNT_ID}:role/${LOCUST_EKS_ROLE} \
     --type STANDARD --region ${AWS_REGION}
 
-aws eks associate-access-policy --cluster-name $CLUSTER_NAME \
+access_entry=$(aws eks associate-access-policy --cluster-name $CLUSTER_NAME \
     --principal-arn arn:aws:iam::${ACCOUNT_ID}:role/${LOCUST_EKS_ROLE} \
     --policy-arn "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy" \
-    --access-scope type=cluster --region $AWS_REGION
+    --access-scope type=cluster --region ${AWS_REGION})
 
 # Install Locust Operator
 kubectl create namespace locust || true
