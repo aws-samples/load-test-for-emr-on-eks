@@ -84,7 +84,7 @@
   "liveNow": false,
   "panels": [
     {
-      "collapsed": false,
+      "collapsed": true,
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -92,139 +92,140 @@
         "y": 0
       },
       "id": 150,
-      "panels": [],
+      "panels": [
+        {
+          "datasource": {
+            "uid": "prometheus"
+          },
+          "description": "The phase state timeline of all job pods (driver, executor(s) and job-runner)\n\nIf this graph looks convoluted, try selecting  less executors as it can only show so many pods at a time",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "fixed"
+              },
+              "custom": {
+                "fillOpacity": 50,
+                "lineWidth": 1,
+                "spanNulls": false
+              },
+              "mappings": [
+                {
+                  "options": {
+                    "1": {
+                      "color": "gray",
+                      "index": 0,
+                      "text": "Unknown"
+                    },
+                    "2": {
+                      "color": "blue",
+                      "index": 1,
+                      "text": "Running"
+                    },
+                    "3": {
+                      "color": "yellow",
+                      "index": 2,
+                      "text": "Pending"
+                    },
+                    "4": {
+                      "color": "green",
+                      "index": 3,
+                      "text": "Succeeded"
+                    },
+                    "5": {
+                      "color": "red",
+                      "index": 4,
+                      "text": "Failed"
+                    }
+                  },
+                  "type": "value"
+                }
+              ],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "purple",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 1
+          },
+          "id": 152,
+          "options": {
+            "alignValue": "left",
+            "legend": {
+              "displayMode": "list",
+              "placement": "right"
+            },
+            "mergeValues": true,
+            "rowHeight": 0.7,
+            "showValue": "never",
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "exemplar": true,
+              "expr": "(\nscalar(kube_pod_status_phase{pod=\"$Pod\", container!=\"\", phase=\"Failed\"}*5) + \nscalar(kube_pod_status_phase{pod=\"$Pod\",container!=\"\", phase=\"Pending\"}*3) + \nscalar(kube_pod_status_phase{pod=\"$Pod\",container!=\"\", phase=\"Running\"}*2) + \nscalar(kube_pod_status_phase{pod=\"$Pod\",container!=\"\", phase=\"Succeeded\"}*4) + scalar(kube_pod_status_phase{pod=\"$Pod\",container!=\"\", phase=\"Unknown\"}*1)\n)",
+              "hide": false,
+              "interval": "",
+              "legendFormat": "Driver",
+              "refId": "Driver"
+            },
+            {
+              "exemplar": true,
+              "expr": "label_replace(\n(\n(\n(sum(kube_pod_status_phase{pod=~\"$executor\",container!=\"\",phase=\"Pending\"}*3)by(pod)) + (sum(kube_pod_status_phase{pod=~\"$executor\",container!=\"\",phase=\"Running\"}*2)by(pod)) +\n(sum(kube_pod_status_phase{pod=~\"$executor\",container!=\"\",phase=\"Succeeded\"}*4)by(pod)) +\n(sum(kube_pod_status_phase{pod=~\"$executor\",container!=\"\",phase=\"Unknown\"}*1)by(pod)) +\n(sum(kube_pod_status_phase{pod=~\"$executor\",container!=\"\",phase=\"Failed\"}*5)by(pod))\n)\nand on (pod)\nkube_pod_info{created_by_name=\"$Pod\"}\n),\"executor_id\",\"$1\",\"pod\", \".*-exec-(.*)\"\n)\n>0\n",
+              "hide": false,
+              "interval": "",
+              "legendFormat": "Executor: {{executor_id}}",
+              "refId": "Executors"
+            },
+            {
+              "exemplar": true,
+              "expr": "scalar(kube_pod_status_phase{pod=\"$job_runner_pod\", container!=\"\", phase=\"Failed\"}*5) + \nscalar(kube_pod_status_phase{pod=\"$job_runner_pod\",container!=\"\", phase=\"Pending\"}*3) + \nscalar(kube_pod_status_phase{pod=\"$job_runner_pod\", container!=\"\", phase=\"Running\"}*2) + \nscalar(kube_pod_status_phase{pod=\"$job_runner_pod\",container!=\"\", phase=\"Succeeded\"}*4) + scalar(kube_pod_status_phase{pod=\"$job_runner_pod\", container!=\"\", phase=\"Unknown\"}*1)",
+              "hide": false,
+              "interval": "",
+              "legendFormat": "JobRunner",
+              "refId": "JobRunner"
+            }
+          ],
+          "title": "Phase State Timeline",
+          "transformations": [
+            {
+              "id": "filterByValue",
+              "options": {
+                "filters": [
+                  {
+                    "config": {
+                      "id": "isNull",
+                      "options": {}
+                    },
+                    "fieldName": "Driver"
+                  }
+                ],
+                "match": "any",
+                "type": "exclude"
+              }
+            }
+          ],
+          "type": "state-timeline"
+        }
+      ],
       "title": "Pod State Timelines",
       "type": "row"
     },
     {
-      "datasource": {
-        "uid": "prometheus"
-      },
-      "description": "The phase state timeline of all job pods (driver, executor(s) and job-runner)\n\nIf this graph looks convoluted, try selecting  less executors as it can only show so many pods at a time",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "fixed"
-          },
-          "custom": {
-            "fillOpacity": 50,
-            "lineWidth": 1,
-            "spanNulls": false
-          },
-          "mappings": [
-            {
-              "options": {
-                "1": {
-                  "color": "gray",
-                  "index": 0,
-                  "text": "Unknown"
-                },
-                "2": {
-                  "color": "blue",
-                  "index": 1,
-                  "text": "Running"
-                },
-                "3": {
-                  "color": "yellow",
-                  "index": 2,
-                  "text": "Pending"
-                },
-                "4": {
-                  "color": "green",
-                  "index": 3,
-                  "text": "Succeeded"
-                },
-                "5": {
-                  "color": "red",
-                  "index": 4,
-                  "text": "Failed"
-                }
-              },
-              "type": "value"
-            }
-          ],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "purple",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 10,
-        "w": 24,
-        "x": 0,
-        "y": 1
-      },
-      "id": 152,
-      "options": {
-        "alignValue": "left",
-        "legend": {
-          "displayMode": "list",
-          "placement": "right"
-        },
-        "mergeValues": true,
-        "rowHeight": 0.7,
-        "showValue": "never",
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "targets": [
-        {
-          "exemplar": true,
-          "expr": "(\nscalar(kube_pod_status_phase{pod=\"$Pod\", container!=\"\", phase=\"Failed\"}*5) + \nscalar(kube_pod_status_phase{pod=\"$Pod\",container!=\"\", phase=\"Pending\"}*3) + \nscalar(kube_pod_status_phase{pod=\"$Pod\",container!=\"\", phase=\"Running\"}*2) + \nscalar(kube_pod_status_phase{pod=\"$Pod\",container!=\"\", phase=\"Succeeded\"}*4) + scalar(kube_pod_status_phase{pod=\"$Pod\",container!=\"\", phase=\"Unknown\"}*1)\n)",
-          "hide": false,
-          "interval": "",
-          "legendFormat": "Driver",
-          "refId": "Driver"
-        },
-        {
-          "exemplar": true,
-          "expr": "label_replace(\n(\n(\n(sum(kube_pod_status_phase{pod=~\"$executor\",container!=\"\",phase=\"Pending\"}*3)by(pod)) + (sum(kube_pod_status_phase{pod=~\"$executor\",container!=\"\",phase=\"Running\"}*2)by(pod)) +\n(sum(kube_pod_status_phase{pod=~\"$executor\",container!=\"\",phase=\"Succeeded\"}*4)by(pod)) +\n(sum(kube_pod_status_phase{pod=~\"$executor\",container!=\"\",phase=\"Unknown\"}*1)by(pod)) +\n(sum(kube_pod_status_phase{pod=~\"$executor\",container!=\"\",phase=\"Failed\"}*5)by(pod))\n)\nand on (pod)\nkube_pod_info{created_by_name=\"$Pod\"}\n),\"executor_id\",\"$1\",\"pod\", \".*-exec-(.*)\"\n)\n>0\n",
-          "hide": false,
-          "interval": "",
-          "legendFormat": "Executor: {{executor_id}}",
-          "refId": "Executors"
-        },
-        {
-          "exemplar": true,
-          "expr": "scalar(kube_pod_status_phase{pod=\"$job_runner_pod\", container!=\"\", phase=\"Failed\"}*5) + \nscalar(kube_pod_status_phase{pod=\"$job_runner_pod\",container!=\"\", phase=\"Pending\"}*3) + \nscalar(kube_pod_status_phase{pod=\"$job_runner_pod\", container!=\"\", phase=\"Running\"}*2) + \nscalar(kube_pod_status_phase{pod=\"$job_runner_pod\",container!=\"\", phase=\"Succeeded\"}*4) + scalar(kube_pod_status_phase{pod=\"$job_runner_pod\", container!=\"\", phase=\"Unknown\"}*1)",
-          "hide": false,
-          "interval": "",
-          "legendFormat": "JobRunner",
-          "refId": "JobRunner"
-        }
-      ],
-      "title": "Phase State Timeline",
-      "transformations": [
-        {
-          "id": "filterByValue",
-          "options": {
-            "filters": [
-              {
-                "config": {
-                  "id": "isNull",
-                  "options": {}
-                },
-                "fieldName": "Driver"
-              }
-            ],
-            "match": "any",
-            "type": "exclude"
-          }
-        }
-      ],
-      "type": "state-timeline"
-    },
-    {
-      "collapsed": false,
+      "collapsed": true,
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -232,181 +233,182 @@
         "y": 11
       },
       "id": 146,
-      "panels": [],
+      "panels": [
+        {
+          "datasource": {
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "fillOpacity": 70,
+                "lineWidth": 0,
+                "spanNulls": false
+              },
+              "decimals": 0,
+              "mappings": [],
+              "noValue": "Not Running",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "unit": "none"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 12,
+            "x": 0,
+            "y": 12
+          },
+          "id": 139,
+          "options": {
+            "alignValue": "left",
+            "legend": {
+              "displayMode": "hidden",
+              "placement": "bottom"
+            },
+            "mergeValues": true,
+            "rowHeight": 0.9,
+            "showValue": "never",
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "exemplar": true,
+              "expr": "(count(spark_info{emr_containers_amazonaws_com_virtual_cluster_id=\"$vc_id\"}>0)by(emr_containers_amazonaws_com_job_id))>0",
+              "interval": "",
+              "legendFormat": "Job: {{emr_containers_amazonaws_com_job_id}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Jobs in Virtual Cluster",
+          "type": "state-timeline"
+        },
+        {
+          "datasource": {
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "custom": {
+                "fillOpacity": 70,
+                "lineWidth": 0,
+                "spanNulls": false
+              },
+              "mappings": [],
+              "noValue": null,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byFrameRefID",
+                  "options": "EKS"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "blue",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byFrameRefID",
+                  "options": "Spark"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "rgba(110, 255, 48, 1)",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 12,
+            "x": 12,
+            "y": 12
+          },
+          "id": 115,
+          "options": {
+            "alignValue": "left",
+            "legend": {
+              "displayMode": "table",
+              "placement": "right"
+            },
+            "mergeValues": true,
+            "rowHeight": 0.9,
+            "showValue": "never",
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "exemplar": true,
+              "expr": "sum(kube_pod_info{created_by_name=\"$Pod\",container!=\"\"}) by (created_by_name)",
+              "hide": false,
+              "interval": "",
+              "legendFormat": "Executor Progress",
+              "refId": "EKS"
+            },
+            {
+              "exemplar": false,
+              "expr": "spark_info{emr_containers_amazonaws_com_job_id=\"$job_id\"}",
+              "hide": false,
+              "interval": "",
+              "legendFormat": "Driver Progress",
+              "refId": "Spark"
+            },
+            {
+              "exemplar": true,
+              "expr": "(count({name=~\".*$job_id.*\"}))+count({pod=\"$Pod\"})",
+              "hide": true,
+              "interval": "",
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ],
+          "title": "Metric Ingestion",
+          "type": "state-timeline"
+        }
+      ],
       "title": "Metric Ingestion",
       "type": "row"
-    },
-    {
-      "datasource": {
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "fillOpacity": 70,
-            "lineWidth": 0,
-            "spanNulls": false
-          },
-          "decimals": 0,
-          "mappings": [],
-          "noValue": "Not Running",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "none"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 12,
-        "x": 0,
-        "y": 12
-      },
-      "id": 139,
-      "options": {
-        "alignValue": "left",
-        "legend": {
-          "displayMode": "hidden",
-          "placement": "bottom"
-        },
-        "mergeValues": true,
-        "rowHeight": 0.9,
-        "showValue": "never",
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "targets": [
-        {
-          "exemplar": true,
-          "expr": "(count(spark_info{emr_containers_amazonaws_com_virtual_cluster_id=\"$vc_id\"}>0)by(emr_containers_amazonaws_com_job_id))>0",
-          "interval": "",
-          "legendFormat": "Job: {{emr_containers_amazonaws_com_job_id}}",
-          "refId": "A"
-        }
-      ],
-      "title": "Jobs in Virtual Cluster",
-      "type": "state-timeline"
-    },
-    {
-      "datasource": {
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "custom": {
-            "fillOpacity": 70,
-            "lineWidth": 0,
-            "spanNulls": false
-          },
-          "mappings": [],
-          "noValue": null,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byFrameRefID",
-              "options": "EKS"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "blue",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byFrameRefID",
-              "options": "Spark"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "rgba(110, 255, 48, 1)",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 12,
-        "x": 12,
-        "y": 12
-      },
-      "id": 115,
-      "options": {
-        "alignValue": "left",
-        "legend": {
-          "displayMode": "table",
-          "placement": "right"
-        },
-        "mergeValues": true,
-        "rowHeight": 0.9,
-        "showValue": "never",
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "targets": [
-        {
-          "exemplar": true,
-          "expr": "sum(kube_pod_info{created_by_name=\"$Pod\",container!=\"\"}) by (created_by_name)",
-          "hide": false,
-          "interval": "",
-          "legendFormat": "Executor Progress",
-          "refId": "EKS"
-        },
-        {
-          "exemplar": false,
-          "expr": "spark_info{emr_containers_amazonaws_com_job_id=\"$job_id\"}",
-          "hide": false,
-          "interval": "",
-          "legendFormat": "Driver Progress",
-          "refId": "Spark"
-        },
-        {
-          "exemplar": true,
-          "expr": "(count({name=~\".*$job_id.*\"}))+count({pod=\"$Pod\"})",
-          "hide": true,
-          "interval": "",
-          "legendFormat": "",
-          "refId": "A"
-        }
-      ],
-      "title": "Metric Ingestion",
-      "type": "state-timeline"
     },
     {
       "collapsed": false,
@@ -426,7 +428,7 @@
       "error": false,
       "gridPos": {
         "h": 3,
-        "w": 4,
+        "w": 6,
         "x": 0,
         "y": 19
       },
@@ -487,7 +489,7 @@
       },
       "gridPos": {
         "h": 3,
-        "w": 4,
+        "w": 6,
         "x": 10,
         "y": 19
       },
@@ -574,7 +576,7 @@
       },
       "gridPos": {
         "h": 3,
-        "w": 4,
+        "w": 6,
         "x": 20,
         "y": 19
       },
@@ -967,7 +969,7 @@
       "targets": [
         {
           "exemplar": true,
-          "expr": "sum(rate(container_cpu_usage_seconds_total{pod=\"$Pod\",container!=\"\"} [5m])) by (pod) / 1000 * 100",
+          "expr": "sum(rate(container_cpu_usage_seconds_total{pod=\"$Pod\",container!=\"\"} [5m])) by (pod)",
           "format": "time_series",
           "hide": false,
           "interval": "10s",
@@ -1206,7 +1208,7 @@
       "targets": [
         {
           "exemplar": true,
-          "expr": "sum(rate(container_cpu_usage_seconds_total{pod=~\"$executor\",pod!=\"\"} [4m]) and on (pod) kube_pod_info{created_by_name=\"$Pod\"}) by (pod) / 1000 * 100",
+          "expr": "sum(rate(container_cpu_usage_seconds_total{pod=~\"$executor\",pod!=\"\"} [5m]) and on (pod) kube_pod_info{created_by_name=\"$Pod\"}) by (pod)",
           "format": "time_series",
           "hide": false,
           "interval": "10s",
@@ -2202,7 +2204,7 @@
                 "spanNulls": false,
                 "stacking": {
                   "group": "A",
-                  "mode": "normal"
+                  "mode": "none"
                 },
                 "thresholdsStyle": {
                   "mode": "off"
