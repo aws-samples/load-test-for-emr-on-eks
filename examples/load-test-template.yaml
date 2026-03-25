@@ -24,7 +24,7 @@ spec:
   args:
     -f /home/locust/locustfile.py
     --job-azs '["${REGION}a","${REGION}b"]'
-    --run-time=10m
+    --run-time=1m
     --users=4
     --spawn-rate=2
     --skip-log-setup
@@ -36,7 +36,7 @@ spec:
     resources:
       requests:
         cpu: "10m"
-        memory: "80Mi"
+        memory: "250Mi"
       limits:
         cpu: "50m"
         memory: "250Mi"
@@ -48,7 +48,7 @@ spec:
     resources:
       requests:
         cpu: "4"
-        memory: "4Gi"
+        memory: "12Gi"
       limits:
         cpu: "30"
         memory: "25Gi"

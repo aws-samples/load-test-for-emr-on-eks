@@ -23,7 +23,7 @@ aws emr-containers start-job-run \
   "sparkSubmitJobDriver": {
       "entryPoint": "local:///usr/lib/spark/examples/jars/eks-spark-benchmark-assembly-1.0.jar",
       "entryPointArguments":["s3://blogpost-sparkoneks-us-east-1/blog/tpc30","s3://'$S3BUCKET'/EMRONEKS_PVC-REUSE-TEST-RESULT","/opt/tpcds-kit/tools","parquet","30","1","false","q4-v2.4,q24a-v2.4,q24b-v2.4,q67-v2.4","false"],
-      "sparkSubmitParameters": "--class com.amazonaws.eks.tpcds.BenchmarkSQL --conf spark.driver.cores=2 --conf spark.driver.memory=2g --conf spark.executor.cores=2 --conf spark.executor.memory=6g --conf spark.executor.instances=30"}}' \
+      "sparkSubmitParameters": "--class com.amazonaws.eks.tpcds.BenchmarkSQL --conf spark.driver.cores=1 --conf spark.driver.memory=2g --conf spark.executor.cores=2 --conf spark.executor.memory=5g --conf spark.executor.instances=30"}}' \
 --configuration-overrides '{
     "applicationConfiguration": [
       {
@@ -62,8 +62,4 @@ aws emr-containers start-job-run \
       }
     ], 
     "monitoringConfiguration": {
-      "managedLogs": {
-        "allowAWSToRetainLogs": "ENABLED",
-        "encryptionKeyArn": "'$KMS_ARN'"
-      },
       "s3MonitoringConfiguration": {"logUri": "s3://'$S3BUCKET'/elasticmapreduce/emr-containers"}}}'
