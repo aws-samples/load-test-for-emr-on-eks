@@ -1,0 +1,31 @@
+{{- if and .Values.monitoring.enabled .Values.monitoring.serviceMonitor.enabled -}}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "custom-scheduler-eks.fullname" . }}-monitor
+  namespace: {{ .Values.monitoring.serviceMonitor.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "custom-scheduler-eks.labels" . | nindent 4 }}
+    {{- if .Values.monitoring.serviceMonitor.labels }}
+    {{- toYaml .Values.monitoring.serviceMonitor.labels | nindent 4 }}
+    {{- end }}
+  {{- if .Values.monitoring.serviceMonitor.annotations }}
+  annotations:
+    {{- toYaml .Values.monitoring.serviceMonitor.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  endpoints:
+  - bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+    interval: {{ .Values.monitoring.serviceMonitor.interval | default "30s" }}
+    path: {{ .Values.monitoring.serviceMonitor.path | default "/metrics" }}
+    port: metrics
+    scheme: {{ .Values.monitoring.serviceMonitor.scheme | default "https" }}
+    tlsConfig:
+      insecureSkipVerify: {{ .Values.monitoring.serviceMonitor.insecureSkipVerify | default false }}
+  namespaceSelector:
+    matchNames:
+    - {{ .Release.Namespace }}
+  selector:
+    matchLabels:
+      {{- include "custom-scheduler-eks.labels" . | nindent 6 }}
+{{- end -}}

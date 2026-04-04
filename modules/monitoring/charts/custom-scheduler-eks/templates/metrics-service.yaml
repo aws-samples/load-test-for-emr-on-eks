@@ -1,0 +1,23 @@
+{{- if .Values.monitoring.enabled | default false -}}
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: {{ include "custom-scheduler-eks.name" . }}
+    {{- include "custom-scheduler-eks.labels" . | nindent 4 }}
+  name: {{ include "custom-scheduler-eks.fullname" . }}-metrics
+  namespace: {{ .Release.Namespace }}
+  {{- if .Values.monitoring.service.annotations }}
+  annotations:
+    {{- toYaml .Values.monitoring.service.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  ports:
+  - name: metrics
+    port: {{ .Values.monitoring.service.port | default 10259 }}
+    protocol: TCP
+    targetPort: {{ .Values.monitoring.service.targetPort | default 10259 }}
+  selector:
+    {{- include "custom-scheduler-eks.selectorLabels" . | nindent 4 }}
+  type: {{ .Values.monitoring.service.type | default "ClusterIP" }}
+{{- end -}}

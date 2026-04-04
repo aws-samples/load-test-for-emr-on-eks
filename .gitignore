@@ -1,0 +1,55 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+!examples/*.tfvars
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Keep lock file for reproducible provider versions
+# Remove this line if you do NOT want to commit it
+!.terraform.lock.hcl
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE / Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# Node
+node_modules/
+
+# Logs
+*.log
+
+# Secrets and credentials
+*.pem
+*.key
+*.crt
+
+# Spark / EMR artifacts
+*.jar
+metastore_db/
+
+# Docker build context artifacts
+docker-compose.override.yml

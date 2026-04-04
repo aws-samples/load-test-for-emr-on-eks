@@ -1,495 +1,272 @@
-## EMR Spark Operator on EKS Benchmark Utility
+## EMR on EKS Load Test Benchmark Utility
 
-This repository provides a general tool to benchmark EMR Spark Operator & EKS performance. This is an out-of-the-box tool, with both EKS cluster and load testing job generator (Locust). You will have zero or minimal setup overhead for the EKS cluster.
+This repository provides a comprehensive tool to benchmark EMR scalability performance on EKS clusters, supporting the **JobRun API** submission type. This out-of-the-box solution uses Terraform to provision complete infrastructure — including EKS clusters, VPC networking, IAM roles, Karpenter autoscaling, and monitoring — along with a load testing job generator powered by the Locust Kubernetes Operator. It features pre-built Grafana dashboard templates for observing test results and throttling events.
 
-Enjoy! ^.^
+With a single `terraform apply`, you can provision multiple EKS clusters simultaneously with different EKS versions and Karpenter configurations, enabling side-by-side benchmarking in one deployment. All files needed to deploy and run are self-contained in this repo.
 
 # Table of Contents
-- [EMR Spark Operator on EKS Benchmark Utility](#emr-spark-operator-on-eks-benchmark-utility)
-- [Prerequisite](#prerequisite)
-- [Set up Test Environment](#set-up-test-environment)
-  - [Create the EKS Cluster with Necessary Services](#1-create-the-eks-cluster-with-necessary-services)
-  - [Using Locust to Submit Testing Jobs (Optional)](#2-using-locust-to-submit-testing-jobs-optional)
-- [Run Load Testing with Locust](#run-load-testing-with-locust)
-- [Best Practice Guide](#best-practice-guide)
-  - [Spark Operator](#1-spark-operator)
-  - [Spark Job Configuration](#2-spark-job-configuration)
-  - [Binpacking](#3-binpacking)
-  - [Cluster Scalability](#4-cluster-scalability)
-  - [Best Practices for Networking](#5-best-practices-for-networking)
+- [Prerequisites](#prerequisites)
+- [Quick Start](#quick-start)
+  - [Step 1: Configure](#step-1-configure)
+  - [Step 2: Deploy Infrastructure](#step-2-deploy-infrastructure)
+  - [Step 3: Build and Push Container Images](#step-3-build-and-push-container-images)
+  - [Step 4: Run Load Test](#step-4-run-load-test)
+  - [Step 5: Cleanup](#step-5-cleanup)
+- [Architecture](#architecture)
+  - [Module Structure](#module-structure)
+  - [Naming Conventions](#naming-conventions)
+  - [Design Decisions](#design-decisions)
+- [Best Practices](#best-practices)
+  - [Pod Allocation](#1-how-to-allocate-spark-driver--executor-pods)
+  - [Binpacking](#2-binpacking-application-pods)
+  - [Cluster Scalability](#3-cluster-scalability-with-karpenter)
+  - [Networking](#4-networking-best-practices)
 - [Monitoring](#monitoring)
-- [Clean up](#clean-up)
+- [Detailed Guides](#detailed-guides)
+- [Cleanup](#cleanup)
 
-## Prerequisite
+## Prerequisites
 
-- eksctl is installed in latest version ( >= 0.194.)
-```bash
-curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
-sudo mv -v /tmp/eksctl /usr/local/bin
-eksctl version
-```
-- Update AWS CLI to the latest (requires aws cli version >= 2.17.45) on macOS. Check out the [link](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) for Linux or Windows
-```bash
-curl "https://awscli.amazonaws.com/AWSCLIV2.pkg" -o "AWSCLIV2.pkg"
-sudo installer -pkg ./AWSCLIV2.pkg -target /
-aws --version
-rm AWSCLIV2.pkg
-```
-- Install kubectl on macOS, check out the [link](https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/) for Linux or Windows.( >= 1.31.2 )
-```bash
-curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
-kubectl version --short --client
-```
-- Helm CLI ( >= 3.13.2 )
-```bash
-curl -sSL https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 | bash
-helm version --short
-```
+- Terraform >= 1.10.0
+- AWS CLI v2 (>= 2.17.45)
+- kubectl (>= 1.31)
+- Helm (>= 3.13)
+- Docker with buildx (for container image builds)
 
 [^ back to top](#table-of-contents)
 
-## Set up Test Environment
-### 1. Create the EKS Cluster with Necessary Services 
-This script creates a new EKS cluster with [Auto Scaler](https://aws.github.io/aws-emr-containers-best-practices/troubleshooting/docs/eks-cluster-auto-scaler/), [Karpenter](https://aws.github.io/aws-emr-containers-best-practices/troubleshooting/docs/karpenter/), and [BinPacking](https://awslabs.github.io/data-on-eks/docs/resources/binpacking-custom-scheduler-eks) enabled. The monitoring tool by default uses [Amazon Managed Prometheus](https://aws.amazon.com/prometheus/) and [Amazon Managed Grafana](https://aws.amazon.com/grafana/).
+## Quick Start
 
-#### 1.1 Update the Environment Variables
-Please update the values in `./env.sh` or use the default configurations as shown below:
+All commands assume you are in the solution directory (`generated/build/solution`).
 
+### Step 1: Configure
 
+```bash
+cp examples/single-cluster.tfvars terraform.tfvars
+# Edit terraform.tfvars — set region, availability_zones
+```
 
 <details>
-<summary>Default Environment Variables</summary>
+<summary>Default Configuration (single cluster)</summary>
 
-```bash
-# General Configuration
-export LOAD_TEST_PREFIX=eks-operator-test
-export AWS_REGION=us-west-2
-export ECR_REGISTRY_ACCOUNT=895885662937
-export EKS_VPC_CIDR=172.16.0.0/16
+```hcl
+region       = "ap-southeast-2"
+project_name = "emr-eks-load-test"
 
-# Note: For ECR_REGISTRY_ACCOUNT in different regions, please refer to:
-# https://docs.aws.amazon.com/emr/latest/EMR-on-EKS-DevelopmentGuide/docker-custom-images-tag.html
-
-# AWS Resource Identifiers
-export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-export CLUSTER_NAME=${LOAD_TEST_PREFIX}-eks-cluster
-export BUCKET_NAME=${LOAD_TEST_PREFIX}-bucket-01  
-
-# Spark Operator Configuration
-# Test Mode Options:
-# - "multiple": Creates multiple operators (one per job namespace)
-# - "single": Creates one operator monitoring all job namespaces
-#
-# Examples:
-# 1. multiple mode (for example, OPERATOR_TEST_MODE="multiple" && SPARK_JOB_NS_NUM=2):
-#    - Creates 2 job namespaces and 2 operators
-#    - spark-operator0 monitors spark-job0
-#    - spark-operator1 monitors spark-job1
-#
-# 2. single mode (for example, OPERATOR_TEST_MODE="single" && SPARK_JOB_NS_NUM=2):
-#    - Creates 2 job namespaces but only 1 operator
-#    - spark-operator0 monitors both spark-job0 and spark-job1
-
-export OPERATOR_TEST_MODE="multiple"
-export SPARK_JOB_NS_NUM=2
-export SPARK_OPERATOR_VERSION=6.11.0
-export EMR_IMAGE_VERSION=6.11.0
-export EMR_IMAGE_URL="${ECR_REGISTRY_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/spark/emr-${EMR_IMAGE_VERSION}:latest"
-
-# IAM Roles and Policies
-export SPARK_OPERATOR_ROLE=${LOAD_TEST_PREFIX}-SparkJobS3AccessRole
-export SPARK_OPERATOR_POLICY=${LOAD_TEST_PREFIX}-SparkJobS3AccessPolicy
-
-# Prometheus Configuration
-export AMP_SERVICE_ACCOUNT_INGEST_NAME=amp-iamproxy-ingest-service-account
-export AMP_SERVICE_ACCOUNT_IAM_INGEST_ROLE=${LOAD_TEST_PREFIX}-prometheus-ingest
-export AMP_SERVICE_ACCOUNT_IAM_INGEST_POLICY=${LOAD_TEST_PREFIX}-AMPIngestPolicy
-
-# Karpenter Configuration
-export KARPENTER_CONTROLLER_ROLE="KarpenterControllerRole-${LOAD_TEST_PREFIX}"
-export KARPENTER_CONTROLLER_POLICY="KarpenterControllerPolicy-${LOAD_TEST_PREFIX}"
-export KARPENTER_NODE_ROLE="KarpenterNodeRole-${LOAD_TEST_PREFIX}"
-
-# Monitoring Configuration
-export USE_AMG="true"  # Enable Amazon Managed Grafana
+clusters = {
+  "1-32" = {
+    eks_version        = "1.32"
+    karpenter_version  = "1.8.5"
+    vpc_cidr           = "10.0.0.0/16"
+    availability_zones = ["ap-southeast-2a", "ap-southeast-2b"]
+    ops_node_group     = { instance_type = "m5.4xlarge", desired_capacity = 3 }
+    driver_nodepool    = { cpu_limit = "128", instance_categories = ["m","c"], instance_sizes = ["2xlarge","4xlarge","8xlarge"], capacity_types = ["on-demand"] }
+    executor_nodepool  = { cpu_limit = "3440", instance_categories = ["m","r"], instance_sizes = ["4xlarge","8xlarge","12xlarge","16xlarge"], capacity_types = ["spot","on-demand"], consolidate_after = "2m" }
+    vpc_cni            = { minimum_ip_target = 32, warm_ip_target = 0, warm_prefix_target = 1 }
+    locust             = { workers = 2, users = 4, run_time = "10m", emr_image_version = "7.9.0", job_ns_count = 2 }
+  }
+}
 ```
-
 </details>
 
-[^ back to top](#table-of-contents)
+For multi-cluster comparison (e.g., EKS v1.30 vs v1.32), see `examples/multi-cluster.tfvars`.
 
-
-#### 1.2 To modify the EKS cluster yaml file for Cluster / NodeGroups:
-- For eks cluster & NodeGroups, please update `./resources/eks-cluster-values.yaml`
-- For Karpenter NodePools, please update `./resources/karpenter-nodepool.yaml`
-- If you wants to modify the default of the templates, please update `./resources/template-backups/` accordingly, these templates/yaml files will be restoring during `./clean-up.sh` execution.
-
-
-#### 1.3 To build the infrastructure, please execute the below cmd:
-```bash
-bash ./infra-provision.sh
-```
-
-#### 1.4 Infrastructure Inclusions:
-
-<details>
-<summary>Here are the inclusions of the <b>infra-provision.sh</b> script </summary>
-
-- S3 Bucket for storing assets, eg: job script.
-- EKS cluster (v 1.30) with following set ups
-    - VPC CNI Addon
-    - EBS CSI Addon
-    - Binpacking Pod Scheduler
-    - EKS Cluster Autoscaler
-        - NodeGroup for Operational & Monitoring Purposes
-            - labels: 
-            - `operational=true`, `monitor=true`
-        - NodeGroup for Spark Operators.
-            - labels: 
-            - `operational=true`, `monitor=false`
-        - NodeGroups for Spark Jobs Execution in 2 AZs accordingly:
-            - labels: 
-            - `operational=false`, `monitor=false`
-            - eg: `us-west-2a`, `us-west-2b`
-    - Karpenter Scaler
-        - NodePool for Spark Driver Pods:
-            - labels:
-                - `cluster-worker: "true"`
-                - `provisioner: "spark-driver-provisioner"`
-        - NodePool for Spark Executor Pods:
-            - labels:
-                - `cluster-worker: "true"`
-                - `provisioner: "spark-executor-provisioner"`
-        - EC2 Node Class: `spark-worker-nc`
-            - Across 2 AZs/Subnets by default.
-        - Please modify `./resources/karpenter-nodepool.yaml` to change instance family and sizes, NP and NC Configs.
-    - Prometheus on EKS
-        - @XI TO DO.
-    - Spark Operators & Job Namespaces
-        - Number of Spark Operators will be created in `-n spark-operator` by default, eg: `spark-operator0`, `spark-operator1`, etc.
-        - Number of Job Namespaces will be created, eg: `-n spark-job0`, `-n sparkjob1`, etc.
-        - Please update the `./env.sh` to configure Spark Operator & job namespace numbers.
-- Amazon Managed Prometheus Workspace
-
-
-
-</details>
-
-
-### 2. Using [Locust](https://github.com/locustio/locust) to Submit Testing Jobs (Optional)
-Locust is a Open source load testing tool based on the Python.
-
-This script creates an EC2 as the load testing client which is using Locust to submit spark testing jobs to EKS cluster. 
-
-#### 2.1 To build the Locust on EC2, please execute the below cmd:
-
+### Step 2: Deploy Infrastructure
 
 ```bash
-bash ./locust-provision.sh
-
-# You have to ensure that an EKS cluster is created by the script above (`./infra-provision.sh`) and is ready to use, or modify the script with your own EKS cluster.
+terraform init
+terraform plan
+terraform apply
 ```
 
-With this script implementation, you don't need to have extra settings to play around the load testing, but just choose the volume of workload to mimick your real production.
+This provisions: VPC, EKS cluster, IAM roles, Karpenter with NodePools, Prometheus + Grafana, Locust Operator, S3 bucket, ECR repos, KMS key, SQS interruption queue, and all access entries.
 
-#### 2.2 Locust EC2 Inclusions:
+### Step 3: Build and Push Container Images
 
-<details>
-<summary>Here are the inclusions of the <b>locust-provision.sh</b> script </summary>
+```bash
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+REGION=$(grep 'region' terraform.tfvars | head -1 | awk -F'"' '{print $2}')
+ECR_URL="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
 
-- EC2 Instance with Instance Profile
-    - A ssh key will be available to use to access the EC2 instance.
-    - You should be able to see the below once the script is executed successfully.
-    ```
-    To connect to the instance use: ssh -i eks-operator-test-locust-key.pem ec2-user@xxx.xxx.xxx.xxx
-    ```
-    - The security group is attached for "My IP" to access the Instance
-    - The security group on EKS cluster is attached to allow 443 access for the instance.
-    - Some necessary IAM policies have been attached to the Instance Profile.
-- Locust service have been installed
-    - The assets under `./locust` will be uploaded to S3 bucket, and then cp to the instance.
-        - The `./env.sh` will be copied before uploading to S3, the path in EC2 will be: `./load-test/locust/env.sh`
-        - Please see below how to start the Load testing with Locust.
+# Login to ECR
+aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $ECR_URL
 
-</details>
+# Build and push Locust image (multi-arch)
+docker buildx create --name multiarch --driver docker-container --use 2>/dev/null || docker buildx use multiarch
+docker buildx build --platform linux/amd64,linux/arm64 \
+  -t $ECR_URL/locust:latest -f docker/locust/Dockerfile docker/ --push
+
+# Copy Spark benchmark image from public ECR
+docker buildx imagetools create \
+  --tag $ECR_URL/eks-spark-benchmark:emr7.9.0 \
+  public.ecr.aws/myang-poc/eks-spark-benchmark:emr7.9.0
+```
+
+### Step 4: Run Load Test
+
+```bash
+# Update kubeconfig
+aws eks update-kubeconfig --region $REGION --name emr-eks-load-test-1-32
+
+# Apply LocustTest CRD
+kubectl apply -f templates/1-32-locust-test.yaml
+
+# Watch worker logs
+kubectl logs -f -n locust -l locust.cloud/component=worker
+
+# Access Grafana (admin/admin)
+kubectl port-forward -n prometheus svc/kube-prometheus-stack-grafana 3000:80
+# Open http://localhost:3000
+```
+
+> **Tip:** Adjust job submission frequency by modifying `wait_time` in `modules/locust/locustfiles/locustfile.py`. Default is 20-30 seconds per user (~16-24 jobs/min with 4 users × 2 workers).
+
+> **Warning:** Locust creates new namespaces/virtual clusters at each test run. Clean up previous test sessions before starting a new one to avoid stale metrics.
+
+### Step 5: Cleanup
+
+```bash
+# Stop test and clean EMR virtual clusters
+./scripts/cleanup-emr-vc.sh
+
+# Destroy all infrastructure
+terraform destroy
+```
 
 [^ back to top](#table-of-contents)
 
+## Architecture
 
-## Run Load Testing with Locust
-### 1. Submit Jobs to Cluster Autoscaler (CAS)
-
-```bash
-# SSH to Locust EC2
-ssh -i eks-operator-test-locust-key.pem ec2-user@xxx.xxx.xxx.xxx
-cd load-test/locust
-
-# -u, how many users are going to submit the testing jobs to eks cluster via Spark Operator.
-#     The default wait interval for each user to submit jobs is between 20 - 30s in this testing tool.
-# -t, the time of submitting jobs.
-# --job-azs, customized api, let jobs to be submitted into 2 AZs randomly.
-# --kube-labels, kubernetes labls, matching NodeGroups.
-# --job-name, spark job prefix. 
-# --job-ns-count, the testing jobs will be submitting to 2 Namespaces, `spark-job0`, `spark-job1`.
-
-locust -f ./locustfile.py -u 2 -t 10m --headless --skip-log-setup \
---job-azs '["us-west-2a", "us-west-2b"]' \
---kube-labels '[{"operational":"false"},{"monitor":"false"}]' \
---job-name cas-job \
---job-ns-count 2
+### Module Structure
 
 ```
-[^ back to top](#table-of-contents)
-
-### 2. Submit Jobs to Karpenter
-
-```bash
-# --karpenter, to enable karpenter, instead of CAS.
-# --kube-labels, in Karpenter test case, the labels should match with NodePool labels.
-# --binpacking true, enable binpacking pod scheduler.
-# --karpenter_driver_not_evict, enable driver pod not be evicting in Karpenter test case.
-
-locust -f ./locustfile.py -u 2 -t 10m --headless --skip-log-setup \
---job-azs '["us-west-2a", "us-west-2b"]' \
---kube-labels '[{"cluster-worker": "true"}]' \
---job-name karpenter-job \
---job-ns-count 2 \
---karpenter \
---binpacking true \
---karpenter_driver_not_evict true
+.
+├── main.tf              # Root orchestrator with for_each over cluster map
+├── variables.tf         # Cluster config map (region set in tfvars only)
+├── providers.tf         # AWS, Kubernetes (v3), Helm (v3), kubectl providers
+├── docker/              # Dockerfile and dependencies for Locust image
+├── examples/            # Single-cluster and multi-cluster tfvars
+├── scripts/             # cleanup-emr-vc.sh
+├── templates/           # Generated LocustTest CRD manifests
+├── docs/                # Detailed guides
+└── modules/
+    ├── vpc/             # Per-cluster VPC with prefix delegation
+    ├── eks/             # EKS cluster, managed node groups, addons
+    ├── iam/             # IRSA roles: EMR, Locust, Karpenter, EBS CSI, LB Controller
+    ├── karpenter/       # Version-specific Karpenter with driver/executor NodePools
+    ├── monitoring/      # Prometheus, Grafana, LB Controller, BinPacking scheduler
+    ├── locust/          # Locust Operator, ConfigMap, LocustTest CRD template
+    ├── storage/         # Per-cluster S3 bucket with KMS encryption
+    ├── ecr/             # Shared ECR repositories
+    ├── kms/             # Shared KMS key with rotation
+    └── ide/             # Optional managed IDE via SSM
 ```
+
+### Naming Conventions
+
+| Resource | Pattern | Example |
+|----------|---------|---------|
+| EKS Cluster | `<project>-<cluster>` | `emr-eks-load-test-1-32` |
+| S3 Bucket | `emr-on-<project>-<cluster>-<account>` | `emr-on-emr-eks-load-test-1-32-010117700078` |
+| EMR Execution Role | `emr-on-<project>-<cluster>-execution-role` | `emr-on-emr-eks-load-test-1-32-execution-role` |
+| ECR Repos | `<name>` (flat) | `locust`, `eks-spark-benchmark` |
+| KMS Alias | `alias/<kms_key_alias>` | `alias/emr-eks-load-test` |
+
+
 [^ back to top](#table-of-contents)
 
-## Best Practice Guide
+## Best Practices
 
-### 1. Spark Operator
+### 1. How to Allocate Spark Driver & Executor Pods
 
-#### 1.1 Spark Operator Numbers
-For the single Spark Operator, the max performance for submission rate would be around 30 jobs per min (`SparkOperator version: emr-6.11.0 (v1beta2-1.3.8-3.1.1)`), and the performance tune on a single operator is very limited in the current version. 
-- To handle the large volume of workload, to horizontally scale up by using multiple Spark Operator would be the recommended solution. 
-- The operators will be not impacted from each other on eks cluster side, but higher number of operators will increase the overhead on apiserver/etcd side.
+To minimize cross-node data I/O penalties, allocate Spark executor pods onto the same node as much as possible. This project uses separate Karpenter NodePools for drivers (stable, on-demand) and executors (cost-optimized, spot + on-demand with consolidation).
 
-#### 1.2 Isolation of Spark Operators
-For Spark Operator(s), to minimise the performance impacts caused by other services, eg.: spark job pods, prometheus pods, etc, it is recommended to allocate the Spark Operator(s), Prometheus operators in the dedicated operational NodeGroups accordingly.
-<details>
-<summary> Spark Operator Best Practice </summary>
+The load test framework dynamically populates the AZ value for `spark.kubernetes.node.selector.topology.kubernetes.io/zone` during job submission, binding all pods within a job to a single AZ to avoid cross-AZ data transfer fees.
 
-- To use `podAntiAffinity` to ensure ***One-Node-One-Operator*** pattern
 ```yaml
-affinity:
-  podAntiAffinity:
-    requiredDuringSchedulingIgnoredDuringExecution:
-    - labelSelector:
-        matchExpressions:
-        - key: app.kubernetes.io/name
-          operator: Exists
-      topologyKey: "kubernetes.io/hostname"
-```
-- Increase `controllerThreads`
-The default number of Spark Operator workers(controllerThreads) is `10`, to increase it to get a better performance for job submission. 
-    - However, as the qps and bucket size is hardcoded in SparkOperator V1, thus, increase this to very large number, eg: 100, may `NOT` benefit from it as expected.
-    - In addition, it would be vary in the different spark job submission object size. As large object size of each job will take more space in the bucket of operator internally.
-
-</details>
-
-[^ back to top](#table-of-contents)
-
-
-### 2. Spark Job Configuration
-#### 2.1 Allocate the Spark Job Pods (Driver & Executors) into the Node
-To minimise the cross node overhead for a single spark job, it is recommended trying to allocate the spark job pods into the same node as much as possible.
-
-- Similar as operational pods, when using CAS as node scaler solution:
-    - utilizing `nodeSelector` with `kubernetes label` feature on the spark job yaml file, to ensure the spark job pods will be allocated to the same worker NodeGroup:
-    - As an alternative, to utilize the `topology.kubernetes.io/zone` tag, to ensure all pods of a single job will be allocated into the same AZ, it depends on your NodeGroup Settings.
-```yaml
-# nodeSelector sample as below:
-    driver:
-      nodeSelector:
-      cluster-worker: "true" 
-# This label needs to match with EKS nodegroup kubernetes label or kapenter nodepool
-
-    executor:
-      nodeSelector:
-      cluster-worker: "true" 
-# This label needs to match with EKS nodegroup kubernetes label or kapenter nodepool
+"spark.kubernetes.executor.node.selector.karpenter.sh/nodepool": "executor-memorynodepool"
+"spark.kubernetes.driver.node.selector.karpenter.sh/nodepool": "driver-nodepool"
+"spark.kubernetes.node.selector.topology.kubernetes.io/zone": "${randomly_selected_az}"
 ```
 
+### 2. Binpacking Application Pods
 
-- To utilize `Binpacking` while submitting a Spark Job, please see details at below - `3. Binpacking`
+Two types of binpacking work together:
 
-- Try to NOT use `initContainers`.
-we have found, with `initContainers` enabled, the events of a single spark job increased significantly. As a result, the eks api server and etcd DB size will be filling up faster than disabling the `initContainers`. Thus, try to avoid to use with large scale workload in a single EKS cluster, or split the jobs into multiple eks cluster.
+- **Custom Kubernetes scheduler** (`custom-scheduler-eks`) — binpacks at pod creation time, packing pods tightly onto existing nodes before requesting new ones. Configured via `spark.kubernetes.scheduler.name`.
+- **Karpenter consolidation** — binpacks at runtime by replacing underutilized nodes. Only enabled on executor NodePools with disruption budgets (100% for empty nodes, 25% for underutilized).
 
-[^ back to top](#table-of-contents)
+### 3. Cluster Scalability with Karpenter
 
+This project uses Karpenter exclusively for load test pod scaling. The ops node group (3× m5.4xlarge) is fixed-size for operational pods (Prometheus, Karpenter, LB Controller).
 
-### 3. Binpacking
+Karpenter NodePool configuration highlights:
+- **Driver NodePool:** on-demand, WhenEmpty consolidation, Nitro instances, generation > 4
+- **Executor NodePool:** spot + on-demand, WhenEmptyOrUnderutilized consolidation, disruption budgets
+- **EC2NodeClass:** 50Gi gp3 EBS with KMS encryption, IMDSv2 enforced, amd64 + arm64 support
 
-Binpacking could efficiently allocate pods to available nodes within a Kubernetes cluster. Its primary goal is to optimize resource utilization by packing pods as tightly as possible onto nodes, while still meeting resource requirements and constraints. 
-- This approach aims to maximize cluster efficiency, reduce costs, and improve overall performance by minimizing the number of active nodes required to run the workload. 
-- With Binpacking enabled, the overall workload can minimise the resources used on network traffic between physical nodes, as most of pods will be allocated in a single node at its launch time. 
-- However, we use Karpenter's consolidation feature to maximize pods density when node's utilization starts to drop.
-- Please learn more about Binpacking via link: https://awslabs.github.io/data-on-eks/docs/resources/binpacking-custom-scheduler-eks
+### 4. Networking Best Practices
 
-[^ back to top](#table-of-contents)
+VPC CNI is configured with prefix delegation for large-scale pod scheduling:
 
-
-### 4. Cluster Scalability
-#### 4.1 EKS Cluster Autoscaler (CAS)
-- To utilize the Kubernetes Labels for operational services with CAS:
-    -  With `podAntiAffinity` enabled followed by `2.1 Allocate the Spark Job Pods (Driver & Executors) into the Node` above, and enable CAS for Operational service, eg: Spark Operators, to scale up and down the Spark Operator Node by CAS automatically.
-- To schedule the large volume of pods, need to increase the qps and burst for `NodeScaler`, to avoid CAS self throttling issue:
-```yaml
-nodeSelector:
- ## Kubernetes label for pod allocation.
-podAnnotations:
-  cluster-autoscaler.kubernetes.io/safe-to-evict: 'false'
-...
-extraArgs:
-...
-  kube-client-qps: 300
-  kube-client-burst: 400
 ```
-[^ back to top](#table-of-contents)
-
-#### 4.2 Karpenter Scaler:
-
-- To allocate the operational pods, eg: Spark Operator, Prometheus, Karpenter, Binpacking, etc in the Operational EKS NodeGroup, which are NOT controlled by Karpenter via setting up nodeSelector on the operational pods, please see details explained in `4.1 EKS Cluster Autoscaler (CAS)`
-- Karpenter Nodepool configs:
-    - Utilize the provisioner label to separate the spark driver pods and spark executor pods. As the driver pods will be creating earlier than executor pods, and then each driver pod will create 10 executors, which can improve the pending pods in short period of time.
-    - To align with NodeGroup on CAS, and also minimise the networking level noise, to utilize the `topology.kubernetes.io/zone` when submitting karpenter spark jobs, to ensure all pods of a single job will be allocated into the same AZ.
-```yaml
-apiVersion: karpenter.sh/v1beta1
-kind: NodePool
-metadata:
-  name: spark-driver-provisioner
-spec:
-  template:
-    metadata:
-      labels:
-        cluster-worker: "true"
-        provisioner: "spark-driver-provisioner"
-    spec:
-      requirements:
-...
-        - key: "topology.kubernetes.io/zone"
-          operator: In
-          values: ["${AWS_REGION}a", "${AWS_REGION}b"]
+ENABLE_PREFIX_DELEGATION=true
+MINIMUM_IP_TARGET=32
+WARM_IP_TARGET=0
+WARM_PREFIX_TARGET=1
 ```
 
+Each cluster gets its own VPC with configurable CIDR to avoid IP conflicts. Subnets are tagged with `karpenter.sh/discovery` for automatic node provisioning.
+
 [^ back to top](#table-of-contents)
 
+## Monitoring
 
-### 5 Best Practices for Networking
-With large volume of workload, if the IP addresses of the eks cluster resided subnets may be exhausted. To solve this here are tips to address this issue:
-- To use AWS VPC CNI, to set up the 2nd or more CIDRs for your eks cluster, instead of utilizing the primary subnet. Please learn more about this via: https://aws.github.io/aws-eks-best-practices/networking/custom-networking/
-- To minimise IP wastage on the existing subnets, you may try to fine tune the below set up: 
-    - `WARM_ENI_TARGET`, `MAX_ENI`
-    - `WARM_IP_TARGET`, `MINIMUM_IP_TARGET`
-    - Please learn more details from here: https://aws.github.io/aws-eks-best-practices/networking/vpc-cni/
-https://docs.aws.amazon.com/eks/latest/best-practices/networking.html
+Pre-built Grafana dashboards are included for observing test results:
 
+| Dashboard | What It Shows | Data Available |
+|-----------|---------------|----------------|
+| AWS CNI Metrics | VPC CNI IP allocation, ENI usage | Always |
+| EKS Control Plane | API server latency, etcd, scheduler | Always |
+| Karpenter | NodePool utilization, provisioning latency | Always |
+| emr-on-eks-load-test | Locust job submissions, EMR job states | During active tests |
+| emr-eks-grafana-dashboard | Combined EMR on EKS overview | During active tests |
 
-## Monitoring:
-
-We have built monitoring solution for this architecture, with [Amazon Managed Prometheus](https://aws.amazon.com/prometheus/) and [Amazon Managed Grafana](https://aws.amazon.com/grafana/) included by default.
-
-<table align="center">
-  <tr>
-    <td>
-      <img src="grafana/images/spark-operator-dashboard.png" width="600"/>
-      <p align="center">Spark Operator Dashboard</p>
-    </td>
-    <td>
-      <img src="grafana/images/emr-on-eks-dashboard.png" width="600"/>
-      <p align="center">EMR on EKS Dashboard</p>
-    </td>
-  </tr>
-  <tr>
-    <td>
-      <img src="grafana/images/eks-control-plane.png" width="600"/>
-      <p align="center">EKS Control Plane</p>
-    </td>
-    <td>
-      <img src="grafana/images/aws-cni-metrics.png" width="600"/>
-      <p align="center">AWS CNI Metrics</p>
-    </td>
-  </tr>
-</table>
-
-### 1. Monitor Load Testing with Amazon Managed Prometheus and Amazon Managed Grafana
-
-#### 1.1 Set up AMP & AMG follow based on this git repo
-Please aware, `./infra-provision.sh` has included prometheus on eks and also Amazon Managed Prometheus by default. Thus, please just follow the below guidence to set up Amazon Managed Grafana:
-<details>
-<summary>Here are the steps to use Amazon Managed Grafana </summary>
-
-- From `./env.sh`, keep default value as below, then the script will create AMG workspace automatically:
+Access Grafana:
 ```bash
-export USE_AMG="true"
-```
-If you do not have the IAM Identity Center / useage account enabled, then please follow: https://docs.aws.amazon.com/databrew/latest/dg/sso-setup.html
-
-- Set up the access for Amazon Grafana:
-    - Access to aws console -> search "Amazon Grafana" -> click the three lines icon at top left of the page -> click "All workspaces";
-    - click the workspace name, which is the same value of the `LOAD_TEST_PREFIX` value;
-    - From Authentication tab -> click "Assign new user or group";
-    - Select your account -> click "Assign Users and groups";
-    - Select your account again -> click "Action" -> "Make admin";
-    - To find the "Grafana workspace URL" from the workspace detail page -> access to the URL.
-
-- Sign in via IAM Identity Center access;
-- Set up Amazon Managed Prometheus Datasource via:
-    - Click Apps -> AWS Data Source -> Click `Amazon Managed Service for Prometheus`;
-    - Select `region` align with your eks cluster, eg: `us-west-2`;
-    - Select the Region and Click Add data source.
-    - Click `Go to Settings`, scroll down to the bottom and click `Save & test` to verify the connection.
-
-- Set up Grafana Dashboard:
-    - Client the "+" icon from top right of the page after signed in -> click "Import dashboard";
-    - You can either use `Upload` or `Copy & Paste` the value of `./grafana/dashboard-template/spark-operator-dashbord.json` and then click "Load";
-    - Select the data source, which align with the AMP connection that sets up above, eg: `Prometheus ws-xxxx.....`
-    - You may repeat above step to import more templates from `./grafana/dashboard-template/`;
-
-
-Please aware if the below charts are not working, which is expected due to the `kubelet` will generate the large volume of metrics and it will boost prometheus memory usage.
-- Prometheus Kubelet Metrics Series Count
-- Spark Operator Pod CPU Core Usage
-
-If you want to enable them, then please update `./resources/prometheus-values.yaml` as below:
-```yaml
-kubelet:
-  enabled: true
+kubectl port-forward -n prometheus svc/kube-prometheus-stack-grafana 3000:80
+# Open http://localhost:3000 (admin/admin)
 ```
 
-</details>
+Prometheus scrapes metrics from Karpenter (ServiceMonitor), AWS CNI (PodMonitor), Locust workers (PodMonitor on `locust.cloud/component=worker`), and Spark drivers (PodMonitor on `emr-containers.amazonaws.com/resource.type=job.run`).
 
 [^ back to top](#table-of-contents)
 
+## Detailed Guides
 
-### 2. Metrics & Evaluation
+- [Load Testing Guide](docs/load-testing-guide.md) — scaling parameters, custom tests, test architecture, all configurable parameters
+- [Monitoring Guide](docs/monitoring-guide.md) — dashboard details, Prometheus targets, Locust metrics reference, troubleshooting
 
-Please refer to the [Grafana README](./grafana/README.md) document for detailed explanation, how to monitor and evaluate your performance in Locust, Spark Operator, EKS cluster, IP utilization, etc.
+## Cleanup
 
-## Clean up
 ```bash
-# To remove the Locust EC2 from infrastructure. You can ignore if you did not execute bash ./locust-provision.sh before.
-bash ./locust-provision.sh -action delete
+# Stop load test and clean EMR resources
+./scripts/cleanup-emr-vc.sh
 
-# To remove the resources that created by ./infra-provision.sh.
-bash ./clean-up.sh 
+# Destroy all infrastructure
+terraform destroy
 ```
 
 [^ back to top](#table-of-contents)
 
+## Optional: Remote State
 
-## Security
-
-See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
+```bash
+cd bootstrap && terraform init && terraform apply -var="region=ap-southeast-2" && cd ..
+# Update backend.hcl with bucket name, uncomment backend block in versions.tf
+terraform init -backend-config="backend.hcl" -migrate-state
+```
 
 ## License
 
 This library is licensed under the MIT-0 License. See the LICENSE file.
-
