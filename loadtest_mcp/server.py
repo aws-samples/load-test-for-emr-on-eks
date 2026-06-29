@@ -16,6 +16,7 @@ re-implementing logic, so the server tracks the repo as it evolves.
 
 from __future__ import annotations
 
+import functools
 import json
 import re
 import shlex
@@ -48,13 +49,99 @@ LOCUST_NAMESPACE = "locust"
 CONFIGMAP_NAME = "emr-loadtest-locustfile"
 
 
-def _resolve_region(env: dict) -> Optional[str]:
-    """Region from env.sh (which derives it from the active profile).
+def _require_region(env: dict) -> tuple[Optional[str], Optional[str]]:
+    """Resolve the target region, returning ``(region, error)``.
 
-    Returns None when no region is configured anywhere, so callers can fail
-    loudly rather than silently targeting a hardcoded default.
+    The region comes from env.sh (which derives it from the active profile);
+    nothing is hardcoded. ``error`` is a ready-to-return message when no region
+    is configured (``region`` is None in that case), so every region-dependent
+    tool fails loudly with one shared message instead of repeating it.
     """
-    return env.get("AWS_REGION") or None
+    region = env.get("AWS_REGION") or None
+    if not region:
+        return None, ("ERROR: no AWS region configured. "
+                      "Run get_aws_profile / set_aws_profile first.")
+    return region, None
+
+
+def _require_region_and_cluster(
+    env: dict, cluster_name: Optional[str] = None
+) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    """Resolve target region + cluster name, returning ``(region, name, error)``.
+
+    ``cluster_name`` overrides the env.sh CLUSTER_NAME when given. ``error`` is a
+    ready-to-return message if either is missing (region first), with the other
+    values None in that case.
+    """
+    region, error = _require_region(env)
+    if error:
+        return None, None, error
+    name = cluster_name or env.get("CLUSTER_NAME")
+    if not name:
+        return None, None, ("ERROR: no cluster name "
+                            "(set CLUSTER_NAME in env.sh or pass cluster_name)")
+    return region, name, None
+
+
+def _confirmation_error() -> Optional[str]:
+    """Return why test-affecting tools are locked, or None if they're unlocked.
+
+    Tools are unlocked only when the operator has confirmed the CURRENT
+    account/region via ``confirm_aws_profile`` and the live identity still
+    matches -- so no provisioning/run/teardown ever targets an unconfirmed (or
+    since-changed) account.
+    """
+    ident = helpers.aws_identity()
+    if not ident["ok"]:
+        return (
+            "ERROR: AWS credentials are not usable "
+            f"(profile {ident['profile']!r}: {ident['error']}).\n"
+            "Fix them (e.g. aws sso login) or switch with set_aws_profile, then "
+            "confirm with confirm_aws_profile before running this."
+        )
+    confirmed = helpers.read_confirmed_identity()
+    if not confirmed:
+        return (
+            "ERROR: AWS account/region not confirmed yet. This tool acts on real "
+            "AWS resources, so the target must be confirmed first.\n"
+            f"  Active profile: {ident['profile']}\n"
+            f"  Account:        {ident['account']}\n"
+            f"  Region:         {ident['region'] or '<unset>'}\n"
+            "Show this to the user and, once they approve, call "
+            "confirm_aws_profile(account, region) to unlock test-affecting tools."
+        )
+    # The recorded confirmation must still match the live identity -- guards
+    # against a profile/region change after confirming.
+    if (confirmed.get("account") != ident["account"]
+            or (confirmed.get("region") or "") != (ident["region"] or "")):
+        return (
+            "ERROR: the active AWS identity changed since it was confirmed.\n"
+            f"  Confirmed: account {confirmed.get('account')}, region "
+            f"{confirmed.get('region') or '<unset>'}\n"
+            f"  Now:       account {ident['account']}, region "
+            f"{ident['region'] or '<unset>'}\n"
+            "Re-confirm with confirm_aws_profile(account, region) before "
+            "proceeding."
+        )
+    return None
+
+
+def requires_confirmed_identity(func):
+    """Decorator: block a test-affecting tool until the target is confirmed.
+
+    If the account/region hasn't been confirmed (or the live identity has
+    changed since), the wrapped tool returns the gate error instead of running.
+    Keeps the confirmation check in one place rather than repeating it in every
+    tool body.
+    """
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        gate = _confirmation_error()
+        if gate:
+            return gate
+        return func(*args, **kwargs)
+
+    return wrapper
 
 
 # ===========================================================================
@@ -96,6 +183,55 @@ def get_aws_profile() -> str:
 
 
 @mcp.tool()
+def confirm_aws_profile(account: str, region: str) -> str:
+    """Confirm the AWS account + region the load test will run against.
+
+    This is the REQUIRED first step before any test-affecting tool
+    (provision_infra, provision_locust_operator, run_local_test, apply_eks_test,
+    use_existing_eks_cluster, prepare_new_eks_cluster, refresh_configmap,
+    validate_iam_roles, stop_test, delete_test_namespaces, teardown_infra) will
+    act. Those tools operate on real AWS resources, so the operator must
+    explicitly approve the target first.
+
+    Pass the ``account`` and ``region`` the user approved. This verifies they
+    match the live identity of the active profile (so a typo or a stale profile
+    can't slip through) and records the confirmation. The confirmation is
+    invalidated automatically if the profile/region later changes (e.g. via
+    set_aws_profile). Call get_aws_profile first to see the values to confirm.
+    """
+    ident = helpers.aws_identity()
+    if not ident["ok"]:
+        return (
+            "ERROR: cannot confirm -- AWS credentials are not usable "
+            f"(profile {ident['profile']!r}: {ident['error']}).\n"
+            "Fix them or switch with set_aws_profile, then try again."
+        )
+    live_account = ident["account"]
+    live_region = ident["region"] or ""
+    account = account.strip()
+    region = region.strip()
+    if account != live_account or region != live_region:
+        return (
+            "ERROR: the account/region you confirmed does not match the active "
+            "profile's live identity. Nothing was confirmed.\n"
+            f"  You passed: account {account!r}, region {region!r}\n"
+            f"  Profile {ident['profile']!r} resolves to: account "
+            f"{live_account!r}, region {live_region or '<unset>'!r}\n"
+            "Re-run get_aws_profile, then confirm the exact values shown (or "
+            "switch profiles with set_aws_profile)."
+        )
+    helpers.record_confirmed_identity(live_account, live_region, ident["profile"])
+    return (
+        "Confirmed. Test-affecting tools are now unlocked for:\n"
+        f"  Profile: {ident['profile']}\n"
+        f"  Account: {live_account}\n"
+        f"  Region:  {live_region}\n"
+        "This confirmation is cleared automatically if the profile or region "
+        "changes."
+    )
+
+
+@mcp.tool()
 def set_aws_profile(profile: str) -> str:
     """Switch to a named AWS profile and sync env.sh to its account/region.
 
@@ -120,11 +256,17 @@ def set_aws_profile(profile: str) -> str:
             "refresh keys) and try again."
         )
 
+    # Switching profiles invalidates any prior account/region confirmation, so
+    # the operator must re-confirm the new target before acting on it.
+    helpers.clear_confirmed_identity()
+
     msgs = [
         f"Switched to AWS profile '{profile}'.",
         f"  Account: {ident['account']}",
         f"  ARN:     {ident['arn']}",
         _write_env_var("AWS_PROFILE", profile),
+        "Confirmation reset: call confirm_aws_profile(account, region) for this "
+        "profile before running test-affecting tools.",
     ]
     region = ident.get("region")
     if region:
@@ -279,12 +421,9 @@ def check_eks_cluster(cluster_name: Optional[str] = None) -> str:
     Reports status/version if found.
     """
     env = helpers.load_env()
-    region = _resolve_region(env)
-    if not region:
-        return "ERROR: no AWS region configured. Run get_aws_profile / set_aws_profile first."
-    name = cluster_name or env.get("CLUSTER_NAME")
-    if not name:
-        return "ERROR: no cluster name (set CLUSTER_NAME in env.sh or pass cluster_name)"
+    region, name, error = _require_region_and_cluster(env, cluster_name)
+    if error:
+        return error
     try:
         cluster = _describe_eks_cluster(name, region)
     except RuntimeError as e:
@@ -315,6 +454,157 @@ def _kubectl_json(args: list[str]) -> Optional[dict]:
         return None
 
 
+def _ecr_image_exists(repo: str, tag: str, region: str) -> tuple[bool, str]:
+    """Check whether <repo>:<tag> exists in the configured account's ECR.
+
+    Goes through the ``run`` helper so the AWS CLI inherits AWS_PROFILE from
+    env.sh and targets the SAME account the load test runs in -- never a proxy
+    or ambient default. Returns (exists, detail).
+    """
+    result = run(
+        ["aws", "ecr", "describe-images",
+         "--repository-name", repo,
+         "--image-ids", f"imageTag={tag}",
+         "--region", region,
+         "--query", "imageDetails[0].imageTags",
+         "--output", "json"],
+        timeout=120,
+    )
+    if result.ok:
+        return True, f"{repo}:{tag} present"
+    combined = (result.stderr or "") + (result.stdout or "")
+    if "RepositoryNotFoundException" in combined:
+        return False, f"ECR repository '{repo}' does not exist"
+    if "ImageNotFoundException" in combined:
+        return False, f"repository '{repo}' exists but tag '{tag}' is missing"
+    # Auth/region or other errors -- surface so it isn't mistaken for "missing".
+    return False, f"could not verify {repo}:{tag} -- {combined.strip()[:200]}"
+
+
+def _iam_role_exists(role_name: str) -> tuple[bool, str]:
+    """Check whether an IAM role exists in the load-test account.
+
+    Goes through the ``run`` helper so the AWS CLI inherits AWS_PROFILE from
+    env.sh and targets the SAME account the load test runs in -- never a proxy
+    or ambient default. IAM is global, so no region is needed. Returns
+    (exists, detail) where detail is the role ARN when present.
+    """
+    result = run(
+        ["aws", "iam", "get-role", "--role-name", role_name,
+         "--query", "Role.Arn", "--output", "text"],
+        timeout=60,
+    )
+    if result.ok:
+        return True, result.stdout.strip()
+    combined = (result.stderr or "") + (result.stdout or "")
+    if "NoSuchEntity" in combined:
+        return False, f"role '{role_name}' does not exist"
+    # Auth or other errors -- surface so it isn't mistaken for "missing".
+    return False, f"could not verify role '{role_name}' -- {combined.strip()[:200]}"
+
+
+# Required IAM roles, keyed by the env.sh variable that names them, with the
+# provisioning script that creates each one. The Locust IRSA role comes from
+# locust-provision.sh; the rest come from infra-provision.sh. ``validate_iam_roles``
+# and ``validate_cluster_components`` use this to report what is missing and to
+# route auto-provisioning to the right script.
+_REQUIRED_IAM_ROLES = [
+    ("EXECUTION_ROLE", "EMR on EKS job execution role", "infra"),
+    ("KARPENTER_CONTROLLER_ROLE", "Karpenter controller role", "infra"),
+    ("KARPENTER_NODE_ROLE", "Karpenter node role", "infra"),
+    ("LOCUST_EKS_ROLE", "Locust IRSA role", "locust"),
+]
+
+
+def _check_iam_roles(env: dict) -> list[tuple[str, str, bool, str, str]]:
+    """Check every required IAM role for the configured cluster.
+
+    Returns a list of (env_var, role_name, exists, detail, source) tuples, where
+    ``source`` is "infra" or "locust" -- the script that creates the role.
+    """
+    checks: list[tuple[str, str, bool, str, str]] = []
+    for var, _label, source in _REQUIRED_IAM_ROLES:
+        role_name = env.get(var)
+        if not role_name:
+            checks.append((var, "<unset>", False,
+                           f"{var} is not set in env.sh", source))
+            continue
+        ok, detail = _iam_role_exists(role_name)
+        checks.append((var, role_name, ok, detail, source))
+    return checks
+
+
+def _start_provision(job_id: str, script_name: str) -> str:
+    """Kick off a provisioning script in the background; return a status line."""
+    script = REPO_ROOT / script_name
+    if not script.exists():
+        return f"ERROR: {script} not found"
+    job = helpers.start_background(["bash", str(script)], job_id=job_id)
+    return (f"Started {script_name} (pid {job.pid}); log: {job.log_path}. "
+            f"Follow with get_job_log('{job_id}').")
+
+
+@mcp.tool()
+@requires_confirmed_identity
+def validate_iam_roles(
+    cluster_name: Optional[str] = None,
+    provision_if_missing: bool = False,
+) -> str:
+    """Check that the IAM roles the load test depends on exist, in the load-test account.
+
+    Verifies (via ``aws iam get-role`` under the active AWS_PROFILE, so it checks
+    the SAME account the test runs in):
+      - EMR on EKS job execution role (EXECUTION_ROLE) -- jobs cannot be
+        submitted without it
+      - Karpenter controller + node roles (KARPENTER_CONTROLLER_ROLE,
+        KARPENTER_NODE_ROLE) -- node autoscaling fails without them
+      - Locust IRSA role (LOCUST_EKS_ROLE) -- the operator cannot create
+        namespaces/VCs without it
+
+    When ``provision_if_missing`` is True, this starts the right script in the
+    background to create whatever is missing: infra-provision.sh for the EMR /
+    Karpenter roles, locust-provision.sh for the Locust role. Both are
+    idempotent (they only create absent resources). Leave it False (default) to
+    just report; provisioning creates real AWS resources and takes a while.
+    """
+    env = helpers.load_env()
+    _region, name, error = _require_region_and_cluster(env, cluster_name)
+    if error:
+        return error
+
+    checks = _check_iam_roles(env)
+    passed = sum(1 for c in checks if c[2])  # c[2] is the exists flag
+    total = len(checks)
+    lines = [f"IAM role validation for cluster '{name}' (account via profile "
+             f"{env.get('AWS_PROFILE', '<default>')}): {passed}/{total} present", ""]
+    for var, role_name, ok, detail, _source in checks:
+        lines.append(f"  [{'PASS' if ok else 'FAIL'}] {var} ({role_name}) — {detail}")
+
+    missing = [c for c in checks if not c[2]]
+    if not missing:
+        lines.append("")
+        lines.append("All required IAM roles exist.")
+        return "\n".join(lines)
+
+    need_infra = any(c[4] == "infra" for c in missing)
+    need_locust = any(c[4] == "locust" for c in missing)
+    lines.append("")
+    if provision_if_missing:
+        lines.append("Missing roles found; starting provisioning to create them:")
+        if need_infra:
+            lines.append("  - " + _start_provision("provision-infra", "infra-provision.sh"))
+        if need_locust:
+            lines.append("  - " + _start_provision("provision-locust", "locust-provision.sh"))
+    else:
+        lines.append("Some required IAM roles are missing. To create them, run:")
+        if need_infra:
+            lines.append("  - provision_infra (infra-provision.sh) for the EMR / Karpenter roles")
+        if need_locust:
+            lines.append("  - provision_locust_operator (locust-provision.sh) for the Locust role")
+        lines.append("Or re-run this tool with provision_if_missing=True to start them now.")
+    return "\n".join(lines)
+
+
 @mcp.tool()
 def validate_cluster_components(cluster_name: Optional[str] = None) -> str:
     """Validate that an EKS cluster has all components required for the load test.
@@ -330,14 +620,19 @@ def validate_cluster_components(cluster_name: Optional[str] = None) -> str:
       - CoreDNS with >= 3 replicas
       - Binpacking custom scheduler (custom-scheduler-eks Running)
       - Prometheus operator + built-in Grafana (Running)
+      - ECR benchmark images present in the load-test account/region
+        (locust:latest and eks-spark-benchmark:emr<EMR_IMAGE_VERSION>)
+      - Required IAM roles in the load-test account (EMR execution role,
+        Karpenter controller/node roles, Locust IRSA role)
+
+    This is read-only: it reports PASS/FAIL but never provisions. If IAM roles
+    are missing, use ``validate_iam_roles(provision_if_missing=True)`` to create
+    them, or run provision_infra / provision_locust_operator.
     """
     env = helpers.load_env()
-    region = _resolve_region(env)
-    if not region:
-        return "ERROR: no AWS region configured. Run get_aws_profile / set_aws_profile first."
-    name = cluster_name or env.get("CLUSTER_NAME")
-    if not name:
-        return "ERROR: no cluster name (set CLUSTER_NAME in env.sh or pass cluster_name)"
+    region, name, error = _require_region_and_cluster(env, cluster_name)
+    if error:
+        return error
 
     # Confirm the cluster exists, then point kubeconfig at it.
     try:
@@ -437,6 +732,31 @@ def validate_cluster_components(cluster_name: Optional[str] = None) -> str:
         f"availableReplicas={(graf or {}).get('status', {}).get('availableReplicas', 0)}"
         if graf else "prometheus-grafana deployment not found")
 
+    # -- ECR benchmark images (in the SAME account/region as the load test) --
+    # The on-EKS run pulls the Locust worker image referenced by the manifest
+    # (locust:latest) and submits Spark jobs with eks-spark-benchmark:emr<ver>
+    # (see locust/locustfiles/emr-job-run.sh). Missing either means the Locust
+    # pods or the Spark jobs fail to start, so verify both up front.
+    img_ver = env.get("EMR_IMAGE_VERSION", "")
+    for repo, tag in [("locust", "latest"),
+                      ("eks-spark-benchmark", f"emr{img_ver}")]:
+        ok, detail = _ecr_image_exists(repo, tag, region)
+        add(f"ECR image {repo}:{tag}", ok, detail)
+
+    # -- Required IAM roles (in the SAME account as the load test) --
+    # The EMR execution role, Karpenter controller/node roles, and Locust IRSA
+    # role are created by the provisioning scripts. A missing role means jobs
+    # can't be submitted, nodes can't scale, or the Locust operator can't create
+    # namespaces -- so verify them as part of readiness.
+    iam_missing_infra = iam_missing_locust = False
+    for var, role_name, ok, detail, source in _check_iam_roles(env):
+        add(f"IAM role {var}", ok, f"{role_name}: {detail}")
+        if not ok:
+            if source == "infra":
+                iam_missing_infra = True
+            elif source == "locust":
+                iam_missing_locust = True
+
     passed = sum(1 for _, ok, _ in results if ok)
     total = len(results)
     lines = [f"Cluster '{name}' ({region}) component validation: {passed}/{total} passed", ""]
@@ -447,6 +767,14 @@ def validate_cluster_components(cluster_name: Optional[str] = None) -> str:
         lines.append("Some components are missing/not ready. For a new cluster, (re)run "
                      "provision_infra; for an existing cluster, install the missing pieces "
                      "before running the load test.")
+        if iam_missing_infra or iam_missing_locust:
+            scripts = []
+            if iam_missing_infra:
+                scripts.append("provision_infra")
+            if iam_missing_locust:
+                scripts.append("provision_locust_operator")
+            lines.append(f"Missing IAM roles can be created with: {', '.join(scripts)} "
+                         "(or validate_iam_roles(provision_if_missing=True)).")
     return "\n".join(lines)
 
 
@@ -456,32 +784,7 @@ def _valid_cluster_name(name: str) -> bool:
 
 
 @mcp.tool()
-def set_cluster_name(cluster_name: str) -> str:
-    """Set the EKS cluster name in env.sh from user input.
-
-    Use this to name the cluster the load test targets -- a NEW cluster to
-    create, or simply to point env.sh at an existing one. Validates the name
-    against EKS naming rules. Derived variables (BUCKET_NAME, LOCUST_EKS_ROLE,
-    EXECUTION_ROLE, Karpenter roles, ...) follow CLUSTER_NAME automatically.
-    For reuse, prefer use_existing_eks_cluster which also verifies the cluster
-    exists and syncs the EKS version.
-    """
-    name = cluster_name.strip()
-    if not _valid_cluster_name(name):
-        return (
-            f"ERROR: invalid cluster name {cluster_name!r}. Use letters, digits "
-            "and hyphens, starting with a letter or digit (max 100 chars)."
-        )
-    msg = _write_env_var("CLUSTER_NAME", name)
-    env = helpers.load_env()
-    return (
-        f"{msg}\n"
-        f"Derived: BUCKET_NAME={env.get('BUCKET_NAME')}, "
-        f"EXECUTION_ROLE={env.get('EXECUTION_ROLE')}"
-    )
-
-
-@mcp.tool()
+@requires_confirmed_identity
 def use_existing_eks_cluster(cluster_name: str) -> str:
     """Reuse an existing EKS cluster: validate it and sync env configs to it.
 
@@ -492,9 +795,9 @@ def use_existing_eks_cluster(cluster_name: str) -> str:
     CLUSTER_NAME automatically. Run this after the user picks the reuse path.
     """
     env = helpers.load_env()
-    region = _resolve_region(env)
-    if not region:
-        return "ERROR: no AWS region configured. Run get_aws_profile / set_aws_profile first."
+    region, error = _require_region(env)
+    if error:
+        return error
     try:
         cluster = _describe_eks_cluster(cluster_name, region)
     except RuntimeError as e:
@@ -520,6 +823,7 @@ def use_existing_eks_cluster(cluster_name: str) -> str:
 
 
 @mcp.tool()
+@requires_confirmed_identity
 def prepare_new_eks_cluster(
     eks_version: str = "1.35",
     cluster_name: Optional[str] = None,
@@ -589,9 +893,9 @@ def render_locust_manifest(
         return f"ERROR: template not found at {template}"
 
     env = helpers.load_env()
-    region = _resolve_region(env)
-    if not region:
-        return "ERROR: no AWS region configured. Run get_aws_profile / set_aws_profile first."
+    region, error = _require_region(env)
+    if error:
+        return error
     account_id = env.get("ACCOUNT_ID", "")
     ecr_url = f"{account_id}.dkr.ecr.{region}.amazonaws.com"
     ns_count = str(job_ns_count if job_ns_count is not None else env.get("SPARK_JOB_NS_NUM", "2"))
@@ -624,6 +928,7 @@ def render_locust_manifest(
 
 
 @mcp.tool()
+@requires_confirmed_identity
 def refresh_configmap() -> str:
     """Recreate the locustfile ConfigMap from locust/locustfiles.
 
@@ -653,6 +958,7 @@ def refresh_configmap() -> str:
 # Provisioning
 # ===========================================================================
 @mcp.tool()
+@requires_confirmed_identity
 def provision_infra() -> str:
     """Provision the EKS cluster and all components via infra-provision.sh.
 
@@ -676,6 +982,7 @@ def provision_infra() -> str:
 
 
 @mcp.tool()
+@requires_confirmed_identity
 def provision_locust_operator() -> str:
     """Install the Locust Kubernetes operator via locust-provision.sh.
 
@@ -701,6 +1008,7 @@ def provision_locust_operator() -> str:
 # Run & monitor
 # ===========================================================================
 @mcp.tool()
+@requires_confirmed_identity
 def run_local_test(
     users: int = 1,
     run_time: str = "5m",
@@ -747,6 +1055,7 @@ def run_local_test(
 
 
 @mcp.tool()
+@requires_confirmed_identity
 def apply_eks_test(manifest: str = "load-test-template.yaml") -> str:
     """Start a distributed load test on EKS by applying a LocustTest manifest.
 
@@ -788,9 +1097,9 @@ def list_virtual_clusters(state: str = "RUNNING") -> str:
     """
     env = helpers.load_env()
     cluster = env.get("CLUSTER_NAME")
-    region = _resolve_region(env)
-    if not region:
-        return "ERROR: no AWS region configured. Run get_aws_profile / set_aws_profile first."
+    region, error = _require_region(env)
+    if error:
+        return error
     if not cluster:
         return "ERROR: CLUSTER_NAME not set in env.sh"
     result = run(
@@ -815,9 +1124,9 @@ def get_job_runs(virtual_cluster_id: str, states: Optional[list[str]] = None) ->
     find the virtual_cluster_id.
     """
     env = helpers.load_env()
-    region = _resolve_region(env)
-    if not region:
-        return "ERROR: no AWS region configured. Run get_aws_profile / set_aws_profile first."
+    region, error = _require_region(env)
+    if error:
+        return error
     state_list = states or ["PENDING", "SUBMITTED", "RUNNING", "COMPLETED", "FAILED"]
     result = run(
         ["aws", "emr-containers", "list-job-runs",
@@ -873,6 +1182,7 @@ def get_grafana_login() -> str:
 # Cleanup
 # ===========================================================================
 @mcp.tool()
+@requires_confirmed_identity
 def stop_test(test_id: Optional[str] = None) -> str:
     """Cancel EMR jobs and delete virtual clusters via stop_test.py.
 
@@ -892,6 +1202,7 @@ def stop_test(test_id: Optional[str] = None) -> str:
 
 
 @mcp.tool()
+@requires_confirmed_identity
 def delete_test_namespaces() -> str:
     """Delete leftover load-test namespaces (those matching 'emr').
 
@@ -913,6 +1224,7 @@ def delete_test_namespaces() -> str:
 
 
 @mcp.tool()
+@requires_confirmed_identity
 def teardown_infra() -> str:
     """Tear down all infra created by infra-provision.sh via clean-up.sh.
 

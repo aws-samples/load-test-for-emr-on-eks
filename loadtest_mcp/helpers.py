@@ -256,6 +256,49 @@ def aws_identity(profile: Optional[str] = None) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# AWS profile confirmation gate
+# ---------------------------------------------------------------------------
+# Test-affecting tools (provision, run, teardown, ...) refuse to act until the
+# operator has explicitly confirmed which account/region they target. The
+# confirmation is recorded here so the gate survives across tool calls (and
+# server restarts) but is invalidated whenever the active profile changes.
+CONFIRMED_IDENTITY_PATH = RUN_DIR / "confirmed_identity.json"
+
+
+def record_confirmed_identity(account: str, region: str, profile: str) -> None:
+    """Persist the account/region/profile the operator has authorized."""
+    RUN_DIR.mkdir(parents=True, exist_ok=True)
+    CONFIRMED_IDENTITY_PATH.write_text(
+        json.dumps(
+            {
+                "account": account,
+                "region": region,
+                "profile": profile,
+                "confirmed_at": time.time(),
+            }
+        )
+    )
+
+
+def read_confirmed_identity() -> Optional[dict]:
+    """Return the recorded confirmed identity, or None if none/unreadable."""
+    if not CONFIRMED_IDENTITY_PATH.exists():
+        return None
+    try:
+        return json.loads(CONFIRMED_IDENTITY_PATH.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def clear_confirmed_identity() -> None:
+    """Drop any recorded confirmation (e.g. after switching profiles)."""
+    try:
+        CONFIRMED_IDENTITY_PATH.unlink()
+    except FileNotFoundError:
+        pass
+
+
 def run(
     args: list[str] | str,
     *,
