@@ -4,7 +4,10 @@ from os import environ
 from lib.shared import console
 from lib.virtual_cluster import virtual_cluster, JOB_RUNNING_STATES
 from lib.emr_job import emr_job
+from lib.managed_endpoint import managed_endpoint
 EKS_CLUSTER_NAME=environ["CLUSTER_NAME"]
+# Endpoint states still holding the VC (must be deleted before the VC can be).
+ENDPOINT_ACTIVE_STATES = ["CREATING", "ACTIVE"]
 
 def _cancel_hanging_job_runs_for_virtual_cluster_deletion(job_runs):
     i = 0
@@ -26,7 +29,21 @@ def _is_virtual_cluster_ready_for_cleanup(virtual_cluster_id):
     return True
 
 
+def _delete_managed_endpoints(virtual_cluster_id):
+    # Spark Connect (session-enabled) VCs host managed endpoints that must be
+    # deleted before the VC can be terminated. No-op for batch VCs.
+    endpoints = managed_endpoint.list_endpoints(virtual_cluster_id, ENDPOINT_ACTIVE_STATES)
+    for ep in endpoints:
+        console.log(f"Deleting managed endpoint [yellow]{ep['id']}[/] in "
+                    f"[steel_blue1]{virtual_cluster_id}[/]")
+        managed_endpoint.delete_endpoint(virtual_cluster_id, ep['id'])
+    return len(endpoints)
+
+
 def safe_delete_virtual_cluster(virtual_cluster_id):
+    # Delete any Spark Connect managed endpoints first (they pin the VC).
+    _delete_managed_endpoints(virtual_cluster_id)
+
     # Cancel all job runs still running in the virtual cluster
     job_runs = virtual_cluster.list_job_runs(
         virtualClusterId=virtual_cluster_id,

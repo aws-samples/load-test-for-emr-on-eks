@@ -112,6 +112,7 @@ resources/eks-cluster-values-*.yaml
 resources/monitor/prometheus-values-*.yaml
 resources/karpenter/cloudformation-*.yaml
 resources/karpenter/karpenter-*.yaml
+resources/karpenter/shared-nodeclass-*.yaml
 locust/locust-operator/eks-role-policy-*.json
 examples/load-test-on-eks-*.yaml
 examples/load-test-rendered.yaml

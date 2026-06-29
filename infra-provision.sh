@@ -4,6 +4,11 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
 
+# Idempotent provisioning: works for a NEW cluster or an EXISTING one. Each
+# component (EKS cluster, gp3 StorageClass, EBS CSI, CoreDNS, ALB controller,
+# BinPacking, Prometheus/Grafana, EMR roles, Karpenter) is only created/installed
+# if it isn't already present, so re-running fills in only what's missing.
+
 source env.sh
 
 echo "==============================================="
@@ -178,13 +183,17 @@ echo "==============================================="
 echo " 9. Setup Load Balancer Controller ......"
 echo "==============================================="
 echo "Setup AWS Load Balancer Controller"
-helm repo add eks https://aws.github.io/eks-charts
-helm repo update eks
-helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
-  -n kube-system \
-  --set clusterName=${CLUSTER_NAME} \
-  --set serviceAccount.create=false \
-  --set serviceAccount.name=aws-load-balancer-controller
+if helm status aws-load-balancer-controller -n kube-system >/dev/null 2>&1; then
+    echo "AWS Load Balancer Controller already installed. Skipping."
+else
+    helm repo add eks https://aws.github.io/eks-charts
+    helm repo update eks
+    helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
+      -n kube-system \
+      --set clusterName=${CLUSTER_NAME} \
+      --set serviceAccount.create=false \
+      --set serviceAccount.name=aws-load-balancer-controller
+fi
   
 # aws ec2 create-tags \
 #     --tags "Key=kubernetes.io/role/elb,Value=1" \
@@ -194,12 +203,16 @@ echo "==============================================="
 echo " 10. Setup BinPacking ......"
 echo "==============================================="
 echo "Setup BinPacking"
-git clone https://github.com/aws-samples/custom-scheduler-eks
-helm install custom-scheduler-eks custom-scheduler-eks/deploy/charts/custom-scheduler-eks \
--n kube-system \
---set eksVersion="$EKS_VERSION" \
---set schedulerName="custom-scheduler-eks" \
--f ./resources/binpacking-values.yaml
+if helm status custom-scheduler-eks -n kube-system >/dev/null 2>&1; then
+    echo "BinPacking custom-scheduler-eks already installed. Skipping."
+else
+    [ -d custom-scheduler-eks ] || git clone https://github.com/aws-samples/custom-scheduler-eks
+    helm upgrade --install custom-scheduler-eks custom-scheduler-eks/deploy/charts/custom-scheduler-eks \
+    -n kube-system \
+    --set eksVersion="$EKS_VERSION" \
+    --set schedulerName="custom-scheduler-eks" \
+    -f ./resources/binpacking-values.yaml
+fi
 
 
 echo "==============================================="
@@ -434,7 +447,10 @@ echo "========================================================="
 echo " 16. Install Karpenter via Helm Chart ....."
 echo "========================================================="
 echo "Install Karpenter via Helm Chart"
-helm registry logout public.ecr.aws
+if kubectl get deployment karpenter -n kube-system >/dev/null 2>&1; then
+    echo "Karpenter already installed in kube-system. Skipping helm install + CRDs."
+else
+helm registry logout public.ecr.aws || true
 # Before enable the "interruptionQueue", the SQS queue must exist
 helm template karpenter oci://public.ecr.aws/karpenter/karpenter --version "${KARPENTER_VERSION}" --namespace kube-system \
     --set "settings.clusterName=${CLUSTER_NAME}" \
@@ -462,26 +478,37 @@ sed -i='' '/livenessProbe:/,/timeoutSeconds: 30/c\
             timeoutSeconds: 10\
             failureThreshold: 5\
 ' ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml
-#crds
-kubectl create -f \
+#crds (apply is idempotent: installs if missing, updates if present)
+kubectl apply --server-side -f \
     "https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.sh_nodepools.yaml"
-kubectl create -f \
+kubectl apply --server-side -f \
     "https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.k8s.aws_ec2nodeclasses.yaml"
-kubectl create -f \
+kubectl apply --server-side -f \
     "https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.sh_nodeclaims.yaml"
 kubectl apply -f ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml
+fi
 
 echo "====================================================="
 echo " 17. Create Karpenter Nodepools and nodeclass ......"
 echo "====================================================="
 echo "Create Karpenter nodepools ......"
-sed -i='' 's/${KARPENTER_NODE_ROLE}/'$KARPENTER_NODE_ROLE'/g' ./resources/karpenter/shared-nodeclass.yaml
-sed -i='' 's/${CLUSTER_NAME}/'$CLUSTER_NAME'/g' ./resources/karpenter/shared-nodeclass.yaml
-rm ./resources/karpenter/*=
-kubectl apply -f "./resources/karpenter/*-node*.yaml"
+# Render the nodeclass placeholders into a per-cluster copy (keeps the template
+# reusable), then apply the nodeclass + both nodepools. kubectl apply is
+# idempotent, so this is safe to re-run on an existing cluster.
+cp ./resources/karpenter/shared-nodeclass.yaml ./resources/karpenter/shared-nodeclass-${CLUSTER_NAME}.yaml
+sed -i='' 's/${KARPENTER_NODE_ROLE}/'$KARPENTER_NODE_ROLE'/g' ./resources/karpenter/shared-nodeclass-${CLUSTER_NAME}.yaml
+sed -i='' 's/${CLUSTER_NAME}/'$CLUSTER_NAME'/g' ./resources/karpenter/shared-nodeclass-${CLUSTER_NAME}.yaml
+rm -f ./resources/karpenter/*=
+kubectl apply \
+    -f ./resources/karpenter/shared-nodeclass-${CLUSTER_NAME}.yaml \
+    -f ./resources/karpenter/driver-nodepool.yaml \
+    -f ./resources/karpenter/executor-nodepool.yaml
 
-# Add authorized entry for Karpenter node role
-aws eks create-access-entry --cluster-name ${CLUSTER_NAME} --principal-arn arn:aws:iam::${ACCOUNT_ID}:role/${KARPENTER_NODE_ROLE} --type EC2_LINUX
+# Add authorized entry for Karpenter node role (idempotent)
+aws eks describe-access-entry --cluster-name ${CLUSTER_NAME} \
+    --principal-arn arn:aws:iam::${ACCOUNT_ID}:role/${KARPENTER_NODE_ROLE} >/dev/null 2>&1 \
+    || aws eks create-access-entry --cluster-name ${CLUSTER_NAME} \
+        --principal-arn arn:aws:iam::${ACCOUNT_ID}:role/${KARPENTER_NODE_ROLE} --type EC2_LINUX
 
 echo "================================================================="
 echo " 19. Create multi-platform Image for Spark benchmark Utility ......"

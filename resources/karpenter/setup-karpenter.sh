@@ -170,7 +170,8 @@ EOF
   echo " 3a. Create and attach EBS encryption policy to Karpenter controller role"
   echo "================================================================================================================"
   
-  create_and_attach_ebs_encryption_policy "${KARPENTER_CONTROLLER_ROLE}" "${CLUSTER_NAME}"
+  create_and_attach_ebs_encryption_policy "${setup-karpenter.sh
+  {CLUSTER_NAME}"
   
   echo "================================================================================================================"
   echo " 4. Tag Subnets and Security Groups for Karpenter"

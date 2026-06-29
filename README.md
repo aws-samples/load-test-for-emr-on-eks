@@ -177,7 +177,6 @@ load-test run, so they are not part of this decision.
 | Tool | Description | Parameters |
 | --- | --- | --- |
 | `check_eks_cluster` | Check whether the EKS cluster exists (to decide reuse vs. create); reports status/version if found. Defaults to `CLUSTER_NAME` in `env.sh`. | `cluster_name: str = None` |
-| `set_cluster_name` | Set the target EKS cluster name in `env.sh` (validates EKS naming rules); derived vars (`BUCKET_NAME`, roles, ...) follow `CLUSTER_NAME`. | `cluster_name: str` |
 | `use_existing_eks_cluster` | **Reuse path.** Validate the named cluster exists, then sync `env.sh` to it: pin `CLUSTER_NAME` to it and `EKS_VERSION` to the cluster's actual Kubernetes version (derived vars follow `CLUSTER_NAME`). Skip `provision_infra`; ensure the required components already exist. | `cluster_name: str` |
 | `prepare_new_eks_cluster` | **Create path.** Configure `env.sh` for a new cluster — set `EKS_VERSION` (validated `major.minor`), and optionally the cluster name and Karpenter version — then run `provision_infra` to create it. | `eks_version: str = "1.35"`, `cluster_name: str = None`, `karpenter_version: str = None` |
 
@@ -226,10 +225,10 @@ load-test run, so they are not part of this decision.
 5. `check_eks_cluster` — decide reuse vs. create, then pick one path:
    - **Reuse:** `use_existing_eks_cluster` — pin `env.sh` to the existing
      cluster and skip `provision_infra` (ensure required components exist).
-   - **Create:** `set_cluster_name` (optional, to name it) then
-     `prepare_new_eks_cluster` (set `EKS_VERSION`, default `1.35`), then
-     `provision_infra` — runs in the background; poll with
-     `get_job_log('provision-infra')` until finished (20-40+ min).
+   - **Create:** `prepare_new_eks_cluster` (set `EKS_VERSION`, default
+     `1.35`, and optionally `cluster_name`), then `provision_infra` — runs in
+     the background; poll with `get_job_log('provision-infra')` until finished
+     (20-40+ min).
 6. `set_env_var` *(optional)* — adjust `CLUSTER_NAME`, `EMR_IMAGE_VERSION`,
    `SPARK_JOB_NS_NUM`, etc. before provisioning.
 7. `provision_locust_operator` — install the Locust operator; poll with
