@@ -1186,6 +1186,19 @@ def get_test_logs(component: str = "master", tail: int = 200) -> str:
     return result.as_text()
 
 
+def _emr_containers_endpoint(env: dict, region: str) -> str:
+    """Resolve the emr-containers API endpoint the test targets.
+
+    Mirrors how the rendered manifest / on-EKS workers pick it (see the
+    EMR_CONTAINERS_ENDPOINT_URL env they get): the value from env.sh when set
+    (e.g. a gamma endpoint), else the region-derived prod endpoint. The monitor
+    tools MUST use the same endpoint, or they query prod and report no VCs/jobs
+    while a gamma run is actually active.
+    """
+    return env.get("EMR_CONTAINERS_ENDPOINT_URL") or \
+        f"https://emr-containers.{region}.amazonaws.com"
+
+
 @mcp.tool()
 def list_virtual_clusters(state: str = "RUNNING") -> str:
     """List EMR on EKS virtual clusters for the configured EKS cluster.
@@ -1206,6 +1219,7 @@ def list_virtual_clusters(state: str = "RUNNING") -> str:
          "--container-provider-type", "EKS",
          "--states", state,
          "--region", region,
+         "--endpoint-url", _emr_containers_endpoint(env, region),
          "--query", "virtualClusters[].{id:id,name:name,state:state,namespace:containerProvider.info.eksInfo.namespace}",
          "--output", "table"],
         timeout=120,
@@ -1231,6 +1245,7 @@ def get_job_runs(virtual_cluster_id: str, states: Optional[list[str]] = None) ->
          "--virtual-cluster-id", virtual_cluster_id,
          "--states", *state_list,
          "--region", region,
+         "--endpoint-url", _emr_containers_endpoint(env, region),
          "--query", "jobRuns[].state",
          "--output", "json"],
         timeout=120,

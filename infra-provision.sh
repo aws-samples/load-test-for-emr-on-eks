@@ -59,8 +59,14 @@ echo "==============================================="
 echo " 3. Get OIDC ......"
 echo "==============================================="
 echo "Get OIDC"
-OIDC_PROVIDER=$(aws eks describe-cluster --name $CLUSTER_NAME --query "cluster.identity.oidc.issuer" --output text | sed -e "s/^https:\/\///")
+export OIDC_PROVIDER=$(aws eks describe-cluster --name $CLUSTER_NAME --region $AWS_REGION --query "cluster.identity.oidc.issuer" --output text | sed -e "s/^https:\/\///")
 echo $OIDC_PROVIDER
+# Fail fast rather than create a role with an unusable trust policy.
+if [ -z "$OIDC_PROVIDER" ]; then
+    echo "ERROR: could not resolve OIDC provider for cluster '$CLUSTER_NAME' in region '$AWS_REGION'." >&2
+    echo "       Check the cluster name/region; aborting before creating a broken execution role." >&2
+    exit 1
+fi
 
 echo "==============================================="
 echo " 4. Create a default gp3 storageclass ......"
