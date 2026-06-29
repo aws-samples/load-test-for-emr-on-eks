@@ -1160,12 +1160,24 @@ def apply_eks_test(manifest: str = "load-test-template.yaml") -> str:
     ``kubectl apply -f examples/<manifest>``. Defaults to the template; pass the
     name produced by ``render_locust_manifest`` for a customized run. Remember
     to ``refresh_configmap`` first if the job script changed.
+
+    On success this also starts a background tail of the master logs and prints
+    the Grafana dashboard URL + login, so the run can be monitored immediately.
     """
     path = (EXAMPLES_DIR / manifest) if not Path(manifest).is_absolute() else Path(manifest)
     if not path.exists():
         return f"ERROR: manifest not found at {path}"
     result = run(["kubectl", "apply", "-f", str(path)], timeout=120)
-    return result.as_text()
+    if not result.ok:
+        return result.as_text()
+    sections = [result.as_text()]
+    # Begin following the master logs so progress streams without a manual step,
+    # and surface where to watch metrics.
+    sections.append("--- live monitoring ---")
+    sections.append(_start_log_follow("master"))
+    sections.append("")
+    sections.append(_grafana_login_text())
+    return "\n".join(sections)
 
 
 @mcp.tool()
@@ -1184,6 +1196,60 @@ def get_test_logs(component: str = "master", tail: int = 200) -> str:
         timeout=120,
     )
     return result.as_text()
+
+
+def _follow_logs_job_id(component: str) -> str:
+    return f"locust-{component}-follow"
+
+
+def _start_log_follow(component: str) -> str:
+    """Start (or restart) a detached `kubectl logs -f` follower for a Locust
+    component, streaming into a tracked background-job log.
+
+    Returns a status line. The follower keeps tailing while the test runs; read
+    accumulated output any time with get_job_log('locust-<component>-follow').
+    Using a background job (not a blocking call) means a long-running tail does
+    not tie up the tool call -- the same pattern provisioning scripts use.
+    """
+    job_id = _follow_logs_job_id(component)
+    # If a previous follower is still alive, leave it -- it's already tailing.
+    try:
+        status = helpers.job_status(job_id)
+        if status.get("running"):
+            return (f"Already following {component} logs (job '{job_id}', pid "
+                    f"{status['pid']}). Read it with get_job_log('{job_id}').")
+    except FileNotFoundError:
+        pass
+    # --tail=-1 from the current end; -f follows; --prefix tags each pod. The
+    # label selector reattaches across pod restarts within the run. We wrap in
+    # bash so a missing pod (test not applied yet) waits briefly rather than
+    # erroring out immediately.
+    follow_cmd = (
+        f"for i in $(seq 1 30); do "
+        f"kubectl get pods -n {LOCUST_NAMESPACE} -l locust.cloud/component={component} "
+        f"-o name 2>/dev/null | grep -q . && break; sleep 2; done; "
+        f"exec kubectl logs -n {LOCUST_NAMESPACE} "
+        f"-l locust.cloud/component={component} -f --prefix --tail=50"
+    )
+    job = helpers.start_background(["bash", "-c", follow_cmd], job_id=job_id)
+    return (f"Following {component} logs in the background (job '{job_id}', pid "
+            f"{job.pid}). Read accumulated output with get_job_log('{job_id}'); "
+            f"it keeps tailing until the test ends or you call stop_test.")
+
+
+@mcp.tool()
+def follow_test_logs(component: str = "master") -> str:
+    """Start tailing on-EKS Locust logs in the background while the test runs.
+
+    Unlike get_test_logs (a one-shot snapshot), this launches a detached
+    `kubectl logs -f` follower tracked as a background job, so the stream keeps
+    accumulating across the run without blocking. component: 'master'
+    (aggregated load-test progress) or 'worker' (per-job submission status).
+    Poll the accumulated output with get_job_log('locust-<component>-follow').
+    """
+    if component not in ("master", "worker"):
+        return "ERROR: component must be 'master' or 'worker'"
+    return _start_log_follow(component)
 
 
 def _emr_containers_endpoint(env: dict, region: str) -> str:
@@ -1263,13 +1329,13 @@ def get_job_runs(virtual_cluster_id: str, states: Optional[list[str]] = None) ->
     return f"Job runs in {virtual_cluster_id} (total {len(job_states)}):\n{summary}"
 
 
-@mcp.tool()
-def get_grafana_login() -> str:
-    """Print the Grafana dashboard URL and admin credentials.
+def _grafana_login_text() -> str:
+    """Resolve the Grafana dashboard URL + admin credentials as display text.
 
     Reads the ``prometheus-grafana`` ingress hostname and the admin password
     secret from the ``prometheus`` namespace (community Prometheus stack
-    installed by infra-provision.sh).
+    installed by infra-provision.sh). Shared by get_grafana_login and the
+    test-start flow so monitoring details are surfaced the moment a test runs.
     """
     url = run(
         ["kubectl", "get", "ingress", "prometheus-grafana", "-n", "prometheus",
@@ -1282,13 +1348,24 @@ def get_grafana_login() -> str:
          "-o jsonpath='{.data.admin-password}' | base64 -d"],
         timeout=60,
     )
-    if not url.ok:
-        return "ERROR fetching Grafana ingress:\n" + url.as_text()
+    if not url.ok or not url.stdout.strip():
+        return "Grafana: could not resolve ingress hostname:\n" + url.as_text()
     return (
         f"Grafana URL: http://{url.stdout.strip()}\n"
         f"User: admin\n"
         f"Password: {secret.stdout.strip() if secret.ok else '<failed to read secret>'}"
     )
+
+
+@mcp.tool()
+def get_grafana_login() -> str:
+    """Print the Grafana dashboard URL and admin credentials.
+
+    Reads the ``prometheus-grafana`` ingress hostname and the admin password
+    secret from the ``prometheus`` namespace (community Prometheus stack
+    installed by infra-provision.sh).
+    """
+    return _grafana_login_text()
 
 
 # ===========================================================================

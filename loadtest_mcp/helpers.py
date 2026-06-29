@@ -498,8 +498,12 @@ def list_jobs() -> list[dict]:
     for meta_path in sorted(RUN_DIR.glob("*.json")):
         try:
             meta = json.loads(meta_path.read_text())
-            meta["running"] = _pid_alive(meta.get("pid", -1))
-            jobs.append(meta)
         except (json.JSONDecodeError, OSError):
             continue
+        # RUN_DIR also holds non-job sidecars (e.g. confirmed_identity.json);
+        # only real background-job metadata carries a job_id.
+        if not isinstance(meta, dict) or "job_id" not in meta:
+            continue
+        meta["running"] = _pid_alive(meta.get("pid", -1))
+        jobs.append(meta)
     return jobs
