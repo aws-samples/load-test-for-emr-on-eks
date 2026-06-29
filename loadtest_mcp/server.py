@@ -1350,10 +1350,14 @@ def _grafana_login_text() -> str:
     )
     if not url.ok or not url.stdout.strip():
         return "Grafana: could not resolve ingress hostname:\n" + url.as_text()
+    gf_secret = secret.stdout.strip() if secret.ok else "<failed to read secret>"
+    bar = "=" * 34
     return (
-        f"Grafana URL: http://{url.stdout.strip()}\n"
-        f"User: admin\n"
-        f"Password: {secret.stdout.strip() if secret.ok else '<failed to read secret>'}"
+        f"{bar}\n"
+        f"Grafana Login URL: http://{url.stdout.strip()}\n"
+        f"Login User: admin\n"
+        f"Login secret: {gf_secret}\n"
+        f"{bar}"
     )
 
 
