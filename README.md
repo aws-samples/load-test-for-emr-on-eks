@@ -87,8 +87,6 @@ export KARPENTER_VERSION="1.8.5"
 export KARPENTER_CONTROLLER_ROLE="KarpenterControllerRole-${CLUSTER_NAME}"
 export KARPENTER_CONTROLLER_POLICY="KarpenterControllerPolicy-${CLUSTER_NAME}"
 export KARPENTER_NODE_ROLE="KarpenterNodeRole-${CLUSTER_NAME}"
-# Create Amazon Managed Grafana workspace or not
-export USE_AMG="true"
 # =======================================================================
 ```
 </details>
@@ -103,9 +101,7 @@ Skip this step if you are using an existing EKS cluster. If required, install mi
 - [Karpenter](https://aws.github.io/aws-emr-containers-best-practices/troubleshooting/docs/karpenter/)
 - [BinPacking scheduler](https://awslabs.github.io/data-on-eks/docs/resources/binpacking-custom-scheduler-eks) 
 
-Monitoring by default uses managed services:
-- [Amazon Managed Prometheus](https://aws.amazon.com/prometheus/)
-- [Amazon Managed Grafana](https://aws.amazon.com/grafana/)
+Monitoring uses the open-source [kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack) (Prometheus with its built-in Grafana), installed in-cluster by the provisioning script. No Amazon Managed Prometheus (AMP) or Amazon Managed Grafana (AMG) workspaces are created.
 
 #### 1. If needed, modify the following configurations before provisioning the environment
 - For EKS cluster, update [./resources/eks-cluster-values.yaml](./resources/eks-cluster-values.yaml)
@@ -138,7 +134,7 @@ To get an optimal load test outcome, you can configure your compute resource all
 !!! tip "Adjust Job Submission Interval" This project defaults the job submission frequency to every 20-30 seconds (approx. 300jobs/min). To increase the scale in your test, shorten the `wait_time`, for example 2-5 seconds (approx. 800jobs/min), in `locust/locustfiles/locustfile.py`.
 
 ### Prerequisite - Update Job Script
-The test utility supports most of Spark application test cases with a pre-build monitoring capability (AWS Managed Prometheus + Managed Grafana). Before getting started, replace the sample file [./locust/locustfiles/emr-job-run.sh](./locust/locustfiles/emr-job-run.sh) by your own EMR on EKS job submission script. Don't change the directory layout, because it will be mapped into Locust container's home directory `/home/locust` via a ConfigMap - `emr-loadtest-locustfile`. More details can be found in the [locust-provision.sh](https://github.com/aws-samples/load-test-for-emr-on-eks/blob/b389458ff4ebb1b829f6fd9c8aa49405c482bfc9/locust-provision.sh#L124) script. The setup looks like this:
+The test utility supports most of Spark application test cases with a pre-built monitoring capability (open-source Prometheus with built-in Grafana). Before getting started, replace the sample file [./locust/locustfiles/emr-job-run.sh](./locust/locustfiles/emr-job-run.sh) by your own EMR on EKS job submission script. Don't change the directory layout, because it will be mapped into Locust container's home directory `/home/locust` via a ConfigMap - `emr-loadtest-locustfile`. More details can be found in the [locust-provision.sh](https://github.com/aws-samples/load-test-for-emr-on-eks/blob/b389458ff4ebb1b829f6fd9c8aa49405c482bfc9/locust-provision.sh#L124) script. The setup looks like this:
 ```bash
 kubectl create configmap emr-loadtest-locustfile --namespace locust --from-file=locust/locustfiles
 ```

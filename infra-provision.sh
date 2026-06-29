@@ -303,11 +303,9 @@ helm repo update
 
 
 cp ./resources/monitor/prometheus-values.yaml ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
-# We do not use APM so no need to update IRSA 
-# sed -i -- 's/{ACCOUNTID}/'$ACCOUNT_ID'/g'  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
-# sed -i -- 's/{CLUSTER_NAME}/'$CLUSTER_NAME'/g'  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
-# sed -i -- 's/{AWS_REGION}/'$AWS_REGION'/g'  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
-# sed -i -- 's/{WORKSPACE_ID}/'$WORKSPACE_ID'/g'  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
+# Monitoring uses the open-source kube-prometheus-stack with its built-in
+# Grafana. We do NOT use Amazon Managed Prometheus/Grafana, so there is no IRSA
+# / remote-write config to substitute here.
 helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n prometheus -f  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml --debug
 # validate in a web browser - localhost:9090, go to menu of status->targets
 # kubectl --namespace prometheus port-forward service/prometheus-kube-prometheus-prometheus 9090
@@ -324,42 +322,6 @@ kubectl apply -f ./resources/monitor/karpenter-svcmonitor.yaml
 kubectl apply -f ./resources/monitor/aws-cni-podmonitor.yaml
 # # kubectl apply -f ./resources/monitor/ebs-csi-controller-svcmonitor.yaml
 kubectl apply -f ./resources/monitor/locust-podmonitor.yaml
-
-# echo "==================================================="
-# echo " 18. Set up Amazon Managed Grafana if required ......"
-# echo "==================================================="
-# if [[ $USE_AMG == "true" ]]
-# then 
-#     # create grafana service role policy
-#     aws iam create-policy --policy-name ${CLUSTER_NAME}-grafana-service-role-policy --policy-document file://./grafana/grafana-service-role-policy.json \
-#     && export grafana_service_role_policy_arn=$(aws iam list-policies --query 'Policies[?PolicyName==`'${CLUSTER_NAME}-grafana-service-role-policy'`].Arn' --output text)
-#     if [[ $grafana_service_role_policy_arn != "" ]]
-#     then 
-#         echo "Create AWS Managed Grafana service role policy $grafana_service_role_policy_arn"
-#     fi 
-#     # create grafana service role
-#     sed -i='' "s/\${ACCOUNT_ID}/$ACCOUNT_ID/g" ./grafana/grafana-service-role-assume-policy.json
-#     sed -i='' "s/\${AWS_REGION}/$AWS_REGION/g" ./grafana/grafana-service-role-assume-policy.json
-#     aws iam create-role --role-name ${CLUSTER_NAME}-grafana-service-role \
-#         --assume-role-policy-document file://./grafana/grafana-service-role-assume-policy.json \
-#         --tags Key=Name,Value=${CLUSTER_NAME}-grafana-service-role && \
-#         export grafana_service_role_arn=$(aws iam list-roles --query 'Roles[?RoleName==`'${CLUSTER_NAME}-grafana-service-role'`].Arn' --output text)
-
-#     if [[ $grafana_service_role_arn != "" ]]
-#     then 
-#         echo "Created AWS Managed Grafana service role $grafana_service_role_arn" 
-#     fi
-#     aws iam attach-role-policy --role-name  ${CLUSTER_NAME}-grafana-service-role --policy-arn $grafana_service_role_policy_arn \
-#     && echo "Attached policy $grafana_service_role_policy_arn to role ${CLUSTER_NAME}-grafana-service-role"
-
-#     # create grafana workspace in public network
-#     aws grafana create-workspace --workspace-name ${CLUSTER_NAME} --account-access-type CURRENT_ACCOUNT --authentication-providers AWS_SSO --permission-type SERVICE_MANAGED --workspace-role-arn $grafana_service_role_arn --region $AWS_REGION \
-#     && export grafana_workspace_id=$(aws grafana list-workspaces --query 'workspaces[?name==`'${CLUSTER_NAME}'`].id' --region $AWS_REGION --output text)
-#     if [[ $grafana_workspace_id != "" ]]
-#     then 
-#         echo "Created AWS Manged Grafana workspace $grafana_workspace_id"
-#     fi
-# fi
 
 echo "================================================================="
 echo " 19. Create multi-platform Image for Spark benchmark Utility ......"

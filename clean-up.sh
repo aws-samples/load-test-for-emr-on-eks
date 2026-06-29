@@ -51,8 +51,15 @@ echo ""
 # ============================================================
 cleanup_cluster() {
     local CL_NAME="$1"
-    # Derive the EKS version from the cluster name suffix (e.g. workshop-test-1-32 -> 1.32)
-    local CL_VERSION=$(echo "$CL_NAME" | sed "s/^${LOAD_TEST_PREFIX}-//" | sed 's/-/\./')
+    # Read the EKS version live from the cluster (the cluster name is a
+    # user-supplied literal, so it cannot be parsed for a version). Falls back
+    # to env.sh's EKS_VERSION if the cluster is already gone.
+    local CL_VERSION
+    CL_VERSION=$(aws eks describe-cluster --name "$CL_NAME" --region "$AWS_REGION" \
+        --query 'cluster.version' --output text 2>/dev/null || true)
+    if [ -z "$CL_VERSION" ] || [ "$CL_VERSION" = "None" ]; then
+        CL_VERSION="${EKS_VERSION}"
+    fi
     local CL_BUCKET="emr-on-${CL_NAME}-${ACCOUNT_ID}-${AWS_REGION}"
     local CL_EXECUTION_ROLE="emr-on-${CL_NAME}-execution-role"
     local CL_EXECUTION_ROLE_POLICY="${CL_NAME}-SparkJobS3AccessPolicy"
@@ -234,40 +241,14 @@ _cleanup_cluster_iam() {
     local CL_EXECUTION_ROLE_POLICY="$5"
     local CL_LOCUST_EKS_ROLE="$6"
 
-    # -- Grafana --
-    echo ""
-    echo "  [${CL_NAME}] 7. Removing Grafana resources (if any) ..."
-    local gf_ws_id
-    gf_ws_id=$(aws grafana list-workspaces --query "workspaces[?name=='${CL_NAME}'].id" --region "$AWS_REGION" --output text 2>/dev/null || true)
-    if [ -n "$gf_ws_id" ] && [ "$gf_ws_id" != "None" ]; then
-        safe_run "Delete Grafana workspace ${gf_ws_id}" aws grafana delete-workspace --workspace-id "$gf_ws_id" --region "$AWS_REGION"
-        sleep 15
-    fi
-    local gf_role="${CL_NAME}-grafana-service-role"
-    if aws iam get-role --role-name "$gf_role" >/dev/null 2>&1; then
-        for pa in $(aws iam list-attached-role-policies --role-name "$gf_role" --query 'AttachedPolicies[].PolicyArn' --output text 2>/dev/null); do
-            safe_run "Detach ${pa} from ${gf_role}" aws iam detach-role-policy --role-name "$gf_role" --policy-arn "$pa"
-        done
-        safe_run "Delete role ${gf_role}" aws iam delete-role --role-name "$gf_role"
-    fi
-    local gf_pol_arn
-    gf_pol_arn=$(aws iam list-policies --scope Local --query "Policies[?PolicyName=='${CL_NAME}-grafana-service-role-policy'].Arn" --output text 2>/dev/null || true)
-    if [ -n "$gf_pol_arn" ] && [ "$gf_pol_arn" != "None" ]; then
-        safe_run "Delete Grafana policy" aws iam delete-policy --policy-arn "$gf_pol_arn"
-    fi
-
-    # -- AMP --
-    echo ""
-    echo "  [${CL_NAME}] 8. Removing AMP workspace (if any) ..."
-    local amp_id
-    amp_id=$(aws amp list-workspaces --query "workspaces[?alias=='${CL_NAME}'].workspaceId" --output text 2>/dev/null || true)
-    if [ -n "$amp_id" ] && [ "$amp_id" != "None" ]; then
-        safe_run "Delete AMP workspace ${amp_id}" aws amp delete-workspace --workspace-id "$amp_id"
-    fi
+    # Monitoring uses the in-cluster kube-prometheus-stack (with built-in
+    # Grafana), which is removed via `helm uninstall prometheus` above. No
+    # Amazon Managed Grafana / Managed Prometheus workspaces are created, so
+    # there is nothing to delete here.
 
     # -- Locust IRSA role --
     echo ""
-    echo "  [${CL_NAME}] 9. Removing Locust IRSA role ..."
+    echo "  [${CL_NAME}] 7. Removing Locust IRSA role ..."
     if aws iam get-role --role-name "${CL_LOCUST_EKS_ROLE}" >/dev/null 2>&1; then
         for pa in $(aws iam list-attached-role-policies --role-name "${CL_LOCUST_EKS_ROLE}" --query 'AttachedPolicies[].PolicyArn' --output text 2>/dev/null); do
             safe_run "Detach ${pa}" aws iam detach-role-policy --role-name "${CL_LOCUST_EKS_ROLE}" --policy-arn "$pa"
@@ -280,7 +261,7 @@ _cleanup_cluster_iam() {
 
     # -- EMR execution role & policy --
     echo ""
-    echo "  [${CL_NAME}] 10. Removing EMR execution role & policy ..."
+    echo "  [${CL_NAME}] 8. Removing EMR execution role & policy ..."
     if aws iam get-role --role-name "${CL_EXECUTION_ROLE}" >/dev/null 2>&1; then
         for pa in $(aws iam list-attached-role-policies --role-name "${CL_EXECUTION_ROLE}" --query 'AttachedPolicies[].PolicyArn' --output text 2>/dev/null); do
             safe_run "Detach ${pa}" aws iam detach-role-policy --role-name "${CL_EXECUTION_ROLE}" --policy-arn "$pa"
@@ -298,7 +279,7 @@ _cleanup_cluster_iam() {
 
     # -- EBS CSI KMS inline policy --
     echo ""
-    echo "  [${CL_NAME}] 11. Removing EBS CSI KMS inline policy ..."
+    echo "  [${CL_NAME}] 9. Removing EBS CSI KMS inline policy ..."
     local ebs_role
     ebs_role=$(aws iam list-roles --query "Roles[?contains(RoleName, '${CL_NAME}') && contains(RoleName, 'ebs-csi')].RoleName" --output text 2>/dev/null | head -1)
     if [ -n "$ebs_role" ]; then
@@ -307,7 +288,7 @@ _cleanup_cluster_iam() {
 
     # -- S3 bucket --
     echo ""
-    echo "  [${CL_NAME}] 12. Removing S3 bucket ${CL_BUCKET} ..."
+    echo "  [${CL_NAME}] 10. Removing S3 bucket ${CL_BUCKET} ..."
     if aws s3api head-bucket --bucket "${CL_BUCKET}" 2>/dev/null; then
         aws s3 rm "s3://${CL_BUCKET}" --recursive 2>/dev/null || true
         safe_run "Delete bucket ${CL_BUCKET}" aws s3api delete-bucket --bucket "${CL_BUCKET}" --region "${AWS_REGION}"
@@ -317,7 +298,7 @@ _cleanup_cluster_iam() {
 
     # -- Delete EKS cluster --
     echo ""
-    echo "  [${CL_NAME}] 13. Deleting EKS cluster ..."
+    echo "  [${CL_NAME}] 11. Deleting EKS cluster ..."
     if aws eks describe-cluster --name "${CL_NAME}" --region "${AWS_REGION}" >/dev/null 2>&1; then
         cp ./resources/eks-cluster-values.yaml ./resources/eks-cluster-values-${CL_NAME}.yaml
         sed -i='' 's|${AWS_REGION}|'"$AWS_REGION"'|g' ./resources/eks-cluster-values-${CL_NAME}.yaml
@@ -338,7 +319,7 @@ _cleanup_cluster_iam() {
 
     # -- Sweep remaining IAM roles for this cluster --
     echo ""
-    echo "  [${CL_NAME}] 14. Sweeping remaining IAM roles ..."
+    echo "  [${CL_NAME}] 12. Sweeping remaining IAM roles ..."
     local leftover_roles
     leftover_roles=$(aws iam list-roles --query "Roles[?contains(RoleName, '${CL_NAME}')].RoleName" --output text 2>/dev/null || true)
     for role in $leftover_roles; do
@@ -364,7 +345,7 @@ _cleanup_cluster_iam() {
 
     # -- Sweep remaining CloudFormation stacks for this cluster --
     echo ""
-    echo "  [${CL_NAME}] 15. Sweeping remaining CloudFormation stacks ..."
+    echo "  [${CL_NAME}] 13. Sweeping remaining CloudFormation stacks ..."
     local leftover_stacks
     leftover_stacks=$(aws cloudformation list-stacks \
         --query "StackSummaries[?StackStatus!='DELETE_COMPLETE' && contains(StackName, '${CL_NAME}')].StackName" \

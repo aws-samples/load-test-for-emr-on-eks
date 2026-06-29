@@ -37,15 +37,6 @@ iam:
       ebsCSIController: true
     roleName: ${CLUSTER_NAME}-AmazonEKS_EBS_CSI_DriverRole
   - metadata:
-      name: amp-iamproxy-ingest-service-account
-      namespace: prometheus
-      labels: {aws-usage: "monitoring"}
-    attachPolicyARNs: 
-    - "arn:aws:iam::aws:policy/AmazonPrometheusRemoteWriteAccess"
-    - "arn:aws:iam::aws:policy/AmazonPrometheusQueryAccess"
-    roleName: ${CLUSTER_NAME}-prometheus-ingest 
-    roleOnly: true  
-  - metadata:
       name: cloudwatch-agent
       namespace: amazon-cloudwatch
       labels: {aws-usage: "monitoring"}

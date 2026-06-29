@@ -85,6 +85,11 @@ nbactions.xml
 nb-configuration.xml
 
 ##########################
+## MCP server
+##########################
+loadtest_mcp/.runs/
+
+##########################
 ## OS X
 ##########################
 .DS_Store
@@ -93,3 +98,8 @@ nb-configuration.xml
 ## Jupyter Checkpoints
 ##########################
 .ipynb_checkpoints/
+
+##########################
+## claude
+##########################
+.claude/
