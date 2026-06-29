@@ -14,13 +14,15 @@ spec:
   - name: CLUSTER_NAME
     value: ${CLUSTER_NAME}
   - name: EMR_IMAGE_VERSION
-    value: ${EMR_IMAGE_VERSION}
+    value: "${EMR_IMAGE_VERSION}"
   - name: METRICS_PORT
     value: "8000"
   - name: JOB_SCRIPT_NAME
     value: ${JOB_SCRIPT_NAME}
   - name: SPARK_JOB_NS_NUM # number of namespaces/VCs per Locust worker
-    value: ${SPARK_JOB_NS_NUM}
+    value: "${SPARK_JOB_NS_NUM}"
+  - name: EMR_CONTAINERS_ENDPOINT_URL
+    value: ${EMR_CONTAINERS_ENDPOINT_URL}
   args:
     -f /home/locust/locustfile.py
     --job-azs '["${REGION}a","${REGION}b"]'

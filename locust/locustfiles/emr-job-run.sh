@@ -1,7 +1,10 @@
 #!/bin/bash
 # SPDX-FileCopyrightText: Copyright 2021 Amazon.com, Inc. or its affiliates.
-# SPDX-License-Identifier: MIT-0   
-# NOTE: For internal testings, ensure to use a gamma endpoint to avoid productiomn impact
+# SPDX-License-Identifier: MIT-0
+# NOTE: For internal testing with whitelisted AWS accounts, set
+# EMR_CONTAINERS_ENDPOINT_URL to a gamma (non-prod) endpoint to avoid production
+# impact, e.g. export EMR_CONTAINERS_ENDPOINT_URL=https://emr-containers-gamma.us-west-2.amazonaws.com
+# Leave it unset to use the default production endpoint.
 
 # "spark.kubernetes.scheduler.name": "custom-scheduler-eks",
 
@@ -10,15 +13,21 @@ export ACCOUNTID=$(aws sts get-caller-identity --query Account --output text)
 export EMR_ROLE_ARN="arn:aws:iam::$ACCOUNTID:role/$SHARED_PREFIX_NAME-execution-role"
 export S3BUCKET="${SHARED_PREFIX_NAME}-${ACCOUNTID}-${AWS_REGION}"
 export ECR_URL="${ACCOUNTID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-export EMR_VERSION="emr-${EMR_IMAGE_VERSION:-"7.9.0"}-latest"
+# Release label for StartJobRun (validated server-side) -- use a published EMR
+# release version, independent of the container image tag below. Defaults to
+# 7.9.0; override with EMR_VERSION in env.sh.
+export EMR_VERSION="${EMR_VERSION:-"7.13.0"}"
+# Container image tag is decoupled: spark.kubernetes.container.image uses
+# EMR_IMAGE_VERSION (any custom image you copied into ECR, e.g. 8.100.0).
 export SELECTED_AZ=${SELECTED_AZ}
 export KMS_ARN=$(aws kms describe-key --key-id arn:aws:kms:${AWS_REGION}:${ACCOUNTID}:alias/cmk_locust_pvc_reuse --query 'KeyMetadata.Arn' --output text)
 
 aws emr-containers start-job-run \
+${EMR_CONTAINERS_ENDPOINT_URL:+--endpoint-url "$EMR_CONTAINERS_ENDPOINT_URL"} \
 --virtual-cluster-id $VIRTUAL_CLUSTER_ID \
 --name $JOB_UNIQUE_ID-$EMR_IMAGE_VERSION \
 --execution-role-arn $EMR_ROLE_ARN \
---release-label $EMR_VERSION \
+--release-label emr-$EMR_VERSION-latest \
 --job-driver '{
   "sparkSubmitJobDriver": {
       "entryPoint": "local:///usr/lib/spark/examples/jars/eks-spark-benchmark-assembly-1.0.jar",

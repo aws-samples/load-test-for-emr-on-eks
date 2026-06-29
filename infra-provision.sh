@@ -313,55 +313,217 @@ helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n 
 # Install metrics server
 kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
 
-# echo "========================================================="
-# echo " 13. Set up Prometheus ServiceMonitor and PodMonitor ......"
-# echo "========================================================="
-# echo "Create Prometheus service monitor and pod monitor"
-# # kubectl apply -f ./resources/monitor/spark-podmonitor.yaml
+echo "========================================================="
+echo " 13. Set up Prometheus ServiceMonitor and PodMonitor ......"
+echo "========================================================="
+echo "Create Prometheus service monitor and pod monitor"
 kubectl apply -f ./resources/monitor/karpenter-svcmonitor.yaml
 kubectl apply -f ./resources/monitor/aws-cni-podmonitor.yaml
 # # kubectl apply -f ./resources/monitor/ebs-csi-controller-svcmonitor.yaml
 kubectl apply -f ./resources/monitor/locust-podmonitor.yaml
+echo "================================================================================================================"
+echo " Ref to https://karpenter.sh/v1.8/reference/cloudformation/"
+echo " 14. Create Karpenter IAM roles, SQS queue and event rules for EC2 interruption handling ......"
+echo "================================================================================================================"
+# the CFN stack creates Controller Policy, Node Role, SQS Queue and Event Bridge Rules
+curl https://raw.githubusercontent.com/aws/karpenter-provider-aws/v"${KARPENTER_VERSION}"/website/content/en/preview/getting-started/getting-started-with-karpenter/cloudformation.yaml > ./resources/karpenter/cloudformation-${KARPENTER_VERSION}.yaml
+aws cloudformation deploy \
+  --stack-name "karpenter-infra-${CLUSTER_NAME}" \
+  --template-file ./resources/karpenter/cloudformation-${KARPENTER_VERSION}.yaml \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --parameter-overrides "ClusterName=${CLUSTER_NAME}" \
+  --region $AWS_REGION
+
+# Encrypt all EBS volumes when Karpenter provisions nodes
+echo "Creating EBS encryption policy ${EBS_POLICY_NAME} for Karpenter Controller Role"
+EBS_POLICY_NAME=KarpenterEBSEncryptionPolicy-${CLUSTER_NAME}
+if [ -n "$(aws iam list-policies --scope Local --query "Policies[?PolicyName=='${EBS_POLICY_NAME}'].Arn" --output text)" ]; then
+    echo "Policy ${EBS_POLICY_NAME} already exists"
+else
+    cat <<EOF > /tmp/ebs-encryption-policy.json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "kms:CreateGrant",
+                "kms:Decrypt",
+                "kms:DescribeKey",
+                "kms:Encrypt",
+                "kms:GenerateDataKey",
+                "kms:GenerateDataKeyWithoutPlaintext",
+                "kms:ReEncrypt*"
+            ],
+            "Resource": "*",
+            "Condition": {
+                "StringEquals": {
+                    "kms:ViaService": [
+                        "ec2.${AWS_REGION}.amazonaws.com"
+                    ]
+                }
+            }
+        }
+    ]
+}
+EOF
+    aws iam create-policy --policy-name "${EBS_POLICY_NAME}" \
+      --policy-document file:///tmp/ebs-encryption-policy.json \
+      --query 'Policy.Arn' \
+      --output text
+    rm -f /tmp/ebs-encryption-policy.json  
+fi
+
+echo "Create Karpenter controller role"
+if aws iam get-role --role-name "${KARPENTER_CONTROLLER_ROLE}" >/dev/null 2>&1; then
+    echo "Role ${KARPENTER_CONTROLLER_ROLE} already exists"
+else
+    cat <<EOF > /tmp/controller-trust.json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Principal": {
+                "Federated": "arn:aws:iam::${ACCOUNT_ID}:oidc-provider/${OIDC_PROVIDER}"
+            },
+            "Action": "sts:AssumeRoleWithWebIdentity",
+            "Condition": {
+                "StringEquals": {
+                    "${OIDC_PROVIDER}:sub": "system:serviceaccount:kube-system:karpenter"
+                }
+            }
+        }
+    ]
+}
+EOF
+    aws iam create-role --role-name "${KARPENTER_CONTROLLER_ROLE}" --assume-role-policy-document file:///tmp/controller-trust.json
+    aws iam attach-role-policy --role-name "${KARPENTER_CONTROLLER_ROLE}" --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${KARPENTER_CONTROLLER_POLICY}"
+    aws iam attach-role-policy --role-name "${KARPENTER_CONTROLLER_ROLE}" --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/${EBS_POLICY_NAME}"
+fi
+
+echo "=============================================================================================================="
+echo " 15. Tag Subnets, SGs for Karpenter ......"
+echo "=============================================================================================================="
+echo "Create karpenter tags for subnets, SGs"
+for NODEGROUP in $(aws eks list-nodegroups --cluster-name "${CLUSTER_NAME}" --query 'nodegroups' --output text); do
+    aws ec2 create-tags \
+        --tags "Key=karpenter.sh/discovery,Value=${CLUSTER_NAME}" \
+        --resources $(aws eks describe-nodegroup --cluster-name "${CLUSTER_NAME}" \
+        --nodegroup-name "${NODEGROUP}" --query 'nodegroup.subnets' --output text )
+done
+# launch template
+NODEGROUP=$(aws eks list-nodegroups --cluster-name "${CLUSTER_NAME}" --query 'nodegroups[0]' --output text)
+LAUNCH_TEMPLATE=$(aws eks describe-nodegroup --cluster-name "${CLUSTER_NAME}" \
+    --nodegroup-name "${NODEGROUP}" --query 'nodegroup.launchTemplate.{id:id,version:version}' \
+    --output text | tr -s "\t" ",")
+
+SECURITY_GROUPS=$(aws eks describe-cluster \
+    --name "${CLUSTER_NAME}" --query "cluster.resourcesVpcConfig.clusterSecurityGroupId" --output text)
+# If your setup uses the security groups in the Launch template of a managed node group, then :
+SECURITY_GROUPS2="$(aws ec2 describe-launch-template-versions \
+    --launch-template-id "${LAUNCH_TEMPLATE%,*}" --versions "${LAUNCH_TEMPLATE#*,}" \
+    --query 'LaunchTemplateVersions[0].LaunchTemplateData.[NetworkInterfaces[0].Groups||SecurityGroupIds]' \
+    --output text)" || true
+
+aws ec2 create-tags \
+    --tags "Key=karpenter.sh/discovery,Value=${CLUSTER_NAME}" \
+    --resources ${SECURITY_GROUPS} ${SECURITY_GROUPS2}
+
+echo "========================================================="
+echo " 16. Install Karpenter via Helm Chart ....."
+echo "========================================================="
+echo "Install Karpenter via Helm Chart"
+helm registry logout public.ecr.aws
+# Before enable the "interruptionQueue", the SQS queue must exist
+helm template karpenter oci://public.ecr.aws/karpenter/karpenter --version "${KARPENTER_VERSION}" --namespace kube-system \
+    --set "settings.clusterName=${CLUSTER_NAME}" \
+    --set "settings.interruptionQueue=${CLUSTER_NAME}" \
+    --set "serviceAccount.annotations.eks\.amazonaws\.com/role-arn=arn:aws:iam::${ACCOUNT_ID}:role/KarpenterControllerRole-${CLUSTER_NAME}" \
+    --set controller.resources.requests.cpu=2 \
+    --set controller.resources.requests.memory=2Gi \
+    --set controller.resources.limits.cpu=10 \
+    --set controller.resources.limits.memory=20Gi \
+    --set webhook.serviceName="karpenter" \
+    --set webhook.port=8443 > ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml
+# run Karpenter pods on a managed nodegroup
+export NG=$(aws eks list-nodegroups --cluster-name $CLUSTER_NAME --region $AWS_REGION --output json | jq -r '.nodegroups[0]')
+sed -i='' '/operator: DoesNotExist/a\
+              - key: eks.amazonaws.com/nodegroup\
+                operator: In\
+                values:\
+                - '"$(eval echo \$NG)"'
+' ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml
+# increase livenessProbe to avoid throttling
+sed -i='' '/livenessProbe:/,/timeoutSeconds: 30/c\
+          livenessProbe:\
+            initialDelaySeconds: 30\
+            periodSeconds: 30\
+            timeoutSeconds: 10\
+            failureThreshold: 5\
+' ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml
+#crds
+kubectl create -f \
+    "https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.sh_nodepools.yaml"
+kubectl create -f \
+    "https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.k8s.aws_ec2nodeclasses.yaml"
+kubectl create -f \
+    "https://raw.githubusercontent.com/aws/karpenter-provider-aws/v${KARPENTER_VERSION}/pkg/apis/crds/karpenter.sh_nodeclaims.yaml"
+kubectl apply -f ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml
+
+echo "====================================================="
+echo " 17. Create Karpenter Nodepools and nodeclass ......"
+echo "====================================================="
+echo "Create Karpenter nodepools ......"
+sed -i='' 's/${KARPENTER_NODE_ROLE}/'$KARPENTER_NODE_ROLE'/g' ./resources/karpenter/shared-nodeclass.yaml
+sed -i='' 's/${CLUSTER_NAME}/'$CLUSTER_NAME'/g' ./resources/karpenter/shared-nodeclass.yaml
+rm ./resources/karpenter/*=
+kubectl apply -f "./resources/karpenter/*-node*.yaml"
+
+# Add authorized entry for Karpenter node role
+aws eks create-access-entry --cluster-name ${CLUSTER_NAME} --principal-arn arn:aws:iam::${ACCOUNT_ID}:role/${KARPENTER_NODE_ROLE} --type EC2_LINUX
 
 echo "================================================================="
 echo " 19. Create multi-platform Image for Spark benchmark Utility ......"
 echo "================================================================="   
 
 echo "Logging into ECR..."
-export SRC_ECR_URL=public.ecr.aws
+# Source ECR for the base/benchmark images. Defaults to the public ECR; override
+# SRC_ECR_URL (including ecr repo URL and image name) for internal testing,
+# e.g. the Spark Connect image repo from the PenTester runbook.
+export SRC_ECR_URL=${SRC_ECR_URL:-public.ecr.aws/myang-poc/eks-spark-benchmark:emr}
 export ECR_URL=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
-# use aws-ecr-credential-helper on vscode
-# aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_URL
-if aws ecr describe-repositories --repository-names locust 2>/dev/null; then
-    echo "locust ECR repo exists."
-else
-    echo "Creating repo locus..."
-    aws ecr create-repository --repository-name locust --image-scanning-configuration scanOnPush=true
-    docker run --privileged --rm tonistiigi/binfmt --install all
-    # Create multi-arch builder
-    docker buildx create --name arm64-builder --driver docker-container --use
+echo "Logging into ECR..."
+aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_URL
 
-    # Locust image
-    docker buildx build --platform linux/amd64,linux/arm64 \
-    -t $ECR_URL/locust \
+# --- Locust image -------------------------------------------------------
+# Ensure the repo exists (idempotent), then ALWAYS (re)build & push the image
+# -- repo existence must NOT skip the build, or the image is never produced.
+aws ecr describe-repositories --repository-names locust >/dev/null 2>&1 \
+    || aws ecr create-repository --repository-name locust --image-scanning-configuration scanOnPush=true
+docker run --privileged --rm tonistiigi/binfmt --install all
+# Create the multi-arch builder if it doesn't already exist, then select it.
+docker buildx use arm64-builder 2>/dev/null \
+    || docker buildx create --name arm64-builder --driver docker-container --use
+docker buildx build --platform linux/amd64,linux/arm64 \
+    -t $ECR_URL/locust:latest \
     -f ./locust/Dockerfile \
     --push .
-fi
+echo "Pushed $ECR_URL/locust:latest"
 
-if aws ecr describe-repositories --repository-names eks-spark-benchmark 2>/dev/null; then
-    echo "eks-spark-benchmark ECR repo exists"
-    exit 0
-else
-    echo "Creating repo eks-spark-benchmark..."
-    aws ecr create-repository --repository-name eks-spark-benchmark --image-scanning-configuration scanOnPush=true
-    # Benchmark images 
-    # change if needed, based on lab participants' requirements
+# --- Spark benchmark image(s) ------------------------------------------
+# Ensure the repo exists (idempotent), then ALWAYS copy the requested
+# EMR_VERSIONS from SRC_ECR_URL -- existing repo must NOT short-circuit.
+aws ecr describe-repositories --repository-names eks-spark-benchmark >/dev/null 2>&1 \
+    || aws ecr create-repository --repository-name eks-spark-benchmark --image-scanning-configuration scanOnPush=true
+# EMR_VERSIONS may be set via env.sh / the environment; default if unset.
+if [ -z "${EMR_VERSIONS:-}" ]; then
     export EMR_VERSIONS=("6.10.0" "7.3.0" "7.9.0")
-    for version in "${EMR_VERSIONS[@]}"; do
-        docker buildx imagetools create \
-            --tag "$ECR_URL/eks-spark-benchmark:emr${version}" \
-            "$SRC_ECR_URL/myang-poc/eks-spark-benchmark:emr${version}"
-        echo "Copied $ECR_URL/eks-spark-benchmark:emr${version} with all architectures"        
-    done
 fi
+for version in "${EMR_VERSIONS[@]}"; do
+    docker buildx imagetools create \
+        --tag "$ECR_URL/eks-spark-benchmark:emr${version}" \
+        "$SRC_ECR_URL${version}"
+    echo "Copied $ECR_URL/eks-spark-benchmark:emr${version} with all architectures"
+done
 echo "Infrastructure provision is completed."

@@ -1,7 +1,7 @@
 FROM locustio/locust:2.42.1 AS locust
 USER root
 RUN apt-get update && \
-    apt-get install -y curl unzip tar gzip && \
+    apt-get install -y curl unzip tar gzip build-essential python3-dev && \
     rm -rf /var/lib/apt/lists/*
 
 # Install AWS CLI v2 with multi-platform support
@@ -29,7 +29,9 @@ RUN mkdir -p /opt/venv/.aws && chown -R locust:locust /opt/venv/.aws
 # Create Python virtual environment
 RUN python -m venv /opt/venv/bin
 ENV PATH="/opt/venv/bin:$PATH"
-RUN pip3 install urllib3 prometheus_client==0.21.0 boto3==1.40.64 botocore==1.40.64 rich==13.7.1
+# pyspark[connect] is the Spark Connect client used when load testing Spark
+# Connect endpoints (matches EMR 7.x Spark 3.5.x).
+RUN pip3 install urllib3 prometheus_client==0.21.0 boto3==1.40.64 botocore==1.40.64 rich==13.7.1 "pyspark[connect]==3.5.5"
 COPY locust/locustfiles/lib /opt/venv/bin/lib
 RUN chown -R locust:locust /opt/venv/bin
 

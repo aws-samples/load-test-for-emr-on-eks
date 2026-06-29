@@ -304,6 +304,152 @@ def check_eks_cluster(cluster_name: Optional[str] = None) -> str:
     )
 
 
+def _kubectl_json(args: list[str]) -> Optional[dict]:
+    """Run a kubectl command with -o json and return parsed JSON, or None."""
+    result = run(["kubectl", *args, "-o", "json"], timeout=60)
+    if not result.ok:
+        return None
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+
+
+@mcp.tool()
+def validate_cluster_components(cluster_name: Optional[str] = None) -> str:
+    """Validate that an EKS cluster has all components required for the load test.
+
+    Connects to the cluster (updates kubeconfig) and checks each required
+    component, reporting PASS/FAIL per item with details. Use this on a NEW
+    cluster after provisioning, or on an EXISTING cluster before reusing it, to
+    confirm it is ready. Checks:
+      - Karpenter (controller Running + NodePools/EC2NodeClass Ready)
+      - AWS Load Balancer Controller (deployment available)
+      - gp3 StorageClass (exists; default preferred)
+      - EBS CSI driver (controller Running)
+      - CoreDNS with >= 3 replicas
+      - Binpacking custom scheduler (custom-scheduler-eks Running)
+      - Prometheus operator + built-in Grafana (Running)
+    """
+    env = helpers.load_env()
+    region = _resolve_region(env)
+    if not region:
+        return "ERROR: no AWS region configured. Run get_aws_profile / set_aws_profile first."
+    name = cluster_name or env.get("CLUSTER_NAME")
+    if not name:
+        return "ERROR: no cluster name (set CLUSTER_NAME in env.sh or pass cluster_name)"
+
+    # Confirm the cluster exists, then point kubeconfig at it.
+    try:
+        cluster = _describe_eks_cluster(name, region)
+    except RuntimeError as e:
+        return f"ERROR checking EKS cluster {name} in {region}:\n{e}"
+    if cluster is None:
+        return f"EKS cluster '{name}' does NOT exist in {region}. Create it first (provision_infra)."
+    kube = run(["aws", "eks", "update-kubeconfig", "--name", name, "--region", region], timeout=120)
+    if not kube.ok:
+        return f"ERROR connecting kubectl to {name}:\n{kube.as_text()}"
+
+    results: list[tuple[str, bool, str]] = []
+
+    def add(component: str, ok: bool, detail: str) -> None:
+        results.append((component, ok, detail))
+
+    # -- Karpenter: controller pods + NodePools + EC2NodeClasses Ready --
+    kp = _kubectl_json(["get", "pods", "-n", "kube-system", "-l", "app.kubernetes.io/name=karpenter"])
+    kp_running = bool(kp and kp.get("items") and all(
+        p.get("status", {}).get("phase") == "Running" for p in kp["items"]))
+    nps = _kubectl_json(["get", "nodepools.karpenter.sh"])
+    np_items = (nps or {}).get("items", [])
+    np_ready = bool(np_items) and all(
+        any(c.get("type") == "Ready" and c.get("status") == "True"
+            for c in n.get("status", {}).get("conditions", []))
+        for n in np_items)
+    ncs = _kubectl_json(["get", "ec2nodeclasses.karpenter.k8s.aws"])
+    nc_items = (ncs or {}).get("items", [])
+    nc_ready = bool(nc_items) and all(
+        any(c.get("type") == "Ready" and c.get("status") == "True"
+            for c in c2.get("status", {}).get("conditions", []))
+        for c2 in nc_items)
+    if nps is None:
+        add("Karpenter", False, "NodePool CRD not installed (Karpenter not deployed)")
+    else:
+        np_names = ", ".join(n["metadata"]["name"] for n in np_items) or "none"
+        add("Karpenter", kp_running and np_ready and nc_ready,
+            f"controller running={kp_running}; nodepools=[{np_names}] ready={np_ready}; "
+            f"ec2nodeclasses ready={nc_ready}")
+
+    # -- AWS Load Balancer Controller --
+    lbc = _kubectl_json(["get", "deployment", "aws-load-balancer-controller", "-n", "kube-system"])
+    lbc_avail = bool(lbc) and (lbc.get("status", {}).get("availableReplicas", 0) or 0) >= 1
+    add("AWS Load Balancer Controller", lbc_avail,
+        f"availableReplicas={(lbc or {}).get('status', {}).get('availableReplicas', 0)}"
+        if lbc else "deployment not found")
+
+    # -- gp3 StorageClass (exists; default preferred) --
+    scs = _kubectl_json(["get", "storageclass"])
+    gp3 = next((s for s in (scs or {}).get("items", [])
+                if s["metadata"]["name"] == "gp3"), None)
+    gp3_default = bool(gp3) and gp3["metadata"].get("annotations", {}).get(
+        "storageclass.kubernetes.io/is-default-class") == "true"
+    add("gp3 StorageClass", bool(gp3),
+        f"present; default={gp3_default}" if gp3 else "gp3 StorageClass not found")
+
+    # -- EBS CSI driver --
+    ebs = _kubectl_json(["get", "pods", "-n", "kube-system", "-l", "app=ebs-csi-controller"])
+    ebs_ok = bool(ebs and ebs.get("items")) and any(
+        p.get("status", {}).get("phase") == "Running" for p in ebs["items"])
+    add("EBS CSI driver", ebs_ok,
+        f"controller pods running={sum(1 for p in (ebs or {}).get('items', []) if p.get('status',{}).get('phase')=='Running')}"
+        if ebs else "ebs-csi-controller not found")
+
+    # -- CoreDNS with >= 3 replicas --
+    dns = _kubectl_json(["get", "deployment", "coredns", "-n", "kube-system"])
+    dns_ready = (dns or {}).get("status", {}).get("readyReplicas", 0) or 0
+    add("CoreDNS (>=3 replicas)", bool(dns) and dns_ready >= 3,
+        f"readyReplicas={dns_ready}" if dns else "coredns deployment not found")
+
+    # -- Binpacking custom scheduler --
+    bp = _kubectl_json(["get", "pods", "-n", "kube-system", "-l", "app=custom-scheduler-eks"])
+    bp_items = (bp or {}).get("items", [])
+    if not bp_items:  # fall back to a name match if the label differs
+        allpods = _kubectl_json(["get", "pods", "-n", "kube-system"])
+        bp_items = [p for p in (allpods or {}).get("items", [])
+                    if "custom-scheduler" in p["metadata"]["name"]]
+    bp_ok = bool(bp_items) and any(p.get("status", {}).get("phase") == "Running" for p in bp_items)
+    add("Binpacking scheduler", bp_ok,
+        "custom-scheduler-eks running" if bp_ok else "custom-scheduler-eks not found/not running")
+
+    # -- Prometheus operator + built-in Grafana --
+    promns = "prometheus"
+    # kube-prometheus-stack labels the operator with component=prometheus-operator
+    # (the app.kubernetes.io/name varies by chart, e.g.
+    # kube-prometheus-stack-prometheus-operator), so select on component.
+    prom = _kubectl_json(["get", "pods", "-n", promns, "-l",
+                          "app.kubernetes.io/component=prometheus-operator"])
+    prom_ok = bool(prom and prom.get("items")) and any(
+        p.get("status", {}).get("phase") == "Running" for p in prom["items"])
+    add("Prometheus operator", prom_ok,
+        "running in ns 'prometheus'" if prom_ok else "prometheus-operator not found in ns 'prometheus'")
+    graf = _kubectl_json(["get", "deployment", "prometheus-grafana", "-n", promns])
+    graf_ok = bool(graf) and (graf.get("status", {}).get("availableReplicas", 0) or 0) >= 1
+    add("Grafana (built-in)", graf_ok,
+        f"availableReplicas={(graf or {}).get('status', {}).get('availableReplicas', 0)}"
+        if graf else "prometheus-grafana deployment not found")
+
+    passed = sum(1 for _, ok, _ in results if ok)
+    total = len(results)
+    lines = [f"Cluster '{name}' ({region}) component validation: {passed}/{total} passed", ""]
+    for component, ok, detail in results:
+        lines.append(f"  [{'PASS' if ok else 'FAIL'}] {component} — {detail}")
+    if passed < total:
+        lines.append("")
+        lines.append("Some components are missing/not ready. For a new cluster, (re)run "
+                     "provision_infra; for an existing cluster, install the missing pieces "
+                     "before running the load test.")
+    return "\n".join(lines)
+
+
 def _valid_cluster_name(name: str) -> bool:
     """EKS cluster name rules: letters/digits/hyphens, start alnum, <=100 chars."""
     return bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{0,99}", name))
@@ -458,6 +604,10 @@ def render_locust_manifest(
         "EMR_IMAGE_VERSION": env.get("EMR_IMAGE_VERSION", "7.9.0"),
         "JOB_SCRIPT_NAME": env.get("JOB_SCRIPT_NAME", "emr-job-run.sh"),
         "SPARK_JOB_NS_NUM": ns_count,
+        # emr-containers endpoint (prod region-derived, or gamma when set) so the
+        # on-EKS worker pods target the same endpoint as local runs.
+        "EMR_CONTAINERS_ENDPOINT_URL": env.get(
+            "EMR_CONTAINERS_ENDPOINT_URL", f"https://emr-containers.{region}.amazonaws.com"),
     }
     for key, val in subs.items():
         text = text.replace(f"${{{key}}}", val)
@@ -571,8 +721,11 @@ def run_local_test(
     if not LOCUSTFILE.exists():
         return f"ERROR: locustfile not found at {LOCUSTFILE}"
 
+    # Invoke locust via the server's own interpreter (`python -m locust`) so it
+    # resolves from the same venv regardless of PATH (bare `locust` may not be
+    # on the MCP server process's PATH).
     args = [
-        "locust", "-f", str(LOCUSTFILE),
+        sys.executable, "-m", "locust", "-f", str(LOCUSTFILE),
         f"--run-time={run_time}",
         f"--users={users}",
         f"--spawn-rate={spawn_rate}",

@@ -1,3 +1,4 @@
+import json
 import subprocess
 import uuid
 from os import environ, path
@@ -9,6 +10,11 @@ REGION=environ.get("AWS_REGION","us-west-2")
 JOB_RUNNING_STATES = ['PENDING', 'SUBMITTED', 'RUNNING', 'CANCEL_PENDING']
 JOB_STATES = ["PENDING", "SUBMITTED", "RUNNING", "COMPLETED", "FAILED"]
 VC_DEFAULT_STATES = ["RUNNING", "TERMINATED"]
+# Session-enabled VCs (+ a SecurityConfiguration) are required by interactive
+# features such as Spark Connect, Livy, and fine-grained access control (FGAC).
+# Opt in via env so the default batch StartJobRun path is unchanged.
+SESSION_ENABLED = environ.get("VC_SESSION_ENABLED", "false").lower() == "true"
+SECURITY_CONFIGURATION_ID = environ.get("SECURITY_CONFIGURATION_ID") or None
 #
 # VirtualCluster class has methods that will help with virtual cluster creation
 # and deletion
@@ -17,10 +23,38 @@ class VirtualCluster:
     def __init__(self, emr_containers_client):
         self.client = emr_containers_client
 
-    # Create EMR on EKS Virtual Cluster
-    def create_virtual_cluster(self,client_token, virtual_cluster_name,k8s_namespace,eks_cluster_name):
+    # Create a SecurityConfiguration (required to enable session/interactive
+    # features like Spark Connect, Livy, FGAC). Returns its id, or None.
+    def create_security_configuration(self, sec_config_name, k8s_namespace, eks_cluster_name,
+                                      security_configuration_data=None):
         try:
-            response = self.client.create_virtual_cluster(
+            response = self.client.create_security_configuration(
+                name=sec_config_name,
+                clientToken=str(uuid.uuid4()),
+                securityConfigurationData=security_configuration_data or {
+                    'authenticationConfiguration': {
+                        'identityCenterConfiguration': {'enableIdentityCenter': False}
+                    }
+                },
+                containerProvider={
+                    'type': 'EKS',
+                    'id': eks_cluster_name,
+                    'info': {'eksInfo': {'namespace': k8s_namespace}}
+                }
+            )
+            console.log(f"Security configuration created: {response['id']}")
+            return response['id']
+        except Exception as e:
+            console.log(f"Failed to create security configuration: {e}")
+            return None
+
+    # Create EMR on EKS Virtual Cluster. Pass security_configuration_id and/or
+    # session_enabled=True to provision a session-enabled VC (Spark Connect /
+    # Livy / FGAC); both default off so the batch path is unchanged.
+    def create_virtual_cluster(self,client_token, virtual_cluster_name,k8s_namespace,eks_cluster_name,
+                               security_configuration_id=None, session_enabled=False):
+        try:
+            kwargs = dict(
                 name=virtual_cluster_name,
                 containerProvider={
                     'type': 'EKS',
@@ -33,6 +67,26 @@ class VirtualCluster:
                 },
                 clientToken=client_token
             )
+            if security_configuration_id:
+                kwargs['securityConfigurationId'] = security_configuration_id
+            # `sessionEnabled` is not yet in the installed SDK's CreateVirtualCluster
+            # shape, so inject it into the serialized request body via a one-shot
+            # before-call handler when requested.
+            handler = None
+            if session_enabled:
+                def _inject_session_enabled(params, **_):
+                    body = json.loads(params['body'])
+                    body['sessionEnabled'] = True
+                    params['body'] = json.dumps(body)
+                handler = _inject_session_enabled
+                self.client.meta.events.register(
+                    'before-call.emr-containers.CreateVirtualCluster', handler)
+            try:
+                response = self.client.create_virtual_cluster(**kwargs)
+            finally:
+                if handler is not None:
+                    self.client.meta.events.unregister(
+                        'before-call.emr-containers.CreateVirtualCluster', handler)
             console.log(f"Virtual cluster created: {response['id']}")
             return response
         except Exception as e:
@@ -73,12 +127,25 @@ class VirtualCluster:
                 console.log(f"Virtual cluster {vs_name} already exists: {existing_vcs[0]['id']}")
                 return existing_vcs[0]['id']
 
+            # For session-enabled VCs (Spark Connect / Livy / FGAC), a
+            # SecurityConfiguration is required. Use SECURITY_CONFIGURATION_ID if
+            # provided, otherwise create one for this VC's namespace.
+            sec_config_id = SECURITY_CONFIGURATION_ID
+            if SESSION_ENABLED and not sec_config_id:
+                sec_config_id = self.create_security_configuration(
+                    sec_config_name=f"{vs_name}-secconfig",
+                    k8s_namespace=ns_id,
+                    eks_cluster_name=eks_name,
+                )
+
             # Create virtual cluster
             response = self.create_virtual_cluster(
                 client_token=str(uuid.uuid4()),
                 virtual_cluster_name=vs_name,
                 k8s_namespace=ns_id,
-                eks_cluster_name=eks_name
+                eks_cluster_name=eks_name,
+                security_configuration_id=sec_config_id,
+                session_enabled=SESSION_ENABLED
             )
             if response:
                 # Wait for virtual cluster to be active
