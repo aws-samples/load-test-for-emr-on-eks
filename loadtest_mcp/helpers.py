@@ -8,6 +8,7 @@ stays in sync with the tested automation already shipped in the repo.
 
 from __future__ import annotations
 
+import configparser
 import json
 import os
 import shlex
@@ -201,15 +202,63 @@ def load_env() -> dict[str, str]:
 # ---------------------------------------------------------------------------
 # AWS profile / identity
 # ---------------------------------------------------------------------------
+def _profiles_from_config_files() -> list[str]:
+    """Parse profile names from ~/.aws/config and ~/.aws/credentials.
+
+    Fallback for when ``aws configure list-profiles`` returns nothing (it can,
+    e.g. on some CLI builds or when profiles use ``credential_process``). In
+    ``config`` profiles are ``[profile NAME]`` (plus a bare ``[default]``); in
+    ``credentials`` they are ``[NAME]``. Honors AWS_CONFIG_FILE /
+    AWS_SHARED_CREDENTIALS_FILE when set.
+    """
+    config_path = Path(
+        os.environ.get("AWS_CONFIG_FILE", Path.home() / ".aws" / "config")
+    ).expanduser()
+    creds_path = Path(
+        os.environ.get(
+            "AWS_SHARED_CREDENTIALS_FILE", Path.home() / ".aws" / "credentials"
+        )
+    ).expanduser()
+
+    names: list[str] = []
+    for path, is_config in ((config_path, True), (creds_path, False)):
+        if not path.exists():
+            continue
+        try:
+            parser = configparser.RawConfigParser()
+            parser.read(path)
+        except configparser.Error:
+            continue
+        for section in parser.sections():
+            # config uses "[profile NAME]" (and a bare "[default]"); credentials
+            # uses "[NAME]" directly.
+            name = section[len("profile "):] if (
+                is_config and section.startswith("profile ")) else section
+            if name and name not in names:
+                names.append(name)
+    return names
+
+
 def aws_profiles() -> list[str]:
-    """Return the AWS profiles configured locally (``aws configure list-profiles``)."""
-    proc = subprocess.run(
-        ["aws", "configure", "list-profiles"],
-        capture_output=True, text=True, timeout=60,
-    )
-    if proc.returncode != 0:
-        return []
-    return [p.strip() for p in proc.stdout.splitlines() if p.strip()]
+    """Return the AWS profiles configured locally.
+
+    Tries ``aws configure list-profiles`` first; if that yields nothing (it can
+    on some CLI versions, or with credential_process-based profiles), falls back
+    to parsing ~/.aws/config and ~/.aws/credentials directly so the agent can
+    still present the user real choices.
+    """
+    try:
+        proc = subprocess.run(
+            ["aws", "configure", "list-profiles"],
+            capture_output=True, text=True, timeout=60,
+        )
+        if proc.returncode == 0:
+            profiles = [p.strip() for p in proc.stdout.splitlines() if p.strip()]
+            if profiles:
+                return profiles
+    except (subprocess.SubprocessError, OSError):
+        pass
+    return _profiles_from_config_files()
 
 
 def aws_identity(profile: Optional[str] = None) -> dict:
@@ -221,34 +270,50 @@ def aws_identity(profile: Optional[str] = None) -> dict:
     anything else runs. No account/region is hardcoded -- everything comes from
     the resolved profile.
     """
-    extra = {"AWS_PROFILE": profile} if profile else {}
+    # Resolve identity against the SAME environment the real test commands use:
+    # run()/start_background() layer load_env() (which sources env.sh) on top of
+    # os.environ, so set_aws_profile's AWS_PROFILE/AWS_REGION writes take effect.
+    # Without this, identity checks would read a stale AWS_PROFILE exported in
+    # the server's own process and never agree with what gets provisioned. An
+    # explicit ``profile`` argument still wins over env.sh's AWS_PROFILE.
     sts_env = os.environ.copy()
-    sts_env.update(extra)
+    try:
+        sts_env.update(load_env())
+    except RuntimeError:
+        pass
+    if profile:
+        sts_env["AWS_PROFILE"] = profile
     sts = subprocess.run(
         ["aws", "sts", "get-caller-identity", "--output", "json"],
         capture_output=True, text=True, timeout=60, env=sts_env,
     )
-    region_proc = subprocess.run(
-        ["aws", "configure", "get", "region"]
-        + (["--profile", profile] if profile else []),
-        capture_output=True, text=True, timeout=60, env=sts_env,
-    )
-    region = region_proc.stdout.strip() or sts_env.get("AWS_REGION", "")
+    # env.sh is the source of truth for region (the user can override it via
+    # set_env_var); fall back to the profile's configured region.
+    region = sts_env.get("AWS_REGION", "")
+    if not region:
+        region_proc = subprocess.run(
+            ["aws", "configure", "get", "region"]
+            + (["--profile", profile] if profile else []),
+            capture_output=True, text=True, timeout=60, env=sts_env,
+        )
+        region = region_proc.stdout.strip()
     if sts.returncode != 0:
         return {
             "ok": False,
-            "profile": profile or os.environ.get("AWS_PROFILE", "default"),
+            "profile": profile or sts_env.get("AWS_PROFILE", "default"),
             "region": region,
             "error": (sts.stderr or sts.stdout).strip(),
         }
     try:
         ident = json.loads(sts.stdout)
     except json.JSONDecodeError:
-        return {"ok": False, "profile": profile, "region": region,
+        return {"ok": False,
+                "profile": profile or sts_env.get("AWS_PROFILE", "default"),
+                "region": region,
                 "error": "could not parse get-caller-identity output"}
     return {
         "ok": True,
-        "profile": profile or os.environ.get("AWS_PROFILE", "default"),
+        "profile": profile or sts_env.get("AWS_PROFILE", "default"),
         "account": ident.get("Account"),
         "arn": ident.get("Arn"),
         "user_id": ident.get("UserId"),

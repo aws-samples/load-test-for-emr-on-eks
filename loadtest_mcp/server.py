@@ -43,7 +43,19 @@ from helpers import (
     run,
 )
 
-mcp = FastMCP("emr-eks-loadtest")
+mcp = FastMCP(
+    "emr-eks-loadtest",
+    instructions=(
+        "Automates the EMR on EKS load test. ALWAYS call start_session FIRST, "
+        "before any other tool, at the beginning of a load-test conversation. "
+        "It reports the active AWS identity and the locally configured profiles. "
+        "Then ASK THE USER which AWS target to use -- either a profile name (call "
+        "set_aws_profile) or an explicit account/region they want to test "
+        "against -- and confirm it with confirm_aws_profile. Do NOT assume the "
+        "currently-active profile is the intended one; the user must choose. "
+        "Test-affecting tools stay locked until confirm_aws_profile succeeds."
+    ),
+)
 
 LOCUST_NAMESPACE = "locust"
 CONFIGMAP_NAME = "emr-loadtest-locustfile"
@@ -147,6 +159,53 @@ def requires_confirmed_identity(func):
 # ===========================================================================
 # AWS profile (must be confirmed before anything else)
 # ===========================================================================
+@mcp.tool()
+def start_session() -> str:
+    """START HERE. First step of any load-test session: pick the AWS target.
+
+    Reports the active AWS identity and lists the locally configured profiles,
+    then instructs you (the agent) to ASK THE USER which AWS account/region to
+    test against -- never silently reuse whatever profile happens to be active.
+    The user can answer with either:
+      * a profile name -> call set_aws_profile(profile), or
+      * an explicit account + region -> switch to a profile that resolves to
+        them (set_aws_profile), since the account/region come only from the
+        active profile.
+    Then call confirm_aws_profile(account, region) to unlock test-affecting
+    tools. Nothing that touches real AWS resources runs until that confirmation
+    succeeds.
+    """
+    profiles = helpers.aws_profiles()
+    ident = helpers.aws_identity()
+    lines = ["Load-test session start. Choose the AWS target before proceeding.", ""]
+    if profiles:
+        lines.append(f"Locally configured profiles: {', '.join(profiles)}")
+    else:
+        lines.append("No local AWS profiles found (check ~/.aws/config).")
+    lines.append("")
+    if ident["ok"]:
+        lines += [
+            "Currently active profile (NOT necessarily the one to use):",
+            f"  Profile: {ident['profile']}",
+            f"  Account: {ident['account']}",
+            f"  Region:  {ident['region'] or '<unset>'}",
+        ]
+    else:
+        lines += [
+            f"Active profile {ident['profile']!r} has no usable credentials: "
+            f"{ident['error']}",
+        ]
+    lines += [
+        "",
+        "ACTION REQUIRED: ask the user which AWS profile (or account/region) "
+        "they want to test against. If they name a profile, call "
+        "set_aws_profile(profile); if they give an account/region, select the "
+        "matching profile. Then confirm with confirm_aws_profile(account, "
+        "region) to unlock provisioning/run/teardown tools.",
+    ]
+    return "\n".join(lines)
+
+
 @mcp.tool()
 def get_aws_profile() -> str:
     """Show the active AWS profile and the identity/region it resolves to.
