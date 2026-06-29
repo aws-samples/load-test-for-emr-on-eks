@@ -371,15 +371,24 @@ def run(
     timeout: int = 600,
     with_env: bool = True,
     extra_env: Optional[dict[str, str]] = None,
+    base_env: Optional[dict[str, str]] = None,
     shell: bool = False,
 ) -> CommandResult:
     """Run a command synchronously with the load-test environment loaded.
 
     ``args`` may be a list (preferred) or a string when ``shell=True``.
+
+    Sourcing ``env.sh`` is expensive (it shells out to ``aws sts`` via command
+    substitution to derive ACCOUNT_ID), so a caller that issues many commands
+    can resolve it once with ``load_env()`` and pass it as ``base_env`` to skip
+    the per-call re-source. When ``base_env`` is given, ``with_env`` is ignored.
     """
-    env = os.environ.copy()
-    if with_env:
-        env.update(load_env())
+    if base_env is not None:
+        env = dict(base_env)
+    else:
+        env = os.environ.copy()
+        if with_env:
+            env.update(load_env())
     if extra_env:
         env.update(extra_env)
 

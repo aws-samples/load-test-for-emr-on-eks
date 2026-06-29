@@ -18,9 +18,11 @@ from __future__ import annotations
 
 import functools
 import json
+import os
 import re
 import shlex
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 
@@ -447,7 +449,8 @@ def set_env_var(name: str, value: str) -> str:
 # ===========================================================================
 # EKS cluster selection (reuse existing vs. create new)
 # ===========================================================================
-def _describe_eks_cluster(cluster_name: str, region: str) -> Optional[dict]:
+def _describe_eks_cluster(cluster_name: str, region: str,
+                          base_env: Optional[dict] = None) -> Optional[dict]:
     """Return the EKS cluster description, or None if it doesn't exist.
 
     Raises on unexpected AWS errors so callers can surface them distinctly
@@ -457,6 +460,7 @@ def _describe_eks_cluster(cluster_name: str, region: str) -> Optional[dict]:
         ["aws", "eks", "describe-cluster", "--name", cluster_name,
          "--region", region, "--output", "json"],
         timeout=120,
+        base_env=base_env,
     )
     if result.ok:
         try:
@@ -502,9 +506,9 @@ def check_eks_cluster(cluster_name: Optional[str] = None) -> str:
     )
 
 
-def _kubectl_json(args: list[str]) -> Optional[dict]:
+def _kubectl_json(args: list[str], base_env: Optional[dict] = None) -> Optional[dict]:
     """Run a kubectl command with -o json and return parsed JSON, or None."""
-    result = run(["kubectl", *args, "-o", "json"], timeout=60)
+    result = run(["kubectl", *args, "-o", "json"], timeout=60, base_env=base_env)
     if not result.ok:
         return None
     try:
@@ -513,7 +517,8 @@ def _kubectl_json(args: list[str]) -> Optional[dict]:
         return None
 
 
-def _ecr_image_exists(repo: str, tag: str, region: str) -> tuple[bool, str]:
+def _ecr_image_exists(repo: str, tag: str, region: str,
+                      base_env: Optional[dict] = None) -> tuple[bool, str]:
     """Check whether <repo>:<tag> exists in the configured account's ECR.
 
     Goes through the ``run`` helper so the AWS CLI inherits AWS_PROFILE from
@@ -528,6 +533,7 @@ def _ecr_image_exists(repo: str, tag: str, region: str) -> tuple[bool, str]:
          "--query", "imageDetails[0].imageTags",
          "--output", "json"],
         timeout=120,
+        base_env=base_env,
     )
     if result.ok:
         return True, f"{repo}:{tag} present"
@@ -540,7 +546,7 @@ def _ecr_image_exists(repo: str, tag: str, region: str) -> tuple[bool, str]:
     return False, f"could not verify {repo}:{tag} -- {combined.strip()[:200]}"
 
 
-def _iam_role_exists(role_name: str) -> tuple[bool, str]:
+def _iam_role_exists(role_name: str, base_env: Optional[dict] = None) -> tuple[bool, str]:
     """Check whether an IAM role exists in the load-test account.
 
     Goes through the ``run`` helper so the AWS CLI inherits AWS_PROFILE from
@@ -552,6 +558,7 @@ def _iam_role_exists(role_name: str) -> tuple[bool, str]:
         ["aws", "iam", "get-role", "--role-name", role_name,
          "--query", "Role.Arn", "--output", "text"],
         timeout=60,
+        base_env=base_env,
     )
     if result.ok:
         return True, result.stdout.strip()
@@ -575,22 +582,24 @@ _REQUIRED_IAM_ROLES = [
 ]
 
 
-def _check_iam_roles(env: dict) -> list[tuple[str, str, bool, str, str]]:
+def _check_iam_roles(env: dict, base_env: Optional[dict] = None) -> list[tuple[str, str, bool, str, str]]:
     """Check every required IAM role for the configured cluster.
 
     Returns a list of (env_var, role_name, exists, detail, source) tuples, where
     ``source`` is "infra" or "locust" -- the script that creates the role.
     """
-    checks: list[tuple[str, str, bool, str, str]] = []
-    for var, _label, source in _REQUIRED_IAM_ROLES:
+    # Each get-role is an independent ~4.5s AWS CLI call, so look them up
+    # concurrently; executor.map preserves _REQUIRED_IAM_ROLES order.
+    def one(spec: tuple[str, str, str]) -> tuple[str, str, bool, str, str]:
+        var, _label, source = spec
         role_name = env.get(var)
         if not role_name:
-            checks.append((var, "<unset>", False,
-                           f"{var} is not set in env.sh", source))
-            continue
-        ok, detail = _iam_role_exists(role_name)
-        checks.append((var, role_name, ok, detail, source))
-    return checks
+            return (var, "<unset>", False, f"{var} is not set in env.sh", source)
+        ok, detail = _iam_role_exists(role_name, base_env=base_env)
+        return (var, role_name, ok, detail, source)
+
+    with ThreadPoolExecutor(max_workers=len(_REQUIRED_IAM_ROLES)) as pool:
+        return list(pool.map(one, _REQUIRED_IAM_ROLES))
 
 
 def _start_provision(job_id: str, script_name: str) -> str:
@@ -693,128 +702,158 @@ def validate_cluster_components(cluster_name: Optional[str] = None) -> str:
     if error:
         return error
 
+    # Sourcing env.sh is expensive (it shells out to `aws sts` to derive
+    # ACCOUNT_ID), so resolve it ONCE here and hand the merged environment to
+    # every check below via base_env -- otherwise each of the ~14 parallel
+    # probes would re-source env.sh and the per-call tax would dominate (and the
+    # concurrent `aws sts` calls would contend on the CLI credential cache).
+    base_env = {**os.environ, **env}
+    # Local binding so the check closures reuse the resolved env (no re-source).
+    kj = functools.partial(_kubectl_json, base_env=base_env)
+
     # Confirm the cluster exists, then point kubeconfig at it.
     try:
-        cluster = _describe_eks_cluster(name, region)
+        cluster = _describe_eks_cluster(name, region, base_env=base_env)
     except RuntimeError as e:
         return f"ERROR checking EKS cluster {name} in {region}:\n{e}"
     if cluster is None:
         return f"EKS cluster '{name}' does NOT exist in {region}. Create it first (provision_infra)."
-    kube = run(["aws", "eks", "update-kubeconfig", "--name", name, "--region", region], timeout=120)
+    kube = run(["aws", "eks", "update-kubeconfig", "--name", name, "--region", region],
+               timeout=120, base_env=base_env)
     if not kube.ok:
         return f"ERROR connecting kubectl to {name}:\n{kube.as_text()}"
 
-    results: list[tuple[str, bool, str]] = []
-
-    def add(component: str, ok: bool, detail: str) -> None:
-        results.append((component, ok, detail))
-
-    # -- Karpenter: controller pods + NodePools + EC2NodeClasses Ready --
-    kp = _kubectl_json(["get", "pods", "-n", "kube-system", "-l", "app.kubernetes.io/name=karpenter"])
-    kp_running = bool(kp and kp.get("items") and all(
-        p.get("status", {}).get("phase") == "Running" for p in kp["items"]))
-    nps = _kubectl_json(["get", "nodepools.karpenter.sh"])
-    np_items = (nps or {}).get("items", [])
-    np_ready = bool(np_items) and all(
-        any(c.get("type") == "Ready" and c.get("status") == "True"
-            for c in n.get("status", {}).get("conditions", []))
-        for n in np_items)
-    ncs = _kubectl_json(["get", "ec2nodeclasses.karpenter.k8s.aws"])
-    nc_items = (ncs or {}).get("items", [])
-    nc_ready = bool(nc_items) and all(
-        any(c.get("type") == "Ready" and c.get("status") == "True"
-            for c in c2.get("status", {}).get("conditions", []))
-        for c2 in nc_items)
-    if nps is None:
-        add("Karpenter", False, "NodePool CRD not installed (Karpenter not deployed)")
-    else:
-        np_names = ", ".join(n["metadata"]["name"] for n in np_items) or "none"
-        add("Karpenter", kp_running and np_ready and nc_ready,
-            f"controller running={kp_running}; nodepools=[{np_names}] ready={np_ready}; "
-            f"ec2nodeclasses ready={nc_ready}")
-
-    # -- AWS Load Balancer Controller --
-    lbc = _kubectl_json(["get", "deployment", "aws-load-balancer-controller", "-n", "kube-system"])
-    lbc_avail = bool(lbc) and (lbc.get("status", {}).get("availableReplicas", 0) or 0) >= 1
-    add("AWS Load Balancer Controller", lbc_avail,
-        f"availableReplicas={(lbc or {}).get('status', {}).get('availableReplicas', 0)}"
-        if lbc else "deployment not found")
-
-    # -- gp3 StorageClass (exists; default preferred) --
-    scs = _kubectl_json(["get", "storageclass"])
-    gp3 = next((s for s in (scs or {}).get("items", [])
-                if s["metadata"]["name"] == "gp3"), None)
-    gp3_default = bool(gp3) and gp3["metadata"].get("annotations", {}).get(
-        "storageclass.kubernetes.io/is-default-class") == "true"
-    add("gp3 StorageClass", bool(gp3),
-        f"present; default={gp3_default}" if gp3 else "gp3 StorageClass not found")
-
-    # -- EBS CSI driver --
-    ebs = _kubectl_json(["get", "pods", "-n", "kube-system", "-l", "app=ebs-csi-controller"])
-    ebs_ok = bool(ebs and ebs.get("items")) and any(
-        p.get("status", {}).get("phase") == "Running" for p in ebs["items"])
-    add("EBS CSI driver", ebs_ok,
-        f"controller pods running={sum(1 for p in (ebs or {}).get('items', []) if p.get('status',{}).get('phase')=='Running')}"
-        if ebs else "ebs-csi-controller not found")
-
-    # -- CoreDNS with >= 3 replicas --
-    dns = _kubectl_json(["get", "deployment", "coredns", "-n", "kube-system"])
-    dns_ready = (dns or {}).get("status", {}).get("readyReplicas", 0) or 0
-    add("CoreDNS (>=3 replicas)", bool(dns) and dns_ready >= 3,
-        f"readyReplicas={dns_ready}" if dns else "coredns deployment not found")
-
-    # -- Binpacking custom scheduler --
-    bp = _kubectl_json(["get", "pods", "-n", "kube-system", "-l", "app=custom-scheduler-eks"])
-    bp_items = (bp or {}).get("items", [])
-    if not bp_items:  # fall back to a name match if the label differs
-        allpods = _kubectl_json(["get", "pods", "-n", "kube-system"])
-        bp_items = [p for p in (allpods or {}).get("items", [])
-                    if "custom-scheduler" in p["metadata"]["name"]]
-    bp_ok = bool(bp_items) and any(p.get("status", {}).get("phase") == "Running" for p in bp_items)
-    add("Binpacking scheduler", bp_ok,
-        "custom-scheduler-eks running" if bp_ok else "custom-scheduler-eks not found/not running")
-
-    # -- Prometheus operator + built-in Grafana --
-    promns = "prometheus"
-    # kube-prometheus-stack labels the operator with component=prometheus-operator
-    # (the app.kubernetes.io/name varies by chart, e.g.
-    # kube-prometheus-stack-prometheus-operator), so select on component.
-    prom = _kubectl_json(["get", "pods", "-n", promns, "-l",
-                          "app.kubernetes.io/component=prometheus-operator"])
-    prom_ok = bool(prom and prom.get("items")) and any(
-        p.get("status", {}).get("phase") == "Running" for p in prom["items"])
-    add("Prometheus operator", prom_ok,
-        "running in ns 'prometheus'" if prom_ok else "prometheus-operator not found in ns 'prometheus'")
-    graf = _kubectl_json(["get", "deployment", "prometheus-grafana", "-n", promns])
-    graf_ok = bool(graf) and (graf.get("status", {}).get("availableReplicas", 0) or 0) >= 1
-    add("Grafana (built-in)", graf_ok,
-        f"availableReplicas={(graf or {}).get('status', {}).get('availableReplicas', 0)}"
-        if graf else "prometheus-grafana deployment not found")
-
-    # -- ECR benchmark images (in the SAME account/region as the load test) --
-    # The on-EKS run pulls the Locust worker image referenced by the manifest
-    # (locust:latest) and submits Spark jobs with eks-spark-benchmark:emr<ver>
-    # (see locust/locustfiles/emr-job-run.sh). Missing either means the Locust
-    # pods or the Spark jobs fail to start, so verify both up front.
+    # Each check below is an independent, read-only probe (kubectl / aws CLI)
+    # that returns its own list of (component, ok, detail) rows. They share no
+    # state, so we run them concurrently in a thread pool -- the calls are
+    # subprocess/IO-bound (the GIL is released during subprocess.run), so wall
+    # time collapses from "sum of all checks" to "slowest single check". Results
+    # are reassembled in declaration order (executor.map preserves it), so the
+    # output is identical to running them sequentially.
     img_ver = env.get("EMR_IMAGE_VERSION", "")
-    for repo, tag in [("locust", "latest"),
-                      ("eks-spark-benchmark", f"emr{img_ver}")]:
-        ok, detail = _ecr_image_exists(repo, tag, region)
-        add(f"ECR image {repo}:{tag}", ok, detail)
+    promns = "prometheus"
+    # The IAM check's raw rows are captured here so we can derive which
+    # provisioning script to suggest, without re-running the lookups.
+    iam_rows: list[tuple[str, str, bool, str, str]] = []
 
-    # -- Required IAM roles (in the SAME account as the load test) --
-    # The EMR execution role, Karpenter controller/node roles, and Locust IRSA
-    # role are created by the provisioning scripts. A missing role means jobs
-    # can't be submitted, nodes can't scale, or the Locust operator can't create
-    # namespaces -- so verify them as part of readiness.
-    iam_missing_infra = iam_missing_locust = False
-    for var, role_name, ok, detail, source in _check_iam_roles(env):
-        add(f"IAM role {var}", ok, f"{role_name}: {detail}")
-        if not ok:
-            if source == "infra":
-                iam_missing_infra = True
-            elif source == "locust":
-                iam_missing_locust = True
+    def check_karpenter() -> list[tuple[str, bool, str]]:
+        # controller pods + NodePools + EC2NodeClasses Ready
+        kp = kj(["get", "pods", "-n", "kube-system", "-l", "app.kubernetes.io/name=karpenter"])
+        kp_running = bool(kp and kp.get("items") and all(
+            p.get("status", {}).get("phase") == "Running" for p in kp["items"]))
+        nps = kj(["get", "nodepools.karpenter.sh"])
+        np_items = (nps or {}).get("items", [])
+        np_ready = bool(np_items) and all(
+            any(c.get("type") == "Ready" and c.get("status") == "True"
+                for c in n.get("status", {}).get("conditions", []))
+            for n in np_items)
+        ncs = kj(["get", "ec2nodeclasses.karpenter.k8s.aws"])
+        nc_items = (ncs or {}).get("items", [])
+        nc_ready = bool(nc_items) and all(
+            any(c.get("type") == "Ready" and c.get("status") == "True"
+                for c in c2.get("status", {}).get("conditions", []))
+            for c2 in nc_items)
+        if nps is None:
+            return [("Karpenter", False, "NodePool CRD not installed (Karpenter not deployed)")]
+        np_names = ", ".join(n["metadata"]["name"] for n in np_items) or "none"
+        return [("Karpenter", kp_running and np_ready and nc_ready,
+                 f"controller running={kp_running}; nodepools=[{np_names}] ready={np_ready}; "
+                 f"ec2nodeclasses ready={nc_ready}")]
+
+    def check_lbc() -> list[tuple[str, bool, str]]:
+        lbc = kj(["get", "deployment", "aws-load-balancer-controller", "-n", "kube-system"])
+        lbc_avail = bool(lbc) and (lbc.get("status", {}).get("availableReplicas", 0) or 0) >= 1
+        return [("AWS Load Balancer Controller", lbc_avail,
+                 f"availableReplicas={(lbc or {}).get('status', {}).get('availableReplicas', 0)}"
+                 if lbc else "deployment not found")]
+
+    def check_gp3() -> list[tuple[str, bool, str]]:
+        scs = kj(["get", "storageclass"])
+        gp3 = next((s for s in (scs or {}).get("items", [])
+                    if s["metadata"]["name"] == "gp3"), None)
+        gp3_default = bool(gp3) and gp3["metadata"].get("annotations", {}).get(
+            "storageclass.kubernetes.io/is-default-class") == "true"
+        return [("gp3 StorageClass", bool(gp3),
+                 f"present; default={gp3_default}" if gp3 else "gp3 StorageClass not found")]
+
+    def check_ebs() -> list[tuple[str, bool, str]]:
+        ebs = kj(["get", "pods", "-n", "kube-system", "-l", "app=ebs-csi-controller"])
+        ebs_ok = bool(ebs and ebs.get("items")) and any(
+            p.get("status", {}).get("phase") == "Running" for p in ebs["items"])
+        return [("EBS CSI driver", ebs_ok,
+                 f"controller pods running={sum(1 for p in (ebs or {}).get('items', []) if p.get('status',{}).get('phase')=='Running')}"
+                 if ebs else "ebs-csi-controller not found")]
+
+    def check_coredns() -> list[tuple[str, bool, str]]:
+        dns = kj(["get", "deployment", "coredns", "-n", "kube-system"])
+        dns_ready = (dns or {}).get("status", {}).get("readyReplicas", 0) or 0
+        return [("CoreDNS (>=3 replicas)", bool(dns) and dns_ready >= 3,
+                 f"readyReplicas={dns_ready}" if dns else "coredns deployment not found")]
+
+    def check_binpacking() -> list[tuple[str, bool, str]]:
+        bp = kj(["get", "pods", "-n", "kube-system", "-l", "app=custom-scheduler-eks"])
+        bp_items = (bp or {}).get("items", [])
+        if not bp_items:  # fall back to a name match if the label differs
+            allpods = kj(["get", "pods", "-n", "kube-system"])
+            bp_items = [p for p in (allpods or {}).get("items", [])
+                        if "custom-scheduler" in p["metadata"]["name"]]
+        bp_ok = bool(bp_items) and any(p.get("status", {}).get("phase") == "Running" for p in bp_items)
+        return [("Binpacking scheduler", bp_ok,
+                 "custom-scheduler-eks running" if bp_ok else "custom-scheduler-eks not found/not running")]
+
+    def check_monitoring() -> list[tuple[str, bool, str]]:
+        # kube-prometheus-stack labels the operator with component=prometheus-operator
+        # (the app.kubernetes.io/name varies by chart, e.g.
+        # kube-prometheus-stack-prometheus-operator), so select on component.
+        prom = kj(["get", "pods", "-n", promns, "-l",
+                              "app.kubernetes.io/component=prometheus-operator"])
+        prom_ok = bool(prom and prom.get("items")) and any(
+            p.get("status", {}).get("phase") == "Running" for p in prom["items"])
+        graf = kj(["get", "deployment", "prometheus-grafana", "-n", promns])
+        graf_ok = bool(graf) and (graf.get("status", {}).get("availableReplicas", 0) or 0) >= 1
+        return [
+            ("Prometheus operator", prom_ok,
+             "running in ns 'prometheus'" if prom_ok else "prometheus-operator not found in ns 'prometheus'"),
+            ("Grafana (built-in)", graf_ok,
+             f"availableReplicas={(graf or {}).get('status', {}).get('availableReplicas', 0)}"
+             if graf else "prometheus-grafana deployment not found"),
+        ]
+
+    def check_ecr() -> list[tuple[str, bool, str]]:
+        # The on-EKS run pulls the Locust worker image referenced by the manifest
+        # (locust:latest) and submits Spark jobs with eks-spark-benchmark:emr<ver>
+        # (see locust/locustfiles/emr-job-run.sh). Missing either means the Locust
+        # pods or the Spark jobs fail to start, so verify both up front. The two
+        # describe-images calls are independent, so run them concurrently.
+        images = [("locust", "latest"), ("eks-spark-benchmark", f"emr{img_ver}")]
+        with ThreadPoolExecutor(max_workers=len(images)) as pool:
+            return list(pool.map(
+                lambda it: (f"ECR image {it[0]}:{it[1]}",
+                            *_ecr_image_exists(it[0], it[1], region, base_env=base_env)),
+                images))
+
+    def check_iam() -> list[tuple[str, bool, str]]:
+        # The EMR execution role, Karpenter controller/node roles, and Locust
+        # IRSA role are created by the provisioning scripts. A missing role means
+        # jobs can't be submitted, nodes can't scale, or the Locust operator
+        # can't create namespaces -- so verify them as part of readiness.
+        iam_rows.extend(_check_iam_roles(env, base_env=base_env))
+        return [(f"IAM role {var}", ok, f"{role_name}: {detail}")
+                for var, role_name, ok, detail, _source in iam_rows]
+
+    checks = [
+        check_karpenter, check_lbc, check_gp3, check_ebs, check_coredns,
+        check_binpacking, check_monitoring, check_ecr, check_iam,
+    ]
+    with ThreadPoolExecutor(max_workers=len(checks)) as pool:
+        results: list[tuple[str, bool, str]] = [
+            row for rows in pool.map(lambda fn: fn(), checks) for row in rows
+        ]
+
+    iam_missing_infra = any(not ok and source == "infra"
+                            for *_unused, ok, _detail, source in iam_rows)
+    iam_missing_locust = any(not ok and source == "locust"
+                             for *_unused, ok, _detail, source in iam_rows)
 
     passed = sum(1 for _, ok, _ in results if ok)
     total = len(results)
