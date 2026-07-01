@@ -126,10 +126,24 @@ Or configure it directly without AIM by adding the server to
 <details>
 <summary>Advanced options</summary>
 
-- **Run from a clone instead of installing:** point the run command at the
-  script directly — `python3 /path/to/load-test-for-emr-on-eks/loadtest_mcp/server.py`
-  (after `pip install ./loadtest_mcp`, or just `pip install mcp[cli]`). Use the
-  repo venv interpreter so `mcp[cli]` and `pyspark[connect]` resolve.
+- **Develop against a clone (editable install, recommended for hacking on the
+  server):** install the package as an isolated tool from your clone. This puts
+  a stable `emr-eks-loadtest-mcp` on your `PATH` that reads source live from the
+  clone, so registration needs no in-repo `.venv` path and your `server.py` edits
+  take effect immediately:
+  ```bash
+  uv tool install --editable /path/to/load-test-for-emr-on-eks/loadtest_mcp
+  # then register the bare command (no file paths):
+  claude mcp add emr-eks-loadtest --scope user -- emr-eks-loadtest-mcp
+  ```
+  Update with `uv tool upgrade emr-eks-loadtest-mcp`; remove with
+  `uv tool uninstall emr-eks-loadtest-mcp`. (pipx works the same:
+  `pipx install --editable ./loadtest_mcp`.)
+- **Avoid pointing the command at an in-repo `.venv` interpreter** (e.g.
+  `command: ".../load-test-for-emr-on-eks/.venv/bin/python"`). That venv is
+  gitignored and absent on fresh clones, so the server fails with
+  `No such file or directory: .../.venv/bin/python`. Prefer the bare
+  `emr-eks-loadtest-mcp` command above.
 - **No clone or artifacts needed:** the server clones the load-test artifacts
   from GitHub on first use; the bare `emr-eks-loadtest-mcp` command above already
   works standalone.

@@ -37,6 +37,7 @@ else
     fi
     echo "S3 bucket $BUCKET_NAME created successfully."
 fi   
+aws s3 cp s3://blogpost-sparkoneks-us-east-1/blog/bda-util/eks-spark-benchmark-assembly-spark4.jar s3://$BUCKET_NAME/ --region $AWS_REGION
 
 echo "==============================================="
 echo " 2. Create EKS Cluster ......"
@@ -323,8 +324,7 @@ helm repo update
 
 cp ./resources/monitor/prometheus-values.yaml ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml
 # Monitoring uses the open-source kube-prometheus-stack with its built-in
-# Grafana. We do NOT use Amazon Managed Prometheus/Grafana, so there is no IRSA
-# / remote-write config to substitute here.
+# Grafana. We do NOT use Amazon Managed Prometheus/Grafana.
 helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n prometheus -f  ./resources/monitor/prometheus-values-${CLUSTER_NAME}.yaml --debug
 # validate in a web browser - localhost:9090, go to menu of status->targets
 # kubectl --namespace prometheus port-forward service/prometheus-kube-prometheus-prometheus 9090
@@ -544,19 +544,17 @@ docker buildx build --platform linux/amd64,linux/arm64 \
     --push .
 echo "Pushed $ECR_URL/locust:latest"
 
-# --- Spark benchmark image(s) ------------------------------------------
-# Ensure the repo exists (idempotent), then ALWAYS copy the requested
-# EMR_VERSIONS from SRC_ECR_URL -- existing repo must NOT short-circuit.
+# --- Copy pre-build EMR's Spark Benchmark docker image(s) from public ECR to test account's ECR --------
 aws ecr describe-repositories --repository-names eks-spark-benchmark >/dev/null 2>&1 \
     || aws ecr create-repository --repository-name eks-spark-benchmark --image-scanning-configuration scanOnPush=true
-# EMR_VERSIONS may be set via env.sh / the environment; default if unset.
+# EMR_VERSIONS can be set via env.sh; default if unset.
 if [ -z "${EMR_VERSIONS:-}" ]; then
     export EMR_VERSIONS=("6.10.0" "7.3.0" "7.9.0")
 fi
 for version in "${EMR_VERSIONS[@]}"; do
     docker buildx imagetools create \
         --tag "$ECR_URL/eks-spark-benchmark:emr${version}" \
-        "$SRC_ECR_URL${version}"
+        "$SRC_ECR_URL:emr${version}"
     echo "Copied $ECR_URL/eks-spark-benchmark:emr${version} with all architectures"
 done
 echo "Infrastructure provision is completed."

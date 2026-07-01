@@ -13,10 +13,8 @@ export ACCOUNTID=$(aws sts get-caller-identity --query Account --output text)
 export EMR_ROLE_ARN="arn:aws:iam::$ACCOUNTID:role/$SHARED_PREFIX_NAME-execution-role"
 export S3BUCKET="${SHARED_PREFIX_NAME}-${ACCOUNTID}-${AWS_REGION}"
 export ECR_URL="${ACCOUNTID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-# Release label for StartJobRun (validated server-side) -- use a published EMR
-# release version, independent of the container image tag below. Defaults to
-# 7.9.0; override with EMR_VERSION in env.sh.
-export EMR_VERSION="${EMR_VERSION:-"7.13.0"}"
+# Release label for StartJobRun 
+export EMR_VERSION="${EMR_VERSION:-"spark-8.0.0"}"
 # Container image tag is decoupled: spark.kubernetes.container.image uses
 # EMR_IMAGE_VERSION (any custom image you copied into ECR, e.g. 8.100.0).
 export SELECTED_AZ=${SELECTED_AZ}
@@ -31,7 +29,7 @@ ${EMR_CONTAINERS_ENDPOINT_URL:+--endpoint-url "$EMR_CONTAINERS_ENDPOINT_URL"} \
 --job-driver '{
   "sparkSubmitJobDriver": {
       "entryPoint": "local:///usr/lib/spark/examples/jars/eks-spark-benchmark-assembly-1.0.jar",
-      "entryPointArguments":["s3://blogpost-sparkoneks-us-east-1/blog/tpc30","s3://'$S3BUCKET'/EMRONEKS_PVC-REUSE-TEST-RESULT","/opt/tpcds-kit/tools","parquet","30","1","false","q4-v2.4,q24a-v2.4,q24b-v2.4,q67-v2.4","false"],
+      "entryPointArguments":["s3://blogpost-sparkoneks-us-east-1/blog/tpc30","s3://'$S3BUCKET'/EMRONEKS_PVC-REUSE-TEST-RESULT","/opt/tpcds-kit/tools","parquet","30","1","false","q4-v2.4,q24a-v2.4,q23b-v2.4,q67-v2.4","false"],
       "sparkSubmitParameters": "--class com.amazonaws.eks.tpcds.BenchmarkSQL --conf spark.driver.cores=1 --conf spark.driver.memory=2g --conf spark.executor.cores=2 --conf spark.executor.memory=5g --conf spark.executor.instances=30"}}' \
 --configuration-overrides '{
     "applicationConfiguration": [

@@ -673,8 +673,35 @@ def validate_iam_roles(
     return "\n".join(lines)
 
 
+def _check_locust_operator_rows(kj) -> list[tuple[str, bool, str]]:
+    """Check the Locust operator Deployment is available and the locustfile
+    ConfigMap exists in the ``locust`` namespace.
+
+    Both are installed by locust-provision.sh: the operator (Helm release
+    ``locust-operator``) reconciles the LocustTest CR into master/worker pods,
+    and ``emr-loadtest-locustfile`` supplies locustfile.py + emr-job-run.sh that
+    the workers mount. Takes the bound ``_kubectl_json`` partial so it reuses the
+    already-resolved env. Returns PASS/FAIL rows for each.
+    """
+    dep = kj(["get", "deployment", "locust-operator", "-n", LOCUST_NAMESPACE])
+    dep_ok = bool(dep) and (dep.get("status", {}).get("availableReplicas", 0) or 0) >= 1
+    cm = kj(["get", "configmap", CONFIGMAP_NAME, "-n", LOCUST_NAMESPACE])
+    cm_ok = bool(cm)
+    return [
+        ("Locust operator", dep_ok,
+         f"availableReplicas={(dep or {}).get('status', {}).get('availableReplicas', 0)}"
+         if dep else "locust-operator deployment not found in ns 'locust'"),
+        (f"Locust ConfigMap ({CONFIGMAP_NAME})", cm_ok,
+         "present" if cm_ok else
+         f"{CONFIGMAP_NAME} not found in ns 'locust' (run refresh_configmap)"),
+    ]
+
+
 @mcp.tool()
-def validate_cluster_components(cluster_name: Optional[str] = None) -> str:
+def validate_cluster_components(
+    cluster_name: Optional[str] = None,
+    reprovision_locust_if_missing: bool = False,
+) -> str:
     """Validate that an EKS cluster has all components required for the load test.
 
     Connects to the cluster (updates kubeconfig) and checks each required
@@ -688,14 +715,22 @@ def validate_cluster_components(cluster_name: Optional[str] = None) -> str:
       - CoreDNS with >= 3 replicas
       - Binpacking custom scheduler (custom-scheduler-eks Running)
       - Prometheus operator + built-in Grafana (Running)
+      - Locust operator pod Running in ns 'locust' + emr-loadtest-locustfile
+        ConfigMap present (both installed by locust-provision.sh)
       - ECR benchmark images present in the load-test account/region
         (locust:latest and eks-spark-benchmark:emr<EMR_IMAGE_VERSION>)
       - Required IAM roles in the load-test account (EMR execution role,
         Karpenter controller/node roles, Locust IRSA role)
 
-    This is read-only: it reports PASS/FAIL but never provisions. If IAM roles
-    are missing, use ``validate_iam_roles(provision_if_missing=True)`` to create
-    them, or run provision_infra / provision_locust_operator.
+    By default this is read-only: it reports PASS/FAIL but never provisions. If
+    IAM roles are missing, use ``validate_iam_roles(provision_if_missing=True)``,
+    or run provision_infra / provision_locust_operator.
+
+    Set ``reprovision_locust_if_missing=True`` to auto-heal the Locust pieces: if
+    any component owned by locust-provision.sh is missing (operator pod, the
+    locustfile ConfigMap, or the Locust IRSA role), the script is re-run
+    synchronously and the Locust checks are re-evaluated, so the returned report
+    reflects the post-reprovision state.
     """
     env = helpers.load_env()
     region, name, error = _require_region_and_cluster(env, cluster_name)
@@ -841,14 +876,50 @@ def validate_cluster_components(cluster_name: Optional[str] = None) -> str:
         return [(f"IAM role {var}", ok, f"{role_name}: {detail}")
                 for var, role_name, ok, detail, _source in iam_rows]
 
+    def check_locust() -> list[tuple[str, bool, str]]:
+        # The Locust operator (installed by locust-provision.sh) is what watches
+        # the LocustTest CR and spawns the master/worker pods; the
+        # emr-loadtest-locustfile ConfigMap carries locustfile.py + the
+        # emr-job-run.sh submit script the workers mount. Either missing means
+        # apply_eks_test produces no load, so verify both up front.
+        return _check_locust_operator_rows(kj)
+
     checks = [
         check_karpenter, check_lbc, check_gp3, check_ebs, check_coredns,
-        check_binpacking, check_monitoring, check_ecr, check_iam,
+        check_binpacking, check_monitoring, check_locust, check_ecr, check_iam,
     ]
     with ThreadPoolExecutor(max_workers=len(checks)) as pool:
         results: list[tuple[str, bool, str]] = [
             row for rows in pool.map(lambda fn: fn(), checks) for row in rows
         ]
+
+    # Names of the Locust-owned component rows (operator + ConfigMap) so we can
+    # tell whether the Locust pieces are what's failing.
+    locust_row_names = {r[0] for r in _check_locust_operator_rows(lambda *_a, **_k: None)}
+    reprovision_note: Optional[str] = None
+    if reprovision_locust_if_missing:
+        locust_missing = any(
+            not ok and (comp in locust_row_names or comp == "IAM role LOCUST_EKS_ROLE")
+            for comp, ok, _detail in results)
+        if locust_missing:
+            script = REPO_ROOT / "locust-provision.sh"
+            if not script.exists():
+                reprovision_note = f"Locust reprovision skipped: {script} not found."
+            else:
+                prov = run(["bash", str(script)], timeout=900, base_env=base_env)
+                # Re-evaluate only the Locust-owned rows (operator + ConfigMap +
+                # IRSA role) and splice the fresh verdicts back into results, so
+                # the report reflects the post-reprovision state.
+                iam_rows.clear()
+                fresh = {r[0]: r for r in
+                         (_check_locust_operator_rows(kj) + check_iam())}
+                results = [fresh.get(comp, (comp, ok, detail))
+                           for comp, ok, detail in results]
+                reprovision_note = (
+                    "Ran locust-provision.sh to heal missing Locust components "
+                    f"(exit {'0' if prov.ok else 'nonzero'}); re-checked above."
+                    if prov.ok else
+                    f"locust-provision.sh FAILED:\n{prov.as_text()}")
 
     iam_missing_infra = any(not ok and source == "infra"
                             for *_unused, ok, _detail, source in iam_rows)
@@ -860,6 +931,9 @@ def validate_cluster_components(cluster_name: Optional[str] = None) -> str:
     lines = [f"Cluster '{name}' ({region}) component validation: {passed}/{total} passed", ""]
     for component, ok, detail in results:
         lines.append(f"  [{'PASS' if ok else 'FAIL'}] {component} — {detail}")
+    if reprovision_note:
+        lines.append("")
+        lines.append(reprovision_note)
     if passed < total:
         lines.append("")
         lines.append("Some components are missing/not ready. For a new cluster, (re)run "
@@ -1025,19 +1099,16 @@ def render_locust_manifest(
     return f"Rendered manifest written to {out_path}\n\n{text}"
 
 
-@mcp.tool()
-@requires_confirmed_identity
-def refresh_configmap() -> str:
-    """Recreate the locustfile ConfigMap from locust/locustfiles.
+def _refresh_configmap() -> tuple[bool, str]:
+    """Delete + recreate the locustfile ConfigMap. Returns (ok, message).
 
-    Deletes and recreates ``emr-loadtest-locustfile`` in the ``locust``
-    namespace so the Locust operator picks up edits to emr-job-run.sh /
-    locustfile.py. Required before re-running an on-EKS test after changing
-    the job script.
+    Shared by the refresh_configmap tool and apply_eks_test's auto-refresh so
+    the two never drift. Recreating (not just applying) ensures deleted files
+    don't linger in the ConfigMap.
     """
     files_dir = LOCUST_DIR / "locustfiles"
     if not files_dir.exists():
-        return f"ERROR: {files_dir} not found"
+        return False, f"ERROR: {files_dir} not found"
 
     run(
         ["kubectl", "delete", "configmap", CONFIGMAP_NAME, "-n", LOCUST_NAMESPACE,
@@ -1049,7 +1120,21 @@ def refresh_configmap() -> str:
          f"--from-file={files_dir}"],
         timeout=120,
     )
-    return create.as_text()
+    return create.ok, create.as_text()
+
+
+@mcp.tool()
+@requires_confirmed_identity
+def refresh_configmap() -> str:
+    """Recreate the locustfile ConfigMap from locust/locustfiles.
+
+    Deletes and recreates ``emr-loadtest-locustfile`` in the ``locust``
+    namespace so the Locust operator picks up edits to emr-job-run.sh /
+    locustfile.py. Required before re-running an on-EKS test after changing
+    the job script. Note: apply_eks_test does this automatically by default.
+    """
+    _ok, msg = _refresh_configmap()
+    return msg
 
 
 # ===========================================================================
@@ -1154,12 +1239,24 @@ def run_local_test(
 
 @mcp.tool()
 @requires_confirmed_identity
-def apply_eks_test(manifest: str = "load-test-template.yaml") -> str:
+def apply_eks_test(
+    manifest: str = "load-test-template.yaml",
+    refresh_configmap: bool = True,
+) -> str:
     """Start a distributed load test on EKS by applying a LocustTest manifest.
 
-    ``kubectl apply -f examples/<manifest>``. Defaults to the template; pass the
-    name produced by ``render_locust_manifest`` for a customized run. Remember
-    to ``refresh_configmap`` first if the job script changed.
+    ``kubectl apply -f examples/<manifest>``. Two safety steps run automatically
+    so the applied test is always valid and current:
+
+    1. **Auto-render:** if the manifest still contains unsubstituted ``${...}``
+       placeholders (e.g. the raw ``load-test-template.yaml``, whose
+       ``metadata.name`` is ``tpcds-job-${CLUSTER_NAME}`` and fails Kubernetes'
+       RFC-1123 name validation), it is rendered to
+       ``load-test-rendered.yaml`` via render_locust_manifest first, and that
+       rendered file is applied instead.
+    2. **Auto-refresh ConfigMap:** the emr-loadtest-locustfile ConfigMap is
+       recreated from locust/locustfiles so the workers always mount the current
+       emr-job-run.sh / locustfile.py. Pass ``refresh_configmap=False`` to skip.
 
     On success this also starts a background tail of the master logs and prints
     the Grafana dashboard URL + login, so the run can be monitored immediately.
@@ -1167,10 +1264,34 @@ def apply_eks_test(manifest: str = "load-test-template.yaml") -> str:
     path = (EXAMPLES_DIR / manifest) if not Path(manifest).is_absolute() else Path(manifest)
     if not path.exists():
         return f"ERROR: manifest not found at {path}"
+
+    sections: list[str] = []
+
+    # 1. Auto-render if the manifest carries unsubstituted ${...} placeholders.
+    # Applying the raw template makes kubectl reject metadata.name
+    # "tpcds-job-${CLUSTER_NAME}" as an invalid RFC-1123 subdomain, so render
+    # first and apply the substituted file instead.
+    if re.search(r"\$\{[A-Z_]+\}", path.read_text()):
+        rendered = render_locust_manifest()
+        if rendered.startswith("ERROR"):
+            return f"Auto-render failed: {rendered}"
+        path = EXAMPLES_DIR / "load-test-rendered.yaml"
+        sections.append(f"Auto-rendered template (unsubstituted placeholders) -> {path}")
+
+    # 2. Refresh the locustfile ConfigMap so the run uses the current
+    # emr-job-run.sh / locustfile.py (a stale ConfigMap silently runs old job
+    # parameters). Opt out with refresh_configmap=False.
+    if refresh_configmap:
+        cm_ok, cm_msg = _refresh_configmap()
+        sections.append(f"ConfigMap refresh: {cm_msg.strip()}")
+        if not cm_ok:
+            sections.append("WARNING: ConfigMap refresh failed; the run may use a "
+                            "stale job script. Continuing to apply the manifest.")
+
     result = run(["kubectl", "apply", "-f", str(path)], timeout=120)
+    sections.append(result.as_text())
     if not result.ok:
-        return result.as_text()
-    sections = [result.as_text()]
+        return "\n".join(sections)
     # Begin following the master logs so progress streams without a manual step,
     # and surface where to watch metrics.
     sections.append("--- live monitoring ---")

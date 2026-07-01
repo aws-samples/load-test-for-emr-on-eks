@@ -40,33 +40,39 @@ aim mcp create generic-mcp \
   --description "Automate the EMR on EKS load-test utility" \
   --install 'git clone --depth 1 https://github.com/aws-samples/load-test-for-emr-on-eks "$HOME/.cache/emr-eks-loadtest-mcp/load-test-for-emr-on-eks" 2>/dev/null || git -C "$HOME/.cache/emr-eks-loadtest-mcp/load-test-for-emr-on-eks" pull --ff-only' \
   --install 'pip install "$HOME/.cache/emr-eks-loadtest-mcp/load-test-for-emr-on-eks/loadtest_mcp"' \
-  --run 'python3 "$HOME/.cache/emr-eks-loadtest-mcp/load-test-for-emr-on-eks/loadtest_mcp/server.py"' \
+  --run 'emr-eks-loadtest-mcp' \
   --execute-directly
 ```
 
-**Option B — Claude Code.** Clone once, install the dep, then register with the CLI:
+**Option B — Claude Code.** Clone once, install the package as an isolated tool (pulls in `mcp[cli]`), then register the bare command:
 ```bash
 git clone https://github.com/aws-samples/load-test-for-emr-on-eks
-pip install ./load-test-for-emr-on-eks/loadtest_mcp   # installs mcp[cli]
-claude mcp add emr-eks-loadtest --scope user \
-  -- python3 "$(pwd)/load-test-for-emr-on-eks/loadtest_mcp/server.py"
+uv tool install --editable ./load-test-for-emr-on-eks/loadtest_mcp   # or: pipx install --editable ...
+claude mcp add emr-eks-loadtest --scope user -- emr-eks-loadtest-mcp
 ```
+This gives you a stable `emr-eks-loadtest-mcp` command on your `PATH`, so the registration carries no in-repo `.venv` path. The `--editable` flag reads source live from the clone, so your `server.py` edits take effect on restart.
+
 Verify it connected: `claude mcp list` should show `emr-eks-loadtest … ✔ Connected`.
 
-Prefer editing the JSON directly? Add this to `~/.claude.json` (user scope) under `mcpServers`, then run `/mcp` to load it:
+> Avoid registering against an in-repo interpreter like `.venv/bin/python` — that
+> venv is gitignored and missing on fresh clones, which causes
+> `No such file or directory: .../.venv/bin/python`. The bare command above
+> sidesteps that entirely.
+
+Prefer editing the JSON directly? After `uv tool install --editable ./load-test-for-emr-on-eks/loadtest_mcp`, add this to `~/.claude.json` (user scope) under `mcpServers`, then run `/mcp` to load it:
 ```jsonc
 {
   "mcpServers": {
     "emr-eks-loadtest": {
       "type": "stdio",
-      "command": "python3",
-      "args": ["/absolute/path/to/load-test-for-emr-on-eks/loadtest_mcp/server.py"],
+      "command": "emr-eks-loadtest-mcp",
+      "args": [],
       "env": {}
     }
   }
 }
 ```
-See the [MCP server README](./README.md#claude-code) (repo root) for scopes, the venv interpreter, and override env vars.
+See the [MCP server README](./README.md#claude-code) (repo root) for scopes, the editable tool install, and override env vars.
 
 ### 2. (Optional) Add the AWS API/Docs MCP server
 

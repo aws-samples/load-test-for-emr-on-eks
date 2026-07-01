@@ -98,11 +98,6 @@ loadtest_mcp/.runs/
 ## Jupyter Checkpoints
 ##########################
 .ipynb_checkpoints/
-
-##########################
-## claude
-##########################
-.claude/
 ##########################
 ## application resources
 ##########################
