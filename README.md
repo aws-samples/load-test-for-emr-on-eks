@@ -3,20 +3,10 @@
 An [MCP](https://modelcontextprotocol.io/) server that automates the EMR on EKS
 load-test benchmark utility. It wraps the project's existing components and exposes them as MCP tools.
 
-The Load Test MCP will start with AWS environment auto-detection from your active AWS profile. `env.sh` resolves `ACCOUNT_ID` & `AWS_REGION` from the profile's configuration. **Confirm or change your AWS Profile first** before running any load tests.
+The Load Test MCP will start with AWS environment auto-detection from your active AWS profile. `env.sh` resolves `ACCOUNT_ID` & `AWS_REGION` from the profile's configuration. Follow the prompt, **confirm or change your AWS Profile first** before running a load tests.
 
-Those artifacts come from the
-[aws-samples/load-test-for-emr-on-eks](https://github.com/aws-samples/load-test-for-emr-on-eks)
-GitHub repo. The server resolves them in this order:
-
-1. `$LOADTEST_REPO_ROOT`, if set — an explicit local checkout.
-2. The parent of `loadtest_mcp/` — when the server runs from inside a checkout.
-3. `$LOADTEST_CACHE_DIR/load-test-for-emr-on-eks` — a clone the server fetches
-   from GitHub on demand (default cache dir: `~/.cache/emr-eks-loadtest-mcp`).
-
-If the artifacts aren't already present, the server **clones them from GitHub
-automatically** (via the `sync_repo` tool, and lazily on the first tool that
-needs them). So installation does not require a manual checkout — see
+If the artifacts in this project aren't already present, the MCP server **clones them from GitHub
+automatically** (via the `sync_repo` tool). So installation does not require a manual checkout — see
 [Install](#install).
 
 See the [EMR on EKS load-test guide](./README_EMR_EKS_LOADTEST.md) for the
@@ -60,19 +50,15 @@ Install the package once — this puts an `emr-eks-loadtest-mcp` command on your
 pip install "git+https://github.com/aws-samples/load-test-for-emr-on-eks@load-test-mcp#subdirectory=loadtest_mcp"
 ```
 
-> The `@load-test-mcp` pins the branch that contains `loadtest_mcp/`. Drop it
-> once that directory is merged to the default branch. Already have a clone?
-> Use `pip install ./loadtest_mcp` instead.
-
 > [!IMPORTANT]
-> **Pin the runtime artifact branch too.** The `@load-test-mcp` above only
+> **Clone the MCP artifact branch** The `@load-test-mcp` above only
 > controls which branch pip installs the *server* from. At runtime the server
 > clones the load-test *artifacts* (`env.sh`, `locust/`, `examples/`, …) into
 > its cache, and — unless told otherwise — it clones the repo's **default
-> branch (`customer-ws`)**, which does not contain `loadtest_mcp/` and carries
-> unrelated config. Set `LOADTEST_REPO_BRANCH=load-test-mcp` in the server's
-> environment when you register it (shown in every command below) so the
-> artifacts come from the same branch as the server. Drop it once
+> branch**, which does not contain the MCP and carries
+> unrelated configs. Set `LOADTEST_REPO_BRANCH=load-test-mcp` in the server's
+> environment when you register it (shown in the command below) so the
+> artifacts come from the correct branch as needed. Drop it once
 > `loadtest_mcp/` is merged to the default branch.
 
 Then register with **AIM**, **Claude Code**, or **Kiro CLI** using the following command:
