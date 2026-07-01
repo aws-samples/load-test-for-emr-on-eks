@@ -64,6 +64,17 @@ pip install "git+https://github.com/aws-samples/load-test-for-emr-on-eks@load-te
 > once that directory is merged to the default branch. Already have a clone?
 > Use `pip install ./loadtest_mcp` instead.
 
+> [!IMPORTANT]
+> **Pin the runtime artifact branch too.** The `@load-test-mcp` above only
+> controls which branch pip installs the *server* from. At runtime the server
+> clones the load-test *artifacts* (`env.sh`, `locust/`, `examples/`, …) into
+> its cache, and — unless told otherwise — it clones the repo's **default
+> branch (`customer-ws`)**, which does not contain `loadtest_mcp/` and carries
+> unrelated config. Set `LOADTEST_REPO_BRANCH=load-test-mcp` in the server's
+> environment when you register it (shown in every command below) so the
+> artifacts come from the same branch as the server. Drop it once
+> `loadtest_mcp/` is merged to the default branch.
+
 Then register with **AIM**, **Claude Code**, or **Kiro CLI** using the following command:
 
 ### AIM
@@ -76,6 +87,7 @@ aim mcp create generic-mcp \
   --id emreks-test-mcp \
   --name EmrEksLoadtestMcp \
   --run emr-eks-loadtest-mcp \
+  --env LOADTEST_REPO_BRANCH=load-test-mcp \
   --execute-directly
 ```
 
@@ -84,7 +96,9 @@ Manage with `aim mcp list --installed` / `aim mcp uninstall emreks-test-mcp`.
 ### Claude Code
 
 ```bash
-claude mcp add emr-eks-loadtest --scope user -- emr-eks-loadtest-mcp
+claude mcp add emr-eks-loadtest --scope user \
+  -e LOADTEST_REPO_BRANCH=load-test-mcp \
+  -- emr-eks-loadtest-mcp
 
 claude mcp list   
 # -> emr-eks-loadtest: ... ✔ Connected
@@ -117,7 +131,8 @@ Or configure it directly without AIM by adding the server to
   "mcpServers": {
     "emr-eks-loadtest": {
       "command": "emr-eks-loadtest-mcp",
-      "args": []
+      "args": [],
+      "env": { "LOADTEST_REPO_BRANCH": "load-test-mcp" }
     }
   }
 }
@@ -151,11 +166,19 @@ Or configure it directly without AIM by adding the server to
   `.mcp.json` (project), then run `/mcp` to load it:
   ```jsonc
   { "mcpServers": { "emr-eks-loadtest": {
-      "type": "stdio", "command": "emr-eks-loadtest-mcp", "args": [], "env": {} } } }
+      "type": "stdio", "command": "emr-eks-loadtest-mcp", "args": [],
+      "env": { "LOADTEST_REPO_BRANCH": "load-test-mcp" } } } }
   ```
 - **Env vars** (all optional): `LOADTEST_REPO_URL`, `LOADTEST_REPO_BRANCH`,
   `LOADTEST_REPO_ROOT`, `LOADTEST_CACHE_DIR` (default `~/.cache/emr-eks-loadtest-mcp`),
   `LOADTEST_RUN_DIR`.
+  - `LOADTEST_REPO_BRANCH` selects the branch the server clones the load-test
+    artifacts from (passed to `git clone --branch`). **Empty means the repo's
+    default branch (`customer-ws`)**, which lacks `loadtest_mcp/` — set it to
+    `load-test-mcp` (as every registration command above does) until that
+    directory is merged to the default branch. If artifacts were already cloned
+    to the wrong branch, delete the cache dir (`LOADTEST_CACHE_DIR`, default
+    `~/.cache/emr-eks-loadtest-mcp`) so the next run re-clones.
 
 </details>
 
