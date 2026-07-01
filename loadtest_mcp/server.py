@@ -51,7 +51,7 @@ mcp = FastMCP(
         "Automates the EMR on EKS load test. ALWAYS call start_session FIRST, "
         "before any other tool, at the beginning of a load-test conversation. "
         "It reports the active AWS identity and the locally configured profiles. "
-        "Then ASK THE USER which AWS target to use -- either a profile name (call "
+        "Then ASK THE USER which AWS target test environment to use -- either a profile name (call "
         "set_aws_profile) or an explicit account/region they want to test "
         "against -- and confirm it with confirm_aws_profile. Do NOT assume the "
         "currently-active profile is the intended one; the user must choose. "
@@ -163,7 +163,7 @@ def requires_confirmed_identity(func):
 # ===========================================================================
 @mcp.tool()
 def start_session() -> str:
-    """START HERE. First step of any load-test session: pick the AWS target.
+    """START HERE. First step of any load-test session: pick the AWS target test environment.
 
     Reports the active AWS identity and lists the locally configured profiles,
     then instructs you (the agent) to ASK THE USER which AWS account/region to
@@ -179,7 +179,7 @@ def start_session() -> str:
     """
     profiles = helpers.aws_profiles()
     ident = helpers.aws_identity()
-    lines = ["Load-test session start. Choose the AWS target before proceeding.", ""]
+    lines = ["Load-test session start. Choose the AWS target test environment before proceeding.", ""]
     if profiles:
         lines.append(f"Locally configured profiles: {', '.join(profiles)}")
     else:
