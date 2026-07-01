@@ -40,6 +40,27 @@ kubectl version --short --client
 curl -sSL https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 | bash
 helm version --short
 ```
+## Quick Start — what to ask
+
+Just talk to the GenAI assistant at your terminal in plain language. See the following examples:
+
+- **Performance test a new feature:**
+  > "Test my EMR on EKS job with a new feature"
+
+- **TPC-DS scale test:**
+  > "Run a TPCDS benchmark test"
+
+- **Test using an existing EKS cluster:**
+  > "Load test using my existing EKS cluster"
+
+- **On a brand-new cluster:**
+  > "Create a new EKS cluster and run a test"
+
+- **Stop and clean up (keep the cluster):**
+  > "Stop the test and clean up the namespaces."
+
+- **Destroy the whole test environment (final teardown):**
+  > "Destroy the test environment."   (DESTRUCTIVE: deletes the EKS cluster and all provisioned infra)
 
 ## Install
 
@@ -86,8 +107,8 @@ claude mcp add emr-eks-loadtest --scope user \
   -e LOADTEST_REPO_BRANCH=load-test-mcp \
   -- emr-eks-loadtest-mcp
 
-claude mcp list   
-# -> emr-eks-loadtest: ... ✔ Connected
+claude # start claude code
+/mcp   # list available mcp servers -> emr-eks-loadtest: ... ✔ Connected
 ```
 
 Remove with the CLI `claude mcp remove emr-eks-loadtest -s user`.
@@ -168,7 +189,7 @@ Or configure it directly without AIM by adding the server to
 
 </details>
 
-## Tools
+## Automated Tools
 
 ### AWS profile
 
