@@ -1321,7 +1321,10 @@ def apply_eks_test(
     if not path.exists():
         return f"ERROR: manifest not found at {path}"
 
-    sections: list[str] = []
+    # Each entry is (ok, text): ok=True normal step, None warning, False failure
+    # -- so the glyph reflects the step's real status (a warning must not render
+    # as a green check).
+    sections: list[tuple[Optional[bool], str]] = []
 
     # 1. Auto-render if the manifest carries unsubstituted ${...} placeholders.
     # Applying the raw template makes kubectl reject metadata.name
@@ -1332,27 +1335,28 @@ def apply_eks_test(
         if rendered.startswith("ERROR"):
             return f"Auto-render failed: {rendered}"
         path = EXAMPLES_DIR / "load-test-rendered.yaml"
-        sections.append(f"Auto-rendered template (unsubstituted placeholders) -> {path}")
+        sections.append((True, f"Auto-rendered template (unsubstituted placeholders) -> {path}"))
 
     # 2. Refresh the locustfile ConfigMap so the run uses the current
     # emr-job-run.sh / locustfile.py (a stale ConfigMap silently runs old job
     # parameters). Opt out with refresh_configmap=False.
     if refresh_configmap:
         cm_ok, cm_msg = _refresh_configmap()
-        sections.append(f"ConfigMap refresh: {cm_msg.strip()}")
-        if not cm_ok:
-            sections.append("WARNING: ConfigMap refresh failed; the run may use a "
-                            "stale job script. Continuing to apply the manifest.")
+        if cm_ok:
+            sections.append((True, f"ConfigMap refresh: {cm_msg.strip()}"))
+        else:
+            sections.append((None, "ConfigMap refresh FAILED; the run may use a "
+                             "stale job script. Continuing to apply the manifest."))
 
     result = run(["kubectl", "apply", "-f", str(path)], timeout=120)
     if not result.ok:
-        setup = "\n".join(f"  • {s}" for s in sections)
+        setup = "\n".join(fmt.note(ok, s) for ok, s in sections)
         return fmt.section(
             "Load test — apply failed",
             (setup + "\n\n" if sections else "")
             + fmt.note(False, "kubectl apply failed:") + "\n" + result.as_text())
 
-    setup_lines = [fmt.note(True, s) for s in sections]
+    setup_lines = [fmt.note(ok, s) for ok, s in sections]
     setup_lines.append(fmt.note(True, result.stdout.strip() or "manifest applied"))
     setup_lines.append(fmt.note(None, _start_log_follow("master")))
     started = fmt.section("Load test started", "\n".join(setup_lines))

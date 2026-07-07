@@ -37,11 +37,15 @@ safe_run() {
 sweep_cluster_nodes() {
     local CL_NAME="$1"
     local ids
-    # Match either tag key EKS/Karpenter apply to managed nodes.
+    # Match either tag key EKS/Karpenter apply to managed nodes. NOTE: match on
+    # the tag KEY, not the value. eks:eks-cluster-name has value=<cluster>, but
+    # kubernetes.io/cluster/<cluster> has value "owned"/"shared" (never the
+    # cluster name) -- so a value-only match would silently skip Karpenter nodes
+    # (which carry only the kubernetes.io/cluster/ tag) and leave them running.
     ids=$(aws ec2 describe-instances --region "${AWS_REGION}" \
         --filters "Name=instance-state-name,Values=running,pending,stopping,stopped" \
                   "Name=tag-key,Values=kubernetes.io/cluster/${CL_NAME},eks:eks-cluster-name" \
-        --query "Reservations[].Instances[?Tags[?Value=='${CL_NAME}']].InstanceId" \
+        --query "Reservations[].Instances[?Tags[?Key=='eks:eks-cluster-name' && Value=='${CL_NAME}'] || Tags[?Key=='kubernetes.io/cluster/${CL_NAME}']].InstanceId" \
         --output text 2>/dev/null | tr '\t' '\n' | sort -u | tr '\n' ' ')
     ids=$(echo "$ids" | xargs 2>/dev/null || true)
     if [ -z "$ids" ]; then
