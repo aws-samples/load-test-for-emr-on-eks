@@ -16,7 +16,7 @@ export CMK_ALIAS=cmk_locust_pvc_reuse
 # EMR on EKS
 export EMR_CONTAINERS_ENDPOINT_URL=${EMR_CONTAINERS_ENDPOINT_URL:-https://emr-containers.${AWS_REGION}.amazonaws.com}
 export SRC_ECR_URL=public.ecr.aws/myang-poc/eks-spark-benchmark
-export EMR_VERSIONS=${EMR_VERSIONS:-8.0.0}
+export EMR_VERSIONS=${EMR_VERSIONS:-8.100.0}
 export EXECUTION_ROLE=emr-on-${CLUSTER_NAME}-execution-role
 export EXECUTION_ROLE_POLICY=${CLUSTER_NAME}-SparkJobS3AccessPolicy
 export EXECUTION_ROLE_ARN=arn:aws:iam::${ACCOUNT_ID}:role/${EXECUTION_ROLE}
