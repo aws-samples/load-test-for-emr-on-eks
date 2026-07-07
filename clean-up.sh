@@ -25,6 +25,38 @@ safe_run() {
     fi
 }
 
+# Helper: terminate every EC2 instance tagged to a cluster and wait for them to
+# go away. Karpenter-launched nodes are NOT owned by the eksctl CloudFormation
+# stacks, so if Karpenter removal (step 3) fails or the controller is already
+# gone, `eksctl delete cluster` leaves those nodes running. Each holds an ENI in
+# a private subnet, which then blocks the subnet -- and the whole cluster stack
+# -- from deleting (DELETE_FAILED), stranding a running instance that keeps
+# costing money. Sweeping by the eks:eks-cluster-name / kubernetes.io/cluster
+# tags catches them regardless of Karpenter's state. Idempotent: no instances ->
+# no-op.
+sweep_cluster_nodes() {
+    local CL_NAME="$1"
+    local ids
+    # Match either tag key EKS/Karpenter apply to managed nodes.
+    ids=$(aws ec2 describe-instances --region "${AWS_REGION}" \
+        --filters "Name=instance-state-name,Values=running,pending,stopping,stopped" \
+                  "Name=tag-key,Values=kubernetes.io/cluster/${CL_NAME},eks:eks-cluster-name" \
+        --query "Reservations[].Instances[?Tags[?Value=='${CL_NAME}']].InstanceId" \
+        --output text 2>/dev/null | tr '\t' '\n' | sort -u | tr '\n' ' ')
+    ids=$(echo "$ids" | xargs 2>/dev/null || true)
+    if [ -z "$ids" ]; then
+        echo "  -> No leftover EC2 instances tagged to ${CL_NAME}"
+        return 0
+    fi
+    echo "  -> Terminating leftover EC2 instances: ${ids}"
+    # shellcheck disable=SC2086
+    aws ec2 terminate-instances --region "${AWS_REGION}" --instance-ids ${ids} \
+        --query 'TerminatingInstances[].InstanceId' --output text 2>/dev/null || true
+    echo "     waiting for termination ..."
+    # shellcheck disable=SC2086
+    aws ec2 wait instance-terminated --region "${AWS_REGION}" --instance-ids ${ids} 2>/dev/null || true
+}
+
 # ============================================================
 # Discover ALL EKS clusters matching the LOAD_TEST_PREFIX
 # ============================================================
@@ -296,6 +328,14 @@ _cleanup_cluster_iam() {
         echo "    Bucket not found, skipping."
     fi
 
+    # -- Sweep Karpenter/EKS nodes BEFORE deleting the cluster --
+    # eksctl only deletes what its stacks own; Karpenter nodes aren't among them,
+    # so terminate them first or they orphan and their ENIs wedge the cluster
+    # stack in DELETE_FAILED (see sweep_cluster_nodes).
+    echo ""
+    echo "  [${CL_NAME}] 10b. Terminating leftover EC2 nodes ..."
+    sweep_cluster_nodes "${CL_NAME}"
+
     # -- Delete EKS cluster --
     echo ""
     echo "  [${CL_NAME}] 11. Deleting EKS cluster ..."
@@ -342,6 +382,12 @@ _cleanup_cluster_iam() {
     for pol_arn in $leftover_pols; do
         safe_run "Delete policy ${pol_arn}" aws iam delete-policy --policy-arn "$pol_arn"
     done
+
+    # -- Sweep any nodes that outlived the cluster delete, so their ENIs don't
+    # keep a subnet (and its stack) from deleting in the sweep below. --
+    echo ""
+    echo "  [${CL_NAME}] 12b. Re-checking for leftover EC2 nodes ..."
+    sweep_cluster_nodes "${CL_NAME}"
 
     # -- Sweep remaining CloudFormation stacks for this cluster --
     echo ""
