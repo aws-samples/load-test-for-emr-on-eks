@@ -12,7 +12,9 @@ import configparser
 import json
 import os
 import shlex
+import shutil
 import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -197,6 +199,145 @@ def load_env() -> dict[str, str]:
         key, _, value = entry.partition("=")
         env[key] = value
     return env
+
+
+# ---------------------------------------------------------------------------
+# External binary dependencies
+# ---------------------------------------------------------------------------
+# The server shells out to these host tools; it does NOT bundle them. A portable
+# MCP client (Kiro, Cline, Cursor, ...) runs the server in its own environment,
+# so we can't assume any are present. Each entry: (name, why it's needed, how it
+# is invoked). ``locust`` is special-cased -- run_local_test invokes it as
+# ``python -m locust`` from the server's own interpreter, so we probe the module
+# rather than a PATH executable.
+REQUIRED_BINARIES = [
+    ("aws", "AWS CLI -- identity, EMR on EKS, ECR, IAM, EKS calls"),
+    ("kubectl", "talk to the EKS cluster (apply manifests, logs, validation)"),
+    ("git", "clone/update the load-test artifacts from GitHub"),
+    ("bash", "run the provisioning / cleanup shell scripts"),
+]
+# Needed only for provisioning (infra-provision.sh / locust-provision.sh); a
+# reuse-existing-cluster + apply_eks_test flow can work without them, so they're
+# reported separately as optional rather than blocking.
+OPTIONAL_BINARIES = [
+    ("helm", "install Karpenter / Prometheus / Locust operator (provisioning only)"),
+]
+
+# Tools infra-provision.sh needs beyond the always-required set. Provisioning
+# creates the EKS cluster, installs Helm charts, and builds+pushes the Spark /
+# Locust container images, so these must be present -- and Docker's daemon
+# actually running -- before provision_infra launches. If any are missing the
+# 20-40 min job dies halfway through (e.g. a failed image build leaves empty
+# ECR repos), so provision_infra gates on them up front instead.
+PROVISION_BINARIES = [
+    ("eksctl", "create the EKS cluster (infra-provision.sh step 2)"),
+    ("helm", "install Karpenter / Prometheus / Locust operator"),
+    ("docker", "build & push the Spark + Locust images to ECR"),
+    ("jq", "parse JSON in the provisioning scripts"),
+]
+
+
+def _locust_available() -> tuple[bool, str]:
+    """Check that Locust is importable by the interpreter run_local_test uses.
+
+    run_local_test calls ``sys.executable -m locust``, so a PATH ``locust`` is
+    irrelevant -- what matters is whether the module exists in this server's
+    environment. Returns (present, detail).
+    """
+    proc = subprocess.run(
+        [sys.executable, "-c",
+         "import importlib.util,sys;"
+         "sys.exit(0 if importlib.util.find_spec('locust') else 1)"],
+        capture_output=True, text=True, timeout=30,
+    )
+    if proc.returncode == 0:
+        return True, f"importable via {sys.executable} -m locust"
+    return False, (f"not importable by {sys.executable}; install it "
+                   "(pip install locust) into the server's environment for "
+                   "run_local_test")
+
+
+def check_dependencies() -> dict:
+    """Probe the host for the external tools the server shells out to.
+
+    Returns a dict with ``required`` / ``optional`` lists of
+    (name, present, detail) plus a ``locust`` (present, detail) tuple and an
+    ``ok`` flag (True when every REQUIRED binary is present). Used by
+    start_session so a portable client learns up front what's missing on its
+    host instead of hitting cryptic subprocess errors mid-run.
+    """
+    def probe(specs):
+        rows = []
+        for name, why in specs:
+            path = shutil.which(name)
+            detail = f"{path} -- {why}" if path else f"NOT FOUND on PATH -- {why}"
+            rows.append((name, bool(path), detail))
+        return rows
+
+    required = probe(REQUIRED_BINARIES)
+    optional = probe(OPTIONAL_BINARIES)
+    locust = _locust_available()
+    return {
+        "required": required,
+        "optional": optional,
+        "locust": locust,
+        "ok": all(present for _n, present, _d in required),
+    }
+
+
+def check_docker_daemon() -> tuple[bool, str]:
+    """Check that the Docker CLI is installed AND its daemon is reachable.
+
+    A present ``docker`` binary is not enough: infra-provision.sh builds and
+    pushes images, which needs a running daemon (Docker Desktop / colima / a
+    remote engine). When Docker Desktop is stopped the build fails with
+    ``Cannot connect to the Docker daemon`` and the provisioning job dies with
+    empty ECR repos, so we probe ``docker info`` here (cheap, no image work).
+    Returns (running, detail).
+    """
+    if not shutil.which("docker"):
+        return False, "docker CLI NOT FOUND on PATH -- install Docker Desktop"
+    proc = subprocess.run(
+        ["docker", "info"],
+        capture_output=True, text=True, timeout=30,
+    )
+    if proc.returncode == 0:
+        return True, "docker daemon reachable (docker info ok)"
+    err = (proc.stderr or proc.stdout).strip().splitlines()
+    hint = err[0] if err else "docker info failed"
+    return False, (f"docker daemon NOT running ({hint}); "
+                   "start Docker Desktop (or your engine) before provisioning")
+
+
+def check_provisioning_prerequisites() -> dict:
+    """Preflight for provision_infra: CLI tools + a running Docker daemon.
+
+    infra-provision.sh needs the always-required binaries (aws/kubectl/git/
+    bash) PLUS eksctl/helm/docker/jq, and Docker's daemon must be up to build
+    the images. Returns a dict with ``tools`` (list of (name, present, detail)
+    covering both sets), ``docker`` ((running, detail)), a ``missing`` list of
+    the tool names that aren't installed, and an ``ok`` flag (True only when
+    every tool is present AND the daemon is reachable). provision_infra calls
+    this and refuses to launch the long job when ``ok`` is False.
+    """
+    seen: dict[str, tuple[bool, str]] = {}
+    rows: list[tuple[str, bool, str]] = []
+    for name, why in REQUIRED_BINARIES + PROVISION_BINARIES:
+        if name in seen:
+            continue
+        path = shutil.which(name)
+        detail = f"{path} -- {why}" if path else f"NOT FOUND on PATH -- {why}"
+        seen[name] = (bool(path), detail)
+        rows.append((name, bool(path), detail))
+
+    missing = [name for name, present, _d in rows if not present]
+    docker_running, docker_detail = check_docker_daemon()
+    return {
+        "tools": rows,
+        "docker": (docker_running, docker_detail),
+        "missing": missing,
+        "ok": not missing and docker_running,
+    }
 
 
 # ---------------------------------------------------------------------------

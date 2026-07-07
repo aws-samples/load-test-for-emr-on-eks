@@ -329,6 +329,45 @@ helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n 
 # validate in a web browser - localhost:9090, go to menu of status->targets
 # kubectl --namespace prometheus port-forward service/prometheus-kube-prometheus-prometheus 9090
 
+echo "==============================================="
+echo " 12b. Import prebuilt Grafana dashboards ......"
+echo "==============================================="
+# The Grafana sidecar (enabled in prometheus-values.yaml) auto-imports any
+# ConfigMap labeled grafana_dashboard=1. Turn each JSON under
+# grafana/dashboard-template/ into such a ConfigMap so the dashboards appear in
+# Grafana automatically -- no manual UI import, and they survive pod restarts.
+# transform-dashboard.py first strips export-only metadata and binds the
+# datasource placeholders to the in-cluster Prometheus (otherwise panels render
+# "Datasource ${DS_PROMETHEUS} not found").
+DASHBOARD_SRC_DIR="./grafana/dashboard-template"
+if [ -d "$DASHBOARD_SRC_DIR" ]; then
+  for dash in "$DASHBOARD_SRC_DIR"/*.json; do
+    [ -e "$dash" ] || continue
+    base=$(basename "$dash" .json)
+    # ConfigMap/name must be a DNS-1123 label: lowercase alnum + '-'.
+    cm_name="grafana-dashboard-$(echo "$base" | tr '[:upper:]_' '[:lower:]-' | tr -cd 'a-z0-9-')"
+    tmp_json=$(mktemp "${TMPDIR:-/tmp}/${cm_name}.XXXXXX.json")
+    if ! python3 "$DASHBOARD_SRC_DIR/../transform-dashboard.py" < "$dash" > "$tmp_json"; then
+      echo "WARNING: failed to normalize $dash; skipping" >&2
+      rm -f "$tmp_json"
+      continue
+    fi
+    # Recreate idempotently (apply the generated ConfigMap spec) and label it so
+    # the sidecar picks it up; annotate a folder so dashboards group under
+    # "EMR on EKS Load Test" in Grafana.
+    kubectl create configmap "$cm_name" -n prometheus \
+      --from-file="${base}.json=${tmp_json}" \
+      --dry-run=client -o yaml | kubectl apply -f -
+    kubectl label   configmap "$cm_name" -n prometheus grafana_dashboard=1 --overwrite
+    kubectl annotate configmap "$cm_name" -n prometheus \
+      grafana_folder="EMR on EKS Load Test" --overwrite
+    rm -f "$tmp_json"
+    echo "  imported $base -> configmap/$cm_name"
+  done
+else
+  echo "WARNING: $DASHBOARD_SRC_DIR not found; skipping dashboard import" >&2
+fi
+
 # Install metrics server
 kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
 
@@ -522,9 +561,9 @@ echo "================================================================="
 
 echo "Logging into ECR..."
 # Source ECR for the base/benchmark images. Defaults to the public ECR; override
-# SRC_ECR_URL (including ecr repo URL and image name) for internal testing,
+# SRC_ECR_URL (including ecr repo URL NOT image name) for internal testing,
 # e.g. the Spark Connect image repo from the PenTester runbook.
-export SRC_ECR_URL=${SRC_ECR_URL:-public.ecr.aws/myang-poc/eks-spark-benchmark:emr}
+export SRC_ECR_URL=${SRC_ECR_URL:-public.ecr.aws/myang-poc/eks-spark-benchmark}
 export ECR_URL=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
 echo "Logging into ECR..."
 aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_URL

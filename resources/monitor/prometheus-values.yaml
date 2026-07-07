@@ -3,6 +3,15 @@
 alertmanager:
   enabled: false       
 grafana:
+  # Grafana's persistence PVC below is gp3/ReadWriteOnce, so the volume can
+  # attach to only one node at a time. With the chart default RollingUpdate
+  # strategy a redeploy tries to start the new pod before terminating the old
+  # one; if they land on different nodes the new pod wedges in Init with a
+  # "Multi-Attach error" and the rollout deadlocks (old pod never releases the
+  # volume). Recreate terminates the old pod first, then starts the new one --
+  # no multi-attach. Single replica, so no HA is lost (brief restart downtime).
+  deploymentStrategy:
+    type: Recreate
   ingress:
     enabled: true
     ingressClassName: alb
@@ -14,6 +23,20 @@ grafana:
     enabled: true
     size: 10Gi
     storageClassName: gp3
+  # Auto-load the prebuilt dashboards under grafana/dashboard-template/. The
+  # sidecar watches for ConfigMaps labeled grafana_dashboard=1 and imports their
+  # JSON into Grafana (surviving pod restarts, no HTTP API or admin password
+  # needed). infra-provision.sh creates those ConfigMaps from the
+  # datasource-normalized dashboard JSON right after this Helm install.
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true
 kubelet:
   enabled: true
   serviceMonitor:

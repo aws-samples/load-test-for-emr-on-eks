@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from mcp.server.fastmcp import FastMCP
 
+import fmt
 import helpers
 from helpers import (
     ENV_SH,
@@ -177,35 +178,52 @@ def start_session() -> str:
     tools. Nothing that touches real AWS resources runs until that confirmation
     succeeds.
     """
+    # Portability check: this server shells out to host tools (aws, kubectl,
+    # git, bash, helm, locust) it does not bundle. On a fresh MCP client host any
+    # may be absent, so report what's missing up front instead of failing
+    # cryptically mid-run.
+    deps = helpers.check_dependencies()
+    tool_rows: list[tuple[Optional[bool], str, str]] = []
+    for name, present, detail in deps["required"]:
+        tool_rows.append((present, f"{name} (required)", detail))
+    for name, present, detail in deps["optional"]:
+        # optional missing is a warn, not a hard fail
+        tool_rows.append((True if present else None, f"{name} (optional)", detail))
+    l_ok, l_detail = deps["locust"]
+    tool_rows.append((True if l_ok else None, "locust (run_local_test)", l_detail))
+    d_running, d_detail = helpers.check_docker_daemon()
+    tool_rows.append((True if d_running else None, "docker daemon (provisioning)", d_detail))
+
+    parts = [fmt.section("Host tool check", fmt.status_block(tool_rows))]
+    if not deps["ok"]:
+        parts.append(fmt.note(False, "One or more REQUIRED tools are missing; "
+                              "install them (and put them on PATH) before "
+                              "provisioning or running a test."))
+
     profiles = helpers.aws_profiles()
     ident = helpers.aws_identity()
-    lines = ["Load-test session start. Choose the AWS target test environment before proceeding.", ""]
-    if profiles:
-        lines.append(f"Locally configured profiles: {', '.join(profiles)}")
-    else:
-        lines.append("No local AWS profiles found (check ~/.aws/config).")
-    lines.append("")
+    prof_line = (", ".join(profiles) if profiles
+                 else "none found (check ~/.aws/config)")
     if ident["ok"]:
-        lines += [
-            "Currently active profile (NOT necessarily the one to use):",
-            f"  Profile: {ident['profile']}",
-            f"  Account: {ident['account']}",
-            f"  Region:  {ident['region'] or '<unset>'}",
-        ]
+        active = fmt.kv([
+            ("Profile", ident["profile"]),
+            ("Account", str(ident["account"])),
+            ("Region", ident["region"] or "<unset>"),
+        ])
+        active = "Active profile (NOT necessarily the one to use):\n" + active
     else:
-        lines += [
-            f"Active profile {ident['profile']!r} has no usable credentials: "
-            f"{ident['error']}",
-        ]
-    lines += [
-        "",
-        "ACTION REQUIRED: ask the user which AWS profile (or account/region) "
-        "they want to test against. If they name a profile, call "
-        "set_aws_profile(profile); if they give an account/region, select the "
-        "matching profile. Then confirm with confirm_aws_profile(account, "
-        "region) to unlock provisioning/run/teardown tools.",
-    ]
-    return "\n".join(lines)
+        active = fmt.note(False, f"active profile {ident['profile']!r} has no "
+                          f"usable credentials: {ident['error']}")
+    parts.append(fmt.section(
+        "AWS target",
+        f"Configured profiles: {prof_line}\n\n{active}"))
+
+    parts.append(fmt.note(None,
+        "ACTION REQUIRED: ask the user which AWS profile (or account/region) to "
+        "test against. Named profile → set_aws_profile(profile); account/region "
+        "→ pick the matching profile. Then confirm_aws_profile(account, region) "
+        "to unlock provisioning/run/teardown tools."))
+    return "\n\n".join(parts)
 
 
 @mcp.tool()
@@ -282,14 +300,15 @@ def confirm_aws_profile(account: str, region: str) -> str:
             "switch profiles with set_aws_profile)."
         )
     helpers.record_confirmed_identity(live_account, live_region, ident["profile"])
-    return (
-        "Confirmed. Test-affecting tools are now unlocked for:\n"
-        f"  Profile: {ident['profile']}\n"
-        f"  Account: {live_account}\n"
-        f"  Region:  {live_region}\n"
-        "This confirmation is cleared automatically if the profile or region "
-        "changes."
-    )
+    return fmt.section(
+        "Target confirmed",
+        fmt.note(True, "Test-affecting tools are now unlocked.") + "\n\n"
+        + fmt.kv([
+            ("Profile", ident["profile"]),
+            ("Account", live_account),
+            ("Region", live_region),
+        ])
+        + "\n\nCleared automatically if the profile or region changes.")
 
 
 @mcp.tool()
@@ -321,23 +340,25 @@ def set_aws_profile(profile: str) -> str:
     # the operator must re-confirm the new target before acting on it.
     helpers.clear_confirmed_identity()
 
-    msgs = [
-        f"Switched to AWS profile '{profile}'.",
-        f"  Account: {ident['account']}",
-        f"  ARN:     {ident['arn']}",
-        _write_env_var("AWS_PROFILE", profile),
-        "Confirmation reset: call confirm_aws_profile(account, region) for this "
-        "profile before running test-affecting tools.",
-    ]
     region = ident.get("region")
+    kv_pairs = [("Account", str(ident["account"])), ("ARN", str(ident["arn"]))]
     if region:
-        msgs.append(_write_env_var("AWS_REGION", region))
-    else:
-        msgs.append(
-            "WARNING: profile has no default region. Set one with "
-            "set_env_var('AWS_REGION', '<region>') before provisioning."
-        )
-    return "\n".join(msgs)
+        kv_pairs.append(("Region", region))
+    env_writes = [_write_env_var("AWS_PROFILE", profile)]
+    if region:
+        env_writes.append(_write_env_var("AWS_REGION", region))
+
+    body = (fmt.note(True, f"Switched to AWS profile '{profile}'.") + "\n\n"
+            + fmt.kv(kv_pairs) + "\n\n"
+            + "\n".join(f"  {w}" for w in env_writes))
+    if not region:
+        body += "\n" + fmt.note(None, "profile has no default region. Set one "
+                                "with set_env_var('AWS_REGION', '<region>') "
+                                "before provisioning.")
+    body += "\n" + fmt.note(None, "Confirmation reset: call "
+                            "confirm_aws_profile(account, region) before "
+                            "running test-affecting tools.")
+    return fmt.section("AWS profile", body)
 
 
 # ===========================================================================
@@ -386,10 +407,14 @@ def get_env() -> str:
         "KARPENTER_VERSION",
         "USE_AMG",
     ]
-    lines = [f"Repo URL: {REPO_URL}", f"Repo root: {REPO_ROOT}", f"env.sh: {ENV_SH}", ""]
-    for k in keys:
-        lines.append(f"{k}={env.get(k, '<unset>')}")
-    return "\n".join(lines)
+    body = (fmt.kv([
+                ("Repo URL", str(REPO_URL)),
+                ("Repo root", str(REPO_ROOT)),
+                ("env.sh", str(ENV_SH)),
+            ])
+            + "\n\n"
+            + fmt.kv([(k, env.get(k, "<unset>")) for k in keys]))
+    return fmt.section("Load-test environment", body)
 
 
 def _write_env_var(name: str, value: str) -> str:
@@ -492,18 +517,19 @@ def check_eks_cluster(cluster_name: Optional[str] = None) -> str:
     except RuntimeError as e:
         return f"ERROR checking EKS cluster {name} in {region}:\n{e}"
     if cluster is None:
-        return (
-            f"EKS cluster '{name}' does NOT exist in {region}.\n"
-            "To create it, set the desired EKS version and run provision_infra "
-            "(see prepare_new_eks_cluster)."
-        )
-    return (
-        f"EKS cluster '{name}' EXISTS in {region}.\n"
-        f"  status:  {cluster.get('status')}\n"
-        f"  version: {cluster.get('version')}\n"
-        f"  endpoint: {cluster.get('endpoint')}\n"
-        "To reuse it for a load test, run use_existing_eks_cluster."
-    )
+        return fmt.section(
+            "EKS cluster",
+            fmt.note(False, f"'{name}' does NOT exist in {region}")
+            + "\n   To create it, set the EKS version and run provision_infra "
+            "(see prepare_new_eks_cluster).")
+    return fmt.section(
+        "EKS cluster",
+        fmt.note(True, f"'{name}' EXISTS in {region}") + "\n"
+        + fmt.kv([
+            ("status", str(cluster.get("status"))),
+            ("version", str(cluster.get("version"))),
+            ("endpoint", str(cluster.get("endpoint"))),
+        ]) + "\n\nTo reuse it for a load test, run use_existing_eks_cluster.")
 
 
 def _kubectl_json(args: list[str], base_env: Optional[dict] = None) -> Optional[dict]:
@@ -643,34 +669,37 @@ def validate_iam_roles(
     checks = _check_iam_roles(env)
     passed = sum(1 for c in checks if c[2])  # c[2] is the exists flag
     total = len(checks)
-    lines = [f"IAM role validation for cluster '{name}' (account via profile "
-             f"{env.get('AWS_PROFILE', '<default>')}): {passed}/{total} present", ""]
-    for var, role_name, ok, detail, _source in checks:
-        lines.append(f"  [{'PASS' if ok else 'FAIL'}] {var} ({role_name}) — {detail}")
+    body = fmt.status_block(
+        (ok, var, f"{role_name} — {detail}")
+        for var, role_name, ok, detail, _source in checks)
+    report = fmt.section(
+        "IAM role validation", body,
+        subtitle=f"{name} (profile {env.get('AWS_PROFILE', '<default>')}) — "
+                 f"{passed}/{total} present")
 
     missing = [c for c in checks if not c[2]]
     if not missing:
-        lines.append("")
-        lines.append("All required IAM roles exist.")
-        return "\n".join(lines)
+        return report + "\n\n" + fmt.note(True, "All required IAM roles exist.")
 
     need_infra = any(c[4] == "infra" for c in missing)
     need_locust = any(c[4] == "locust" for c in missing)
-    lines.append("")
+    tail: list[str] = []
     if provision_if_missing:
-        lines.append("Missing roles found; starting provisioning to create them:")
+        tail.append(fmt.note(None, "Missing roles found; starting provisioning:"))
         if need_infra:
-            lines.append("  - " + _start_provision("provision-infra", "infra-provision.sh"))
+            tail.append("   " + _start_provision("provision-infra", "infra-provision.sh"))
         if need_locust:
-            lines.append("  - " + _start_provision("provision-locust", "locust-provision.sh"))
+            tail.append("   " + _start_provision("provision-locust", "locust-provision.sh"))
     else:
-        lines.append("Some required IAM roles are missing. To create them, run:")
+        opts = []
         if need_infra:
-            lines.append("  - provision_infra (infra-provision.sh) for the EMR / Karpenter roles")
+            opts.append("provision_infra (EMR / Karpenter roles)")
         if need_locust:
-            lines.append("  - provision_locust_operator (locust-provision.sh) for the Locust role")
-        lines.append("Or re-run this tool with provision_if_missing=True to start them now.")
-    return "\n".join(lines)
+            opts.append("provision_locust_operator (Locust role)")
+        tail.append(fmt.note(False, "Missing required IAM roles. Create with: "
+                             + "; ".join(opts)))
+        tail.append("   Or re-run with provision_if_missing=True to start them now.")
+    return report + "\n\n" + "\n".join(tail)
 
 
 def _check_locust_operator_rows(kj) -> list[tuple[str, bool, str]]:
@@ -928,26 +957,26 @@ def validate_cluster_components(
 
     passed = sum(1 for _, ok, _ in results if ok)
     total = len(results)
-    lines = [f"Cluster '{name}' ({region}) component validation: {passed}/{total} passed", ""]
-    for component, ok, detail in results:
-        lines.append(f"  [{'PASS' if ok else 'FAIL'}] {component} — {detail}")
+    parts = [fmt.section(
+        "Cluster validation",
+        fmt.status_block((ok, component, detail) for component, ok, detail in results),
+        subtitle=f"{name} ({region}) — {passed}/{total} passed")]
     if reprovision_note:
-        lines.append("")
-        lines.append(reprovision_note)
+        parts.append(fmt.note(None, reprovision_note))
     if passed < total:
-        lines.append("")
-        lines.append("Some components are missing/not ready. For a new cluster, (re)run "
-                     "provision_infra; for an existing cluster, install the missing pieces "
-                     "before running the load test.")
+        tail = [fmt.note(False, "Some components are missing/not ready. For a new "
+                         "cluster (re)run provision_infra; for an existing one, "
+                         "install the missing pieces before running the test.")]
         if iam_missing_infra or iam_missing_locust:
             scripts = []
             if iam_missing_infra:
                 scripts.append("provision_infra")
             if iam_missing_locust:
                 scripts.append("provision_locust_operator")
-            lines.append(f"Missing IAM roles can be created with: {', '.join(scripts)} "
-                         "(or validate_iam_roles(provision_if_missing=True)).")
-    return "\n".join(lines)
+            tail.append(f"   Missing IAM roles: {', '.join(scripts)} "
+                        "(or validate_iam_roles(provision_if_missing=True)).")
+        parts.append("\n".join(tail))
+    return "\n\n".join(parts)
 
 
 def _valid_cluster_name(name: str) -> bool:
@@ -1142,26 +1171,53 @@ def refresh_configmap() -> str:
 # ===========================================================================
 @mcp.tool()
 @requires_confirmed_identity
-def provision_infra() -> str:
+def provision_infra(force: bool = False) -> str:
     """Provision the EKS cluster and all components via infra-provision.sh.
 
     Starts the long-running ``infra-provision.sh`` (EKS cluster, EBS CSI,
     Karpenter, binpacking scheduler, Prometheus/Grafana, EMR on EKS, and builds
     the Spark + Locust ECR images) in the background. This can take 20-40+
     minutes. Follow progress with ``get_job_log('provision-infra')``.
+
+    Before launching, this runs a prerequisite preflight: the command-line
+    tools infra-provision.sh depends on (aws, kubectl, git, bash, eksctl, helm,
+    docker, jq) must be installed AND the Docker daemon must be running (the
+    script builds/pushes container images; a stopped Docker Desktop makes the
+    build fail and leaves empty ECR repos). If anything is missing the job is
+    NOT started -- instead this returns what to fix and PAUSES so you can ask
+    the user whether to install/start the missing pieces. Pass ``force=True``
+    to skip the preflight and launch anyway (only after the user opts in).
     """
     script = REPO_ROOT / "infra-provision.sh"
     if not script.exists():
         return f"ERROR: {script} not found"
+
+    if not force:
+        pre = helpers.check_provisioning_prerequisites()
+        if not pre["ok"]:
+            rows = [(present, name, detail) for name, present, detail in pre["tools"]]
+            d_running, d_detail = pre["docker"]
+            rows.append((d_running, "docker daemon", d_detail))
+            return fmt.section(
+                "Provisioning paused",
+                fmt.note(False, "Prerequisites not met — not launching "
+                         "infra-provision.sh (it would fail partway and leave a "
+                         "half-built cluster / empty ECR repos).") + "\n\n"
+                + fmt.status_block(rows) + "\n\n"
+                + fmt.note(None, "ACTION REQUIRED: ask the user whether to install "
+                           "the missing tool(s) and/or start the Docker daemon "
+                           "(e.g. open Docker Desktop), then call provision_infra "
+                           "again. Override with provision_infra(force=True)."))
+
     job = helpers.start_background(
         ["bash", str(script)],
         job_id="provision-infra",
     )
-    return (
-        f"Started infra provisioning (pid {job.pid}).\n"
-        f"Log: {job.log_path}\n"
-        "Use get_job_log('provision-infra') to follow progress (20-40+ min)."
-    )
+    return fmt.section(
+        "Infra provisioning started",
+        fmt.note(None, f"pid {job.pid} — 20-40+ min") + "\n"
+        + fmt.kv([("Log", str(job.log_path))]) + "\n\n"
+        "Follow with get_job_log('provision-infra').")
 
 
 @mcp.tool()
@@ -1180,11 +1236,11 @@ def provision_locust_operator() -> str:
         ["bash", str(script)],
         job_id="provision-locust",
     )
-    return (
-        f"Started Locust operator provisioning (pid {job.pid}).\n"
-        f"Log: {job.log_path}\n"
-        "Use get_job_log('provision-locust') to follow progress."
-    )
+    return fmt.section(
+        "Locust operator provisioning started",
+        fmt.note(None, f"pid {job.pid}") + "\n"
+        + fmt.kv([("Log", str(job.log_path))]) + "\n\n"
+        "Follow with get_job_log('provision-locust').")
 
 
 # ===========================================================================
@@ -1289,16 +1345,19 @@ def apply_eks_test(
                             "stale job script. Continuing to apply the manifest.")
 
     result = run(["kubectl", "apply", "-f", str(path)], timeout=120)
-    sections.append(result.as_text())
     if not result.ok:
-        return "\n".join(sections)
-    # Begin following the master logs so progress streams without a manual step,
-    # and surface where to watch metrics.
-    sections.append("--- live monitoring ---")
-    sections.append(_start_log_follow("master"))
-    sections.append("")
-    sections.append(_grafana_login_text())
-    return "\n".join(sections)
+        setup = "\n".join(f"  • {s}" for s in sections)
+        return fmt.section(
+            "Load test — apply failed",
+            (setup + "\n\n" if sections else "")
+            + fmt.note(False, "kubectl apply failed:") + "\n" + result.as_text())
+
+    setup_lines = [fmt.note(True, s) for s in sections]
+    setup_lines.append(fmt.note(True, result.stdout.strip() or "manifest applied"))
+    setup_lines.append(fmt.note(None, _start_log_follow("master")))
+    started = fmt.section("Load test started", "\n".join(setup_lines))
+    # Surface where to watch metrics right after launch.
+    return started + "\n\n" + _grafana_login_text()
 
 
 @mcp.tool()
@@ -1446,8 +1505,17 @@ def get_job_runs(virtual_cluster_id: str, states: Optional[list[str]] = None) ->
     counts: dict[str, int] = {}
     for s in job_states:
         counts[s] = counts.get(s, 0) + 1
-    summary = "\n".join(f"  {k}: {v}" for k, v in sorted(counts.items())) or "  (no job runs)"
-    return f"Job runs in {virtual_cluster_id} (total {len(job_states)}):\n{summary}"
+    # Glyph by state: terminal-good ✅, terminal-bad ❌, in-flight ▶️.
+    glyph = {"COMPLETED": fmt.OK, "FAILED": fmt.FAIL, "CANCELLED": fmt.WARN}
+    if counts:
+        body = "\n".join(
+            f"{glyph.get(k, fmt.RUN)} {k.ljust(9)}   {v}"
+            for k, v in sorted(counts.items()))
+    else:
+        body = fmt.note(None, "no job runs")
+    return fmt.section(
+        "EMR job runs", body,
+        subtitle=f"{virtual_cluster_id} — {len(job_states)} total")
 
 
 def _grafana_login_text() -> str:
@@ -1470,15 +1538,17 @@ def _grafana_login_text() -> str:
         timeout=60,
     )
     if not url.ok or not url.stdout.strip():
-        return "Grafana: could not resolve ingress hostname:\n" + url.as_text()
+        return fmt.section(
+            "Grafana", fmt.note(False, "could not resolve ingress hostname")
+            + "\n" + url.as_text())
     gf_secret = secret.stdout.strip() if secret.ok else "<failed to read secret>"
-    bar = "=" * 34
-    return (
-        f"{bar}\n"
-        f"Grafana Login URL: http://{url.stdout.strip()}\n"
-        f"Login User: admin\n"
-        f"Login secret: {gf_secret}\n"
-        f"{bar}"
+    return fmt.section(
+        "Grafana dashboard",
+        fmt.kv([
+            ("URL", f"http://{url.stdout.strip()}"),
+            ("User", "admin"),
+            ("Password", gf_secret),
+        ]),
     )
 
 
