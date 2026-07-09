@@ -54,13 +54,13 @@ Just talk to the GenAI assistant at your terminal in plain language. See the fol
   > "Load test using my existing EKS cluster"
 
 - **On a brand-new cluster:**
-  > "Create a new EKS cluster and run a test"
+  > "Create a new EKS cluster and run a load test"
 
 - **Stop and clean up (keep the cluster):**
-  > "Stop the test and clean up the namespaces."
+  > "Stop the load test and clean up the namespaces."
 
 - **Destroy the whole test environment (final teardown):**
-  > "Destroy the test environment."   (DESTRUCTIVE: deletes the EKS cluster and all provisioned infra)
+  > "Destroy the load test environment."   (DESTRUCTIVE: deletes the EKS cluster and all provisioned infra)
 
 ## Install
 
