@@ -1523,33 +1523,31 @@ def get_job_runs(virtual_cluster_id: str, states: Optional[list[str]] = None) ->
 
 
 def _grafana_login_text() -> str:
-    """Resolve the Grafana dashboard URL + admin credentials as display text.
+    """Resolve the Grafana access instructions + admin credentials as text.
 
-    Reads the ``prometheus-grafana`` ingress hostname and the admin password
-    secret from the ``prometheus`` namespace (community Prometheus stack
-    installed by infra-provision.sh). Shared by get_grafana_login and the
-    test-start flow so monitoring details are surfaced the moment a test runs.
+    Grafana is intentionally ClusterIP-only (no public ingress -- see
+    resources/monitor/prometheus-values.yaml), so it is reached over a
+    ``kubectl port-forward`` rather than a public URL. This returns the
+    self-serve port-forward command plus the admin password secret from the
+    ``prometheus`` namespace (community Prometheus stack installed by
+    infra-provision.sh). Shared by get_grafana_login and the test-start flow so
+    monitoring details are surfaced the moment a test runs.
     """
-    url = run(
-        ["kubectl", "get", "ingress", "prometheus-grafana", "-n", "prometheus",
-         "-o", "jsonpath={.status.loadBalancer.ingress[0].hostname}"],
-        timeout=60,
-    )
     secret = run(
         ["bash", "-c",
          "kubectl --namespace prometheus get secrets prometheus-grafana "
          "-o jsonpath='{.data.admin-password}' | base64 -d"],
         timeout=60,
     )
-    if not url.ok or not url.stdout.strip():
-        return fmt.section(
-            "Grafana", fmt.note(False, "could not resolve ingress hostname")
-            + "\n" + url.as_text())
     gf_secret = secret.stdout.strip() if secret.ok else "<failed to read secret>"
+    pf_script = "resources/monitor/grafana-portforward.sh"
     return fmt.section(
         "Grafana dashboard",
         fmt.kv([
-            ("URL", f"http://{url.stdout.strip()}"),
+            ("Access", "ClusterIP-only (no public endpoint); reach via port-forward"),
+            ("Start", f"{pf_script} start   (keeps reconnecting until you stop it)"),
+            ("Manual", "kubectl port-forward -n prometheus svc/prometheus-grafana 3000:80"),
+            ("URL", "http://localhost:3000"),
             ("User", "admin"),
             ("Password", gf_secret),
         ]),
@@ -1558,11 +1556,12 @@ def _grafana_login_text() -> str:
 
 @mcp.tool()
 def get_grafana_login() -> str:
-    """Print the Grafana dashboard URL and admin credentials.
+    """Print the Grafana access instructions and admin credentials.
 
-    Reads the ``prometheus-grafana`` ingress hostname and the admin password
-    secret from the ``prometheus`` namespace (community Prometheus stack
-    installed by infra-provision.sh).
+    Grafana is ClusterIP-only (no public ingress), so this returns the
+    ``kubectl port-forward`` command to reach it plus the admin password secret
+    from the ``prometheus`` namespace (community Prometheus stack installed by
+    infra-provision.sh).
     """
     return _grafana_login_text()
 

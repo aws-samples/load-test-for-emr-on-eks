@@ -10,15 +10,22 @@ grafana:
   # "Multi-Attach error" and the rollout deadlocks (old pod never releases the
   # volume). Recreate terminates the old pod first, then starts the new one --
   # no multi-attach. Single replica, so no HA is lost (brief restart downtime).
+  #
+  # rollingUpdate must be nulled explicitly: on a `helm upgrade` the strategic
+  # merge against the live Deployment otherwise retains the old RollingUpdate
+  # block, and Kubernetes rejects `type: Recreate` combined with a rollingUpdate
+  # stanza ("may not be specified when strategy `type` is 'Recreate'"). Setting
+  # it null deletes the field during the merge.
   deploymentStrategy:
     type: Recreate
+    rollingUpdate: null
+  # Grafana is intentionally NOT exposed on a public network. The service stays
+  # ClusterIP-only (default) and operators reach it via `kubectl port-forward`
+  # (see infra-provision.sh output for the self-serve command). An
+  # internet-facing ALB ingress would put the login page on the public internet,
+  # so the ingress is disabled.
   ingress:
-    enabled: true
-    ingressClassName: alb
-    annotations:
-      kubernetes.io/ingress.class: alb
-      alb.ingress.kubernetes.io/scheme: internet-facing
-      alb.ingress.kubernetes.io/target-type: ip
+    enabled: false
   persistence:
     enabled: true
     size: 10Gi
