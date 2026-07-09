@@ -63,6 +63,13 @@ mcp = FastMCP(
 LOCUST_NAMESPACE = "locust"
 CONFIGMAP_NAME = "emr-loadtest-locustfile"
 
+# Grafana is ClusterIP-only (no public ingress -- see prometheus-values.yaml),
+# so it is reached over a kubectl port-forward. This repo script runs the
+# port-forward in a detached reconnect loop (start/stop/status) so the session
+# survives pod restarts and idle timeouts.
+GRAFANA_PORTFORWARD_SCRIPT = REPO_ROOT / "resources" / "monitor" / "grafana-portforward.sh"
+GRAFANA_LOCAL_PORT = "3000"
+
 
 def _require_region(env: dict) -> tuple[Optional[str], Optional[str]]:
     """Resolve the target region, returning ``(region, error)``.
@@ -1522,46 +1529,113 @@ def get_job_runs(virtual_cluster_id: str, states: Optional[list[str]] = None) ->
         subtitle=f"{virtual_cluster_id} — {len(job_states)} total")
 
 
-def _grafana_login_text() -> str:
-    """Resolve the Grafana access instructions + admin credentials as text.
-
-    Grafana is intentionally ClusterIP-only (no public ingress -- see
-    resources/monitor/prometheus-values.yaml), so it is reached over a
-    ``kubectl port-forward`` rather than a public URL. This returns the
-    self-serve port-forward command plus the admin password secret from the
-    ``prometheus`` namespace (community Prometheus stack installed by
-    infra-provision.sh). Shared by get_grafana_login and the test-start flow so
-    monitoring details are surfaced the moment a test runs.
-    """
+def _grafana_admin_password() -> str:
+    """Read the built-in Grafana admin password from the prometheus namespace."""
     secret = run(
         ["bash", "-c",
          "kubectl --namespace prometheus get secrets prometheus-grafana "
          "-o jsonpath='{.data.admin-password}' | base64 -d"],
         timeout=60,
     )
-    gf_secret = secret.stdout.strip() if secret.ok else "<failed to read secret>"
-    pf_script = "resources/monitor/grafana-portforward.sh"
-    return fmt.section(
-        "Grafana dashboard",
-        fmt.kv([
-            ("Access", "ClusterIP-only (no public endpoint); reach via port-forward"),
-            ("Start", f"{pf_script} start   (keeps reconnecting until you stop it)"),
-            ("Manual", "kubectl port-forward -n prometheus svc/prometheus-grafana 3000:80"),
-            ("URL", "http://localhost:3000"),
-            ("User", "admin"),
-            ("Password", gf_secret),
-        ]),
+    return secret.stdout.strip() if secret.ok else "<failed to read secret>"
+
+
+def _grafana_portforward(action: str):
+    """Run grafana-portforward.sh {start|stop|status}; return the CommandResult.
+
+    The script self-daemonizes on ``start`` (detached reconnect loop) and
+    returns promptly, so a synchronous run() is fine -- we are not blocking on
+    the port-forward itself, only on the wrapper's setup/teardown.
+    """
+    return run(
+        ["bash", str(GRAFANA_PORTFORWARD_SCRIPT), action],
+        extra_env={"GRAFANA_LOCAL_PORT": GRAFANA_LOCAL_PORT},
+        timeout=60,
     )
+
+
+def _grafana_login_text(auto_portforward: bool = True) -> str:
+    """Resolve the Grafana access instructions + admin credentials as text.
+
+    Grafana is intentionally ClusterIP-only (no public ingress -- see
+    resources/monitor/prometheus-values.yaml), so it is reached over a
+    ``kubectl port-forward`` rather than a public URL. By default this
+    auto-starts the detached port-forward (grafana-portforward.sh, idempotent)
+    and hands back a ready-to-open ``http://localhost:<port>`` URL plus the
+    admin password secret. Shared by get_grafana_login and the test-start flow
+    so monitoring is reachable the moment a test runs. Pass
+    ``auto_portforward=False`` to only resolve credentials/instructions without
+    starting the port-forward.
+    """
+    gf_secret = _grafana_admin_password()
+    pf_script = "resources/monitor/grafana-portforward.sh"
+
+    started_ok = False
+    if auto_portforward and GRAFANA_PORTFORWARD_SCRIPT.exists():
+        started_ok = _grafana_portforward("start").ok
+
+    rows = [("Access", "ClusterIP-only (no public endpoint); reach via port-forward")]
+    if started_ok:
+        rows.append(("Port-forward", "auto-started (detached; reconnects until stopped)"))
+    else:
+        rows.append(("Start", f"{pf_script} start   (keeps reconnecting until you stop it)"))
+    rows += [
+        ("Manual", "kubectl port-forward -n prometheus svc/prometheus-grafana 3000:80"),
+        ("URL", f"http://localhost:{GRAFANA_LOCAL_PORT}"),
+        ("User", "admin"),
+        ("Password", gf_secret),
+        ("Stop when done", "grafana_portforward('stop')"),
+    ]
+    return fmt.section("Grafana dashboard", fmt.kv(rows))
+
+
+@mcp.tool()
+def grafana_portforward(action: str = "start") -> str:
+    """Manage the local Grafana port-forward (start | stop | status).
+
+    Grafana is exposed as a ClusterIP service with no public ingress, so it is
+    reached over a ``kubectl port-forward``. This wraps grafana-portforward.sh,
+    which runs the port-forward in a DETACHED reconnect loop that survives pod
+    restarts and idle timeouts, recording its PID so it can be stopped cleanly.
+
+      * ``start``  -- start the detached port-forward (idempotent) and print the
+                      http://localhost:<port> URL + admin credentials.
+      * ``stop``   -- stop the port-forward session. RUN THIS WHEN YOU ARE DONE
+                      viewing dashboards; it keeps running in the background
+                      across tests until explicitly stopped.
+      * ``status`` -- report whether the port-forward is currently running.
+
+    The local port defaults to 3000 (override in the script via GRAFANA_LOCAL_PORT).
+    """
+    action = (action or "start").strip().lower()
+    if action not in {"start", "stop", "status"}:
+        return fmt.note(False, f"action must be one of start|stop|status, got {action!r}")
+    if not GRAFANA_PORTFORWARD_SCRIPT.exists():
+        return fmt.note(False, f"{GRAFANA_PORTFORWARD_SCRIPT} not found")
+
+    result = _grafana_portforward(action)
+    if action == "start" and result.ok:
+        return fmt.section(
+            "Grafana port-forward",
+            fmt.note(True, result.stdout.strip() or "started") + "\n" + fmt.kv([
+                ("URL", f"http://localhost:{GRAFANA_LOCAL_PORT}"),
+                ("User", "admin"),
+                ("Password", _grafana_admin_password()),
+                ("Stop when done", "grafana_portforward('stop')"),
+            ]),
+        )
+    return result.as_text()
 
 
 @mcp.tool()
 def get_grafana_login() -> str:
-    """Print the Grafana access instructions and admin credentials.
+    """Print the Grafana dashboard URL and admin credentials.
 
-    Grafana is ClusterIP-only (no public ingress), so this returns the
-    ``kubectl port-forward`` command to reach it plus the admin password secret
-    from the ``prometheus`` namespace (community Prometheus stack installed by
-    infra-provision.sh).
+    Grafana is ClusterIP-only (no public ingress), so this auto-starts a local
+    kubectl port-forward (via grafana-portforward.sh, a detached reconnect loop)
+    and returns a ready-to-open http://localhost:<port> URL plus the admin
+    password secret from the ``prometheus`` namespace. When you are finished
+    viewing dashboards, stop it with grafana_portforward('stop').
     """
     return _grafana_login_text()
 
