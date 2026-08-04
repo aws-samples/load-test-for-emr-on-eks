@@ -369,7 +369,7 @@ else
 fi
 
 # Install metrics server
-kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+eksctl create addon --region ${AWS_REGION} --name metrics-server --cluster ${CLUSTER_NAME}
 
 echo "========================================================="
 echo " 13. Set up Prometheus ServiceMonitor and PodMonitor ......"
