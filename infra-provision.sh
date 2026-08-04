@@ -313,7 +313,7 @@ helm upgrade --install prometheus prometheus-community/kube-prometheus-stack -n 
 # kubectl --namespace prometheus port-forward service/prometheus-kube-prometheus-prometheus 9090
 
 # Install metrics server
-kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+eksctl create addon --region ${AWS_REGION} --name metrics-server --cluster ${CLUSTER_NAME}
 
 # echo "========================================================="
 # echo " 13. Set up Prometheus ServiceMonitor and PodMonitor ......"
