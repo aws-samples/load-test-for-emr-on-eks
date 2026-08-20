@@ -221,6 +221,34 @@ class LoadTestInitializer():
                 printlog(f"Failed to create virtual cluster for namespace {namespace}")
         
         printlog(f"Created {len(virtual_clusters)} virtual clusters successfully")
+        self.wait_for_active(virtual_clusters)
+
+    def wait_for_active(self, vcs):
+        """Block until every virtual cluster is RUNNING (async create takes ~40s).
+
+        CreateVirtualCluster returns before the VC can accept StartJobRun, so a job
+        submitted too early fails immediately. Runs in @events.init, which finishes
+        before any @task fires, so no submission can race this.
+        """
+        deadline = time.time() + 120
+        for ns, vc_id in vcs.items():
+            while time.time() < deadline:
+                # Guarded: this runs in @events.init, where an uncaught exception
+                # aborts the whole worker. A transient DescribeVirtualCluster error
+                # (throttling, eventual consistency right after create) should just
+                # be retried on the next tick.
+                try:
+                    state = virtual_cluster.describe_virtual_cluster(vc_id)['state']
+                except Exception as e:
+                    state = f"unavailable ({type(e).__name__})"
+                if state == 'RUNNING':
+                    printlog(f"Virtual cluster {vc_id} is {state}, ready for job submissions")
+                    break
+                printlog(f"Virtual cluster {vc_id} is {state}, polling again in 5s...")
+                time.sleep(5)
+            else:
+                # Leave it in the map: a slow-but-healthy VC still accepts jobs later
+                printlog(f"WARNING: timed out waiting for {vc_id} ({ns}) to become RUNNING")
 
 @events.init.add_listener
 def on_locust_init(environment, **kwargs):
