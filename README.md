@@ -50,8 +50,8 @@ Just talk to the GenAI assistant at your terminal in plain language. See the fol
 - **Test using an existing EKS cluster:**
   > "Load test using my existing EKS cluster"
 
-- **Perform a test for a new feature.(create your own a job run script and drop to the project dir, update JOB_SCRIPT_NAME in env.sh with your file name):**
-  > "Load test my EMR on EKS job with a new feature"
+- **Perform a test for a new feature.(BYO job run script to the project dir, then update the JOB_SCRIPT_NAME in env.sh):**
+  > "Test an new feature for EMR on EKS"
 
 - **On a brand-new cluster:**
   > "Create a new EKS cluster and run a load test"
