@@ -16,11 +16,13 @@ re-implementing logic, so the server tracks the repo as it evolves.
 
 from __future__ import annotations
 
+import fnmatch
 import functools
 import json
 import os
 import re
 import shlex
+import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -56,7 +58,15 @@ mcp = FastMCP(
         "set_aws_profile) or an explicit account/region they want to test "
         "against -- and confirm it with confirm_aws_profile. Do NOT assume the "
         "currently-active profile is the intended one; the user must choose. "
-        "Test-affecting tools stay locked until confirm_aws_profile succeeds."
+        "Test-affecting tools stay locked until confirm_aws_profile succeeds.\n\n"
+        "BEFORE STARTING ANY NEW LOAD TEST: leftover namespaces / virtual "
+        "clusters from a previous run skew the new run's stats. apply_eks_test "
+        "detects them and refuses to launch, reporting their names. ALWAYS SHOW "
+        "THAT LIST TO THE USER AND ASK whether to clean up -- never answer for "
+        "them, and never pass cleanup_previous on the first call. Once they "
+        "answer, re-call apply_eks_test with cleanup_previous=True (it runs "
+        "stop_test + delete_test_namespaces itself, so do not call those "
+        "separately) or cleanup_previous=False to start anyway."
     ),
 )
 
@@ -751,6 +761,8 @@ def validate_cluster_components(
       - CoreDNS with >= 3 replicas
       - Binpacking custom scheduler (custom-scheduler-eks Running)
       - Prometheus operator + built-in Grafana (Running)
+      - Kyverno admission controller (available) + count of policies in force
+        (0 policies is the provisioned default and is not a failure)
       - Locust operator pod Running in ns 'locust' + emr-loadtest-locustfile
         ConfigMap present (both installed by locust-provision.sh)
       - ECR benchmark images present in the load-test account/region
@@ -890,6 +902,32 @@ def validate_cluster_components(
              if graf else "prometheus-grafana deployment not found"),
         ]
 
+    def check_kyverno() -> list[tuple[str, bool, str]]:
+        # Kyverno's admission controller sits in the pod-create path, so if it is
+        # installed but unhealthy the Spark pods the load test creates can be
+        # delayed (or, without the fail-open flag, rejected outright). Report the
+        # admission controller's availability plus whether any resource policy is
+        # actually in force -- an engine with zero policies is a no-op, which is
+        # the provisioned default and NOT a failure.
+        kyv = kj(["get", "deployment", "kyverno-admission-controller", "-n", "kyverno"])
+        if not kyv:
+            # Kyverno is optional-but-provisioned; absent means step 13b hasn't run.
+            return [("Kyverno admission controller", False,
+                     "not installed (run provision_infra step 13b)")]
+        avail = (kyv.get("status", {}).get("availableReplicas", 0) or 0)
+        rows = [("Kyverno admission controller", avail >= 1,
+                 f"availableReplicas={avail}")]
+        # Count policies across both the legacy (kyverno.io ClusterPolicy) and
+        # current (policies.kyverno.io ValidatingPolicy) API groups.
+        pol_count = 0
+        for kind in ("clusterpolicies.kyverno.io", "validatingpolicies.policies.kyverno.io"):
+            got = kj(["get", kind])
+            pol_count += len((got or {}).get("items", []))
+        rows.append(("Kyverno policies", True,
+                     f"{pol_count} policy/policies in force"
+                     if pol_count else "0 policies (engine installed, nothing enforced)"))
+        return rows
+
     def check_ecr() -> list[tuple[str, bool, str]]:
         # The on-EKS run pulls the Locust worker image referenced by the manifest
         # (locust:latest) and submits Spark jobs with eks-spark-benchmark:emr<ver>
@@ -922,7 +960,8 @@ def validate_cluster_components(
 
     checks = [
         check_karpenter, check_lbc, check_gp3, check_ebs, check_coredns,
-        check_binpacking, check_monitoring, check_locust, check_ecr, check_iam,
+        check_binpacking, check_monitoring, check_kyverno, check_locust,
+        check_ecr, check_iam,
     ]
     with ThreadPoolExecutor(max_workers=len(checks)) as pool:
         results: list[tuple[str, bool, str]] = [
@@ -1300,24 +1339,143 @@ def run_local_test(
     return result.as_text()
 
 
+TEST_NAMESPACE_GLOB = "emr-*-ns*"
+
+
+def _test_namespaces(base_env: Optional[dict] = None) -> list[str]:
+    """List the per-virtual-cluster namespaces the load test creates.
+
+    Matches ``emr-*-ns*`` only -- the exact shape locustfile generates
+    (``emr-<uuid8>-<YYYYMMDD>-ns<N>``), and the same glob the Kyverno AZ policy
+    targets. A looser match (bare ``emr-`` prefix, or an unanchored "emr"
+    substring) would also sweep up unrelated namespaces on a shared cluster,
+    which matters here: these names both gate whether a new test may start and
+    are what the cleanup path deletes.
+    """
+    # Skip namespaces already Terminating: they are on their way out, so treating
+    # them as leftovers would block the next test (and re-delete them) for as long
+    # as a Spark pod finalizer holds them.
+    listing = run(
+        ["kubectl", "get", "namespaces", "--no-headers",
+         "-o", "custom-columns=NAME:.metadata.name,PHASE:.status.phase"],
+        timeout=120, base_env=base_env)
+    if not listing.ok:
+        return []
+    out = []
+    for line in listing.stdout.split("\n"):
+        parts = line.split()
+        if (len(parts) >= 2 and parts[1] != "Terminating"
+                and fnmatch.fnmatchcase(parts[0], TEST_NAMESPACE_GLOB)):
+            out.append(parts[0])
+    return out
+
+
+def _running_virtual_clusters(base_env: Optional[dict] = None) -> list[str]:
+    """IDs of RUNNING virtual clusters on the configured EKS cluster.
+
+    Queries the same endpoint the test targets (gamma vs prod), or the lookup
+    reports nothing while a gamma run is live -- see _emr_containers_endpoint.
+    """
+    env = base_env if base_env is not None else helpers.load_env()
+    cluster = env.get("CLUSTER_NAME")
+    region, error = _require_region(env)
+    if not cluster or error:
+        return []
+    vc = run(
+        ["aws", "emr-containers", "list-virtual-clusters",
+         "--container-provider-id", cluster,
+         "--container-provider-type", "EKS",
+         "--states", "RUNNING",
+         "--region", region,
+         "--endpoint-url", _emr_containers_endpoint(env, region),
+         "--query", "virtualClusters[].id",
+         "--output", "json"],
+        timeout=120, base_env=env,
+    )
+    if not vc.ok:
+        return []
+    ids = json.loads(vc.stdout or "[]")
+    # --query can yield `null` rather than [] when the key is absent.
+    return ids if isinstance(ids, list) else []
+
+
+def _leftover_test_resources(
+    base_env: Optional[dict] = None,
+) -> tuple[list[str], list[str], Optional[str]]:
+    """Find leftovers from a previous run.
+
+    Returns ``(namespaces, running_vc_ids, error)``. Either kind of leftover
+    pollutes the next run's stats -- job counts and VC listings include the stale
+    session -- so a new test must not start over them without the operator
+    deciding.
+
+    This runs on the way into every test launch, so a broken probe must not raise
+    out of the caller: any failure (kubectl/aws missing, API timeout, unreadable
+    env.sh) is returned as ``error`` for the caller to surface, leaving the
+    decision with the operator instead of silently gating or silently allowing.
+    """
+    try:
+        env = base_env if base_env is not None else helpers.load_env()
+        return _test_namespaces(env), _running_virtual_clusters(env), None
+    except (RuntimeError, OSError, json.JSONDecodeError,
+            subprocess.SubprocessError) as e:
+        return [], [], f"{type(e).__name__}: {e}"
+
+
+def _cleanup_previous_test(leftover_ns: list[str],
+                           leftover_vcs: list[str]) -> list[tuple[Optional[bool], str]]:
+    """Cancel/delete a previous run's VCs and namespaces before a new test.
+
+    Returns (ok, text) sections. ``stop_test`` and ``delete_test_namespaces``
+    signal failure only in their returned text (an "ERROR: ..." string from the
+    identity gate, or a CommandResult rendered as "[FAILED (exit N)]"), so we
+    classify on that -- otherwise a failed cleanup renders as a green check and
+    the new test starts on top of the old resources anyway.
+
+    stop_test deletes virtual clusters but never namespaces (stop_test.py only
+    touches managed endpoints, job runs and VCs), so the namespace delete always
+    follows when namespaces were found -- no re-probe in between.
+    """
+    def classify(label: str, text: str) -> tuple[Optional[bool], str]:
+        failed = text.lstrip().startswith("ERROR") or "[FAILED" in text
+        return (not failed, f"Cleanup — {label}:\n{text}")
+
+    sections: list[tuple[Optional[bool], str]] = []
+    if leftover_vcs:
+        sections.append(classify("stop_test", stop_test()))
+    if leftover_ns:
+        sections.append(classify("delete_test_namespaces",
+                                 delete_test_namespaces()))
+    return sections
+
+
 @mcp.tool()
 @requires_confirmed_identity
 def apply_eks_test(
     manifest: str = "load-test-template.yaml",
     refresh_configmap: bool = True,
+    cleanup_previous: Optional[bool] = None,
 ) -> str:
     """Start a distributed load test on EKS by applying a LocustTest manifest.
 
-    ``kubectl apply -f examples/<manifest>``. Two safety steps run automatically
-    so the applied test is always valid and current:
+    ``kubectl apply -f examples/<manifest>``. Three safety steps run
+    automatically so the applied test is always valid, current, and not polluted
+    by a previous run:
 
-    1. **Auto-render:** if the manifest still contains unsubstituted ``${...}``
+    1. **Leftover gate:** leftover ``emr-*`` namespaces / RUNNING virtual
+       clusters skew the new run's stats, so this refuses to launch while any
+       exist unless ``cleanup_previous`` is set. ASK THE USER first, showing them
+       the names this reports: ``cleanup_previous=True`` runs stop_test +
+       delete_test_namespaces before applying; ``False`` keeps them and starts
+       anyway. Never pick for them -- and note a RUNNING virtual cluster may
+       belong to a test that is still in progress, which cleanup would cancel.
+    2. **Auto-render:** if the manifest still contains unsubstituted ``${...}``
        placeholders (e.g. the raw ``load-test-template.yaml``, whose
        ``metadata.name`` is ``tpcds-job-${CLUSTER_NAME}`` and fails Kubernetes'
        RFC-1123 name validation), it is rendered to
        ``load-test-rendered.yaml`` via render_locust_manifest first, and that
        rendered file is applied instead.
-    2. **Auto-refresh ConfigMap:** the emr-loadtest-locustfile ConfigMap is
+    3. **Auto-refresh ConfigMap:** the emr-loadtest-locustfile ConfigMap is
        recreated from locust/locustfiles so the workers always mount the current
        emr-job-run.sh / locustfile.py. Pass ``refresh_configmap=False`` to skip.
 
@@ -1333,7 +1491,38 @@ def apply_eks_test(
     # as a green check).
     sections: list[tuple[Optional[bool], str]] = []
 
-    # 1. Auto-render if the manifest carries unsubstituted ${...} placeholders.
+    # 1. Leftover gate. A previous run's namespaces/VCs inflate this run's job
+    # counts and VC listings, so we stop and make the operator decide rather than
+    # silently starting on top of them (or silently deleting their resources).
+    leftover_ns, leftover_vcs, probe_error = _leftover_test_resources()
+    if probe_error:
+        sections.append((None, "Could not check for leftovers from a previous "
+                         f"test ({probe_error}); continuing without the check."))
+    elif leftover_ns or leftover_vcs:
+        if cleanup_previous is None:
+            body = fmt.kv([
+                ("Namespaces", ", ".join(leftover_ns) or "none"),
+                ("Virtual clusters", ", ".join(leftover_vcs) or "none"),
+            ])
+            return fmt.section(
+                "Leftovers from a previous load test",
+                body + "\n\n" + fmt.note(None,
+                    "ASK THE USER whether to clean these up, listing the names "
+                    "above -- a RUNNING virtual cluster may belong to a test "
+                    "still in progress, and cleanup cancels its jobs. Then call "
+                    "apply_eks_test again with cleanup_previous=True (runs "
+                    "stop_test + delete_test_namespaces first, which can take "
+                    "several minutes) or cleanup_previous=False (keep them and "
+                    "start anyway)."),
+                subtitle=f"{len(leftover_ns)} namespace(s), "
+                         f"{len(leftover_vcs)} RUNNING virtual cluster(s)")
+        if cleanup_previous:
+            sections.extend(_cleanup_previous_test(leftover_ns, leftover_vcs))
+        else:
+            sections.append((None, "Leftovers from a previous test kept at the "
+                             "user's request; this run's stats will include them."))
+
+    # 2. Auto-render if the manifest carries unsubstituted ${...} placeholders.
     # Applying the raw template makes kubectl reject metadata.name
     # "tpcds-job-${CLUSTER_NAME}" as an invalid RFC-1123 subdomain, so render
     # first and apply the substituted file instead.
@@ -1344,7 +1533,7 @@ def apply_eks_test(
         path = EXAMPLES_DIR / "load-test-rendered.yaml"
         sections.append((True, f"Auto-rendered template (unsubstituted placeholders) -> {path}"))
 
-    # 2. Refresh the locustfile ConfigMap so the run uses the current
+    # 3. Refresh the locustfile ConfigMap so the run uses the current
     # emr-job-run.sh / locustfile.py (a stale ConfigMap silently runs old job
     # parameters). Opt out with refresh_configmap=False.
     if refresh_configmap:
@@ -1666,22 +1855,21 @@ def stop_test(test_id: Optional[str] = None) -> str:
 @mcp.tool()
 @requires_confirmed_identity
 def delete_test_namespaces() -> str:
-    """Delete leftover load-test namespaces (those matching 'emr').
+    """Delete leftover load-test namespaces (those matching ``emr-*-ns*``).
 
-    Mirrors ``kubectl get namespaces -o name | grep emr | xargs kubectl
-    delete``. Run ``stop_test`` first to ensure jobs/VCs are terminated.
+    Run ``stop_test`` first to ensure jobs/VCs are terminated.
+
+    Only the load test's own ``emr-<uuid8>-<date>-ns<N>`` namespaces are matched;
+    a looser pattern would sweep up unrelated namespaces on a shared cluster
+    (e.g. ``sagemaker-emr-containers-*``). Deletion does not wait -- a namespace
+    whose Spark pods still hold finalizers can take minutes to finish
+    terminating, and blocking on that would stall the caller.
     """
-    listing = run(["kubectl", "get", "namespaces", "-o", "name"], timeout=120)
-    if not listing.ok:
-        return listing.as_text()
-    namespaces = [
-        line.split("/", 1)[1]
-        for line in listing.stdout.splitlines()
-        if "/" in line and "emr" in line.split("/", 1)[1]
-    ]
+    namespaces = _test_namespaces()
     if not namespaces:
-        return "No 'emr' load-test namespaces found."
-    result = run(["kubectl", "delete", "namespace", *namespaces], timeout=600)
+        return f"No '{TEST_NAMESPACE_GLOB}' load-test namespaces found."
+    result = run(["kubectl", "delete", "namespace", "--wait=false", *namespaces],
+                 timeout=600)
     return f"Deleting namespaces: {', '.join(namespaces)}\n\n{result.as_text()}"
 
 

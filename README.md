@@ -44,20 +44,32 @@ helm version --short
 
 Just talk to the GenAI assistant at your terminal in plain language. See the following examples:
 
-- **Performance test a new feature:**
-  > "Test my EMR on EKS job with a new feature"
-
-- **TPC-DS scale test:**
-  > "Run a TPCDS benchmark test"
+- **TPC-DS scale test by default:**
+  > "Run a load test"
 
 - **Test using an existing EKS cluster:**
   > "Load test using my existing EKS cluster"
 
+- **Perform a test for a new feature.(create your own a job run script and drop to the project dir, update JOB_SCRIPT_NAME in env.sh with your file name):**
+  > "Load test my EMR on EKS job with a new feature"
+
 - **On a brand-new cluster:**
   > "Create a new EKS cluster and run a load test"
 
-- **Stop and clean up (keep the cluster):**
-  > "Stop the load test and clean up the namespaces."
+- **Trace Spark application log in real-time:**
+  > "Show me job logs"
+
+- **Login to Grafana via provided username and password, then watch metrics on Grafan dashboards:**
+  > "Login to grafana"
+
+- **Stop load test immididately and clean up all tests' namespaces and VCs (keep EKS cluster):**
+  > "Stop the test"
+
+- **find a test unique id before stop it (2nd part of the namespace string):**
+  > "what is the test session id in the namespace emr-34518fa5-20260820-ns1"
+
+- **Stop the load test by test session id - at VC level (keep other namespaces and VCs):**
+  > "Stop the test session 34518fa5"  
 
 - **Destroy the whole test environment (final teardown):**
   > "Destroy the load test environment."   (DESTRUCTIVE: deletes the EKS cluster and all provisioned infra)
@@ -236,7 +248,7 @@ load-test run, so they are not part of this decision.
 | Tool | Description | Parameters |
 | --- | --- | --- |
 | `run_local_test` | Run a load test locally with the Locust CLI (blocking, for small smoke tests). Creates namespaces/VCs and submits EMR on EKS jobs from the local machine; caller must be a cluster admin. | `users: int = 1`, `run_time: str = "5m"`, `spawn_rate: float = 0.5`, `job_ns_count: int = 1`, `job_azs: list[str] = None`, `headless: bool = True` |
-| `apply_eks_test` | Start a distributed test on EKS via `kubectl apply -f examples/<manifest>`. Pass the name produced by `render_locust_manifest` for a custom run. | `manifest: str = "load-test-template.yaml"` |
+| `apply_eks_test` | Start a distributed test on EKS via `kubectl apply -f examples/<manifest>`. Pass the name produced by `render_locust_manifest` for a custom run. Refuses to launch while leftover `emr-*-ns*` namespaces / RUNNING virtual clusters from a previous test exist — ask the user, then re-call with `cleanup_previous=True` (runs `stop_test` + `delete_test_namespaces` first) or `False` (start anyway). | `manifest: str = "load-test-template.yaml"`, `refresh_configmap: bool = True`, `cleanup_previous: bool = None` |
 | `get_test_logs` | Tail logs from the on-EKS Locust pods in the `locust` namespace. | `component: str = "master"` (`master` or `worker`), `tail: int = 200` |
 | `list_virtual_clusters` | List EMR on EKS virtual clusters for the configured EKS cluster via `aws emr-containers list-virtual-clusters`. | `state: str = "RUNNING"` |
 | `get_job_runs` | List EMR on EKS job runs in a virtual cluster, summarized by state. Use `list_virtual_clusters` to find the id. | `virtual_cluster_id: str`, `states: list[str] = None` (defaults to PENDING, SUBMITTED, RUNNING, COMPLETED, FAILED) |
@@ -247,7 +259,7 @@ load-test run, so they are not part of this decision.
 | Tool | Description | Parameters |
 | --- | --- | --- |
 | `stop_test` | Cancel EMR jobs and delete virtual clusters via `stop_test.py`. With `test_id`, only that session's VCs are torn down; without it, all RUNNING VCs on the configured cluster are cancelled and deleted. Blocks until VCs terminate. | `test_id: str = None` |
-| `delete_test_namespaces` | Delete leftover load-test namespaces matching `emr`. Run `stop_test` first to ensure jobs/VCs are terminated. | none |
+| `delete_test_namespaces` | Delete leftover load-test namespaces matching `emr-*-ns*` (the load test's own `emr-<uuid8>-<date>-ns<N>` namespaces; unrelated ones such as `sagemaker-emr-containers-*` are left alone). Run `stop_test` first to ensure jobs/VCs are terminated. | none |
 | `teardown_infra` | **DESTRUCTIVE.** Tear down all infra created by `infra-provision.sh` via `clean-up.sh` (EKS cluster, EMR on EKS, Karpenter, IAM roles/policies, etc.). Runs in the background; follow with `get_job_log('teardown-infra')`. | none |
 
 ### Background jobs
@@ -281,12 +293,15 @@ load-test run, so they are not part of this decision.
    into the `emr-loadtest-locustfile` ConfigMap.
 9. `render_locust_manifest` — render a customized `LocustTest` manifest.
 10. `apply_eks_test` — apply the rendered manifest to start a distributed test.
+    If a previous run left namespaces or virtual clusters behind, the tool stops
+    and reports them: confirm with the user, then re-call with
+    `cleanup_previous=True` to run `stop_test` + `delete_test_namespaces` first.
 11. `get_test_logs` / `list_virtual_clusters` / `get_job_runs` — monitor
     progress and EMR job/VC state.
 12. `get_grafana_login` — open the dashboards to evaluate results.
 13. `stop_test` — cancel jobs and delete VCs when the run is done (do this
     before a new test to avoid stale stats).
-14. `delete_test_namespaces` — remove leftover `emr-*` namespaces.
+14. `delete_test_namespaces` — remove leftover `emr-*-ns*` namespaces.
 15. `teardown_infra` — tear everything down; poll with
     `get_job_log('teardown-infra')`.
 

@@ -57,6 +57,7 @@ cloudWatch:
     logRetentionInDays: 30     
 managedNodeGroups:
   # a nodegroup dedicated for operational pods
+  # 3 nodes are enough to support largest EMR on EKS load testings
   - name: ops-ng
     instanceType: m5.4xlarge
     desiredCapacity: 3

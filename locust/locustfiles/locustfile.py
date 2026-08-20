@@ -18,7 +18,35 @@ metrics_port = int(environ.get("METRICS_PORT", "8000"))
 
 EKS_CLUSTER_NAME = environ["CLUSTER_NAME"]
 REGION = environ["AWS_REGION"]
-    
+
+# Round-robin AZ assignment across job submissions.
+#
+# random.choice() samples with replacement, so it has no memory of prior picks
+# and gives no balance guarantee: over 2 AZs it is a coin flip per job, and at
+# the small job counts a short test produces, lopsided splits are common (~29%
+# chance of a >=75/25 split over 8 jobs). Skew matters here because Kyverno's
+# same-AZ podAffinity makes Karpenter request a single AZ per CreateFleet, so
+# every job landing in one zone forfeits multi-AZ spot capacity diversification.
+# A counter guarantees an even split by construction instead.
+#
+# The counter is module-level and lock-guarded so all EMRJobUser instances in a
+# worker process share one sequence -- per-User counters would each start at 0
+# and re-skew toward the first AZ. Locust workers are separate processes with
+# their own counter, which is fine: each cycles evenly on its own.
+_az_counter = 0
+_az_lock = threading.Lock()
+
+def next_az(job_azs):
+    """Return the next AZ in round-robin order, or None if no AZs were given."""
+    global _az_counter
+    if not job_azs:
+        return None
+    with _az_lock:
+        az = job_azs[_az_counter % len(job_azs)]
+        _az_counter += 1
+    return az
+
+
 # Prometheus metrics
 success_counter = Counter('locust_spark_application_submit_success_total', 'Number of successful EMR job submissions at Locust')
 failed_counter = Counter('locust_spark_application_submit_fail_total', 'Number of failed EMR job submissions at Locust')
@@ -88,7 +116,7 @@ class EMRJobUser(User):
             
         virtual_cluster_id = virtual_clusters[namespace]
         job_unique_id = setup_unique_user_id()
-        selected_az = random.choice(self.job_azs) if self.job_azs else None
+        selected_az = next_az(self.job_azs)
         start_time = time.time()
         
         try:
@@ -105,7 +133,11 @@ class EMRJobUser(User):
                 'VIRTUAL_CLUSTER_ID': virtual_cluster_id,
                 'AWS_REGION': REGION,
                 'JOB_UNIQUE_ID': job_unique_id,
-                'SELECTED_AZ': selected_az,
+                # "" (not None) when no AZs were given: subprocess raises
+                # TypeError on a None env value, and the generic handler below
+                # would swallow it -- turning a missing --job-azs into a silent
+                # 100% submission failure that only shows up as failed_counter.
+                'SELECTED_AZ': selected_az or "",
                 'EMR_IMAGE_VERSION': str(environ["EMR_IMAGE_VERSION"])
             })
 

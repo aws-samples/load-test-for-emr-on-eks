@@ -23,6 +23,8 @@ export EXECUTION_ROLE_ARN=arn:aws:iam::${ACCOUNT_ID}:role/${EXECUTION_ROLE}
 export SPARK_CONNECT_IMAGE_URL=${SPARK_CONNECT_IMAGE_URL:-${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/eks-spark-benchmark:emr${EMR_IMAGE_VERSION}}
 export SPARK_CONNECT_DATA_PATH=${SPARK_CONNECT_DATA_PATH:-}
 export SPARK_CONNECT_DATA_FORMAT=${SPARK_CONNECT_DATA_FORMAT:-parquet}
+# Kyverno (Helm chart version; chart 3.9.0 => Kyverno v1.19.0)
+export KYVERNO_VERSION=${KYVERNO_VERSION:-"3.9.0"}
 # Karpenter
 export KARPENTER_VERSION=${KARPENTER_VERSION:-"1.8.5"}
 export KARPENTER_CONTROLLER_ROLE="KarpenterControllerRole-${CLUSTER_NAME}"

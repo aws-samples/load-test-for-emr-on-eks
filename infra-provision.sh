@@ -379,6 +379,41 @@ kubectl apply -f ./resources/monitor/karpenter-svcmonitor.yaml
 kubectl apply -f ./resources/monitor/aws-cni-podmonitor.yaml
 # # kubectl apply -f ./resources/monitor/ebs-csi-controller-svcmonitor.yaml
 kubectl apply -f ./resources/monitor/locust-podmonitor.yaml
+
+echo "========================================================="
+echo " 13b. Install Kyverno policy engine ......"
+echo "========================================================="
+# Kyverno enforces admission policies (pod security, image provenance, resource
+# limits) on the Spark pods the load test creates. Installed AFTER Prometheus so
+# the chart's ServiceMonitors have the monitoring.coreos.com CRDs to bind to --
+# reversing the order makes the ServiceMonitors fail to apply.
+#
+# resources/kyverno/kyverno-values.yaml tunes the engine for load-test churn:
+# fail-open webhooks, admission reports and background scanning off, controllers
+# pinned to the operational nodegroup. See that file for the reasoning.
+#
+# NOTE: installing the engine does NOT create any resource policies -- the
+# resource webhooks are registered with zero rules, so pod creates are
+# unaffected until you add a ClusterPolicy/ValidatingPolicy.
+if helm status kyverno -n kyverno >/dev/null 2>&1; then
+    echo "Kyverno already installed in namespace 'kyverno'. Skipping."
+else
+    helm repo add kyverno https://kyverno.github.io/kyverno/
+    helm repo update kyverno
+    helm upgrade --install kyverno kyverno/kyverno \
+        --version "${KYVERNO_VERSION}" \
+        -n kyverno --create-namespace \
+        -f ./resources/kyverno/kyverno-values.yaml \
+        --wait --timeout 10m
+fi
+
+# Co-locate every pod of a job run in one AZ (keeps Spark shuffle intra-AZ).
+# Applied unconditionally -- unlike the helm install above this is idempotent,
+# and it must run even when the engine was already present, or a re-provision
+# would leave the engine installed with no policy. Kyverno mutates only at
+# admission, so this affects pods created from here on, not running ones.
+kubectl apply -f ./resources/kyverno/az-affinity-rule.yaml
+
 echo "================================================================================================================"
 echo " Ref to https://karpenter.sh/v1.8/reference/cloudformation/"
 echo " 14. Create Karpenter IAM roles, SQS queue and event rules for EC2 interruption handling ......"

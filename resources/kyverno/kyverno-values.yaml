@@ -1,0 +1,129 @@
+# Kyverno tuned for a high-churn EMR on EKS load-test cluster.
+#
+# The load test creates and destroys thousands of short-lived Spark driver/
+# executor pods. Kyverno's admission webhook sits in the pod-create path, so the
+# defaults (built for steady-state clusters) become a bottleneck -- and a single
+# point of failure -- at that churn rate. The overrides below trade policy
+# bookkeeping for admission throughput and fail-open safety.
+
+# Pin every controller to the dedicated operational nodegroup (ops-ng, labelled
+# operational=true in eks-cluster-values.yaml) so policy enforcement never
+# competes with Spark pods for CPU, and is never evicted by Karpenter
+# consolidating a benchmark node.
+
+# --- Engine feature flags -----------------------------------------------------
+features:
+  # Fail OPEN. With the default failurePolicy=Fail, an unavailable Kyverno
+  # webhook rejects EVERY pod create -- which would abort the whole load test,
+  # not just policy-violating pods. During a load test, availability of the
+  # workload matters more than guaranteed policy enforcement.
+  forceFailurePolicyIgnore:
+    enabled: true
+
+  # Per-admission reports are the classic Kyverno scale killer: one report
+  # object per admitted resource means thousands of etcd writes per minute at
+  # load-test churn. Aggregated policy reports still give cluster-wide results.
+  admissionReports:
+    enabled: false
+
+  # Background scanning re-evaluates every existing resource on an interval.
+  # With thousands of transient Spark pods this is continuous wasted work, and
+  # the pods are usually gone before a scan completes.
+  backgroundScan:
+    enabled: false
+
+  # Keep aggregated policy reports -- cheap, and the only way to see violations
+  # once admissionReports is off.
+  policyReports:
+    enabled: true
+
+  logging:
+    format: text
+    verbosity: 2
+
+# --- Admission controller (in the hot path of every pod create) ---------------
+admissionController:
+  # 3 replicas = HA across the 3 ops-ng nodes. The webhook is fail-open above,
+  # but staying up means policies actually get applied under load.
+  replicas: 3
+  nodeSelector:
+    operational: "true"
+  antiAffinity:
+    enabled: true
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  serviceMonitor:
+    enabled: true
+  # NOTE: for the admission controller the chart nests resources under
+  # `container` (the other three controllers take a top-level `resources`).
+  container:
+    resources:
+      requests:
+        cpu: 500m
+        memory: 512Mi
+      limits:
+        memory: 4Gi
+    # Raise client-side API throttling above the built-in 100 QPS / 200 burst.
+    # These are kyverno CLI flags, not chart values, so they go through
+    # extraArgs. Spark pod churn drives far more admission traffic than the
+    # defaults were sized for.
+    extraArgs:
+      clientRateLimitQPS: 300
+      clientRateLimitBurst: 600
+
+# --- Background controller (generate / mutateExisting rules) ------------------
+backgroundController:
+  replicas: 1
+  nodeSelector:
+    operational: "true"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 1Gi
+  serviceMonitor:
+    enabled: true
+
+# --- Cleanup controller (CleanupPolicy TTLs) ---------------------------------
+cleanupController:
+  replicas: 1
+  nodeSelector:
+    operational: "true"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 1Gi
+  serviceMonitor:
+    enabled: true
+
+# --- Reports controller ------------------------------------------------------
+reportsController:
+  replicas: 1
+  nodeSelector:
+    operational: "true"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 2Gi
+  serviceMonitor:
+    enabled: true
+
+# --- Grafana dashboard -------------------------------------------------------
+# The kube-prometheus-stack sidecar watches ALL namespaces for ConfigMaps
+# labelled grafana_dashboard=1 (see resources/monitor/prometheus-values.yaml),
+# so the chart's own dashboard ConfigMap is imported automatically. The
+# grafana_folder annotation groups it alongside the load-test dashboards.
+grafana:
+  enabled: true
+  annotations:
+    grafana_folder: "Kyverno"
+
+# prometheusRule is intentionally left disabled: the chart only emits the
+# resource when `spec` is non-empty, so enabling it without authoring alert
+# rules renders nothing. Add rules here if you want Kyverno alerting.

@@ -23,9 +23,9 @@ spec:
       - key: karpenter.sh/capacity-type
         operator: In
         # This is not a best practice, requiring a manual fix in lab2
-        values: ["on-demand","spot"]
+        # values: ["on-demand","spot"]
         # this is the best practice
-        # values: ["on-demand"]
+        values: ["on-demand"]
       - key: "karpenter.k8s.aws/instance-hypervisor"
         operator: In
         values: ["nitro"]   # to support prefix delegation

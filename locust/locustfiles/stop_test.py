@@ -68,7 +68,7 @@ def safe_delete_virtual_cluster(virtual_cluster_id):
 
 def main():
     parser = argparse.ArgumentParser(description='Monitor virtual clusters.')
-    parser.add_argument('--id', type=str, help='The id for the scale test')
+    parser.add_argument('--id', type=str, help='The id of a scale test session')
     parser.add_argument('--cluster', type=str, default=EKS_CLUSTER_NAME, help='The name of the eks cluster')
     args = parser.parse_args()
 

@@ -1,0 +1,49 @@
+# Co-locate all pods of a single EMR on EKS job run into one Availability Zone.
+#
+# Cross-AZ shuffle traffic between a Spark driver and its executors is both slow
+# and billed as inter-AZ transfer. Pinning every pod that shares a job.id to the
+# same zone keeps shuffle traffic intra-AZ.
+#
+# Kyverno mutates the pod at admission, so only pods created AFTER this policy is
+# installed are affected -- it does not move already-running pods.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: emr-job-pods-same-az
+spec:
+  # The rule dereferences {{ request.object }}, which only exists during an
+  # admission request -- a background scan has no request to read, so background
+  # mode must stay off or the rule errors on every scanned pod.
+  background: false
+  rules:
+    - name: colocate-job-pods-in-one-zone
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - emr-containers-*         # all of EMR on EKS job namespace(s)
+                - emr-*-ns*                # all of EMR on EKS load test namespace(s)
+              # Only pods belonging to a job run carry job.id, which scopes this
+              # to jobrunner+drivers+executors+FGACpods and skips operator/system pods.
+              selector:
+                matchExpressions:
+                  - key: emr-containers.amazonaws.com/job.id
+                    operator: Exists
+      mutate:
+        patchStrategicMerge:
+          spec:
+            affinity:
+              podAffinity:
+                # The first pod of a job (the driver) has nothing to match yet.
+                # requiredDuringScheduling still admits it -- a term with zero
+                # matching pods imposes no constraint -- so the driver picks a
+                # zone and the executors are then pinned to follow it.
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  - labelSelector:
+                      matchLabels:
+                        # Dots in the label key must be JMESPath-quoted, hence
+                        # the escaped inner quotes.
+                        emr-containers.amazonaws.com/job.id: "{{ request.object.metadata.labels.\"emr-containers.amazonaws.com/job.id\" }}"
+                    topologyKey: topology.kubernetes.io/zone

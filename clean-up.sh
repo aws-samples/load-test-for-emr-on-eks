@@ -233,6 +233,13 @@ cleanup_cluster() {
     echo ""
     echo "  [${CL_NAME}] 5. Removing Helm releases ..."
 
+    # Uninstall Kyverno BEFORE Prometheus/the cluster teardown. Its admission
+    # webhooks are fail-open (forceFailurePolicyIgnore), so a leftover webhook
+    # won't block deletes -- but removing the release first also cleans up the
+    # webhook configurations rather than leaving them orphaned.
+    safe_run "Uninstall Kyverno" helm uninstall kyverno -n kyverno
+    safe_run "Delete kyverno namespace" kubectl delete namespace kyverno --ignore-not-found --wait=false
+
     safe_run "Uninstall Prometheus" helm uninstall prometheus -n prometheus
     safe_run "Delete prometheus namespace" kubectl delete namespace prometheus --ignore-not-found --wait=false
     safe_run "Delete metrics server" kubectl delete -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml --ignore-not-found

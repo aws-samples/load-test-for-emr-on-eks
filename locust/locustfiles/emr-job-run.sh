@@ -17,7 +17,21 @@ export ECR_URL="${ACCOUNTID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 export EMR_VERSION="${EMR_VERSION:-"spark-8.0.0"}"
 # Container image tag is decoupled: spark.kubernetes.container.image uses
 # EMR_IMAGE_VERSION (any custom image you copied into ECR, e.g. 8.100.0).
-export SELECTED_AZ=${SELECTED_AZ}
+# export SELECTED_AZ=${SELECTED_AZ}
+# The zone selector is emitted only when an AZ was actually chosen. An empty
+# SELECTED_AZ must not become `"...zone": ""` -- that is a nodeSelector matching
+# nodes whose zone label is the empty string, i.e. nothing, so the pod would sit
+# Pending forever rather than falling back to "any zone".
+# The trailing comma lives inside the fragment so the surrounding JSON stays
+# valid when the fragment is empty.
+#
+# Deliberately submitter-only: the driver and executors carry no zone selector so
+# that Kyverno's same-AZ podAffinity is the sole mechanism placing them, keeping
+# the policy's effect attributable.
+SUBMITTER_AZ_SELECTOR=""
+if [ -n "$SELECTED_AZ" ]; then
+  SUBMITTER_AZ_SELECTOR='"jobsubmitter.node.selector.topology.kubernetes.io/zone": "'$SELECTED_AZ'",'
+fi
 export KMS_ARN=$(aws kms describe-key --key-id arn:aws:kms:${AWS_REGION}:${ACCOUNTID}:alias/cmk_locust_pvc_reuse --query 'KeyMetadata.Arn' --output text)
 
 aws emr-containers start-job-run \
@@ -47,9 +61,7 @@ ${EMR_CONTAINERS_ENDPOINT_URL:+--endpoint-url "$EMR_CONTAINERS_ENDPOINT_URL"} \
           "spark.scheduler.minRegisteredResourcesRatio": "0.6",
           "spark.scheduler.maxRegisteredResourcesWaitingTime": "1800s",
           "spark.kubernetes.executor.node.selector.karpenter.sh/nodepool": "executor-memorynodepool",
-          "spark.kubernetes.driver.node.selector.karpenter.sh/nodepool": "driver-nodepool",
-          "spark.kubernetes.driver.node.selector.topology.kubernetes.io/zone": "'$SELECTED_AZ'",
-          "spark.kubernetes.executor.node.selector.topology.kubernetes.io/zone": "'$SELECTED_AZ'"
+          "spark.kubernetes.driver.node.selector.karpenter.sh/nodepool": "driver-nodepool"
       }},
       {
         "classification": "emr-containers-defaults",
@@ -61,7 +73,7 @@ ${EMR_CONTAINERS_ENDPOINT_URL:+--endpoint-url "$EMR_CONTAINERS_ENDPOINT_URL"} \
         "classification": "emr-job-submitter",
         "properties": {
             "jobsubmitter.node.selector.karpenter.sh/nodepool": "executor-memorynodepool",
-            "jobsubmitter.node.selector.topology.kubernetes.io/zone": "'$SELECTED_AZ'",
+            '"$SUBMITTER_AZ_SELECTOR"'
             "jobsubmitter.container.image.pullPolicy": "IfNotPresent",
             "jobsubmitter.logging": "DISABLED"
 
