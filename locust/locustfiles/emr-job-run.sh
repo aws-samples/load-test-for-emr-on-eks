@@ -15,9 +15,9 @@ export S3BUCKET="${SHARED_PREFIX_NAME}-${ACCOUNTID}-${AWS_REGION}"
 export ECR_URL="${ACCOUNTID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 # Release label for StartJobRun 
 export EMR_VERSION="${EMR_VERSION:-"spark-8.0.0"}"
+# export SELECTED_AZ=${SELECTED_AZ}
 # Container image tag is decoupled: spark.kubernetes.container.image uses
 # EMR_IMAGE_VERSION (any custom image you copied into ECR, e.g. 8.100.0).
-# export SELECTED_AZ=${SELECTED_AZ}
 # The zone selector is emitted only when an AZ was actually chosen. An empty
 # SELECTED_AZ must not become `"...zone": ""` -- that is a nodeSelector matching
 # nodes whose zone label is the empty string, i.e. nothing, so the pod would sit
