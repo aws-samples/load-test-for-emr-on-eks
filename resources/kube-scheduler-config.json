@@ -1,0 +1,11 @@
+{
+  "nodeResourcesFit": {
+    "scoringStrategy": {
+      "type": "MostAllocated",
+      "resources": [
+        { "name": "cpu", "weight": 1 },
+        { "name": "memory", "weight": 1 }
+      ]
+    }
+  }
+}

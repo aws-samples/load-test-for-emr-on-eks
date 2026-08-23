@@ -309,16 +309,47 @@ def check_docker_daemon() -> tuple[bool, str]:
                    "start Docker Desktop (or your engine) before provisioning")
 
 
+def check_aws_cli_scheduler_support() -> tuple[bool, str]:
+    """Check that the AWS CLI knows ``update-cluster-config --kube-scheduler-config``.
+
+    infra-provision.sh step 10 turns on binpacking by setting the native EKS
+    kube-scheduler NodeResourcesFit scoring strategy to MostAllocated, which
+    needs AWS CLI v2 >= 2.36.21. An older CLI rejects the flag outright, and the
+    step sits AFTER cluster creation -- so without this gate provisioning dies
+    ~20 minutes in with a half-built cluster. Probing the help text (rather than
+    parsing a version string) matches what the script itself checks.
+    Returns (supported, detail).
+    """
+    if not shutil.which("aws"):
+        return False, "aws CLI NOT FOUND on PATH"
+    proc = subprocess.run(
+        ["aws", "eks", "update-cluster-config", "help"],
+        capture_output=True, text=True, timeout=60,
+    )
+    version = subprocess.run(
+        ["aws", "--version"], capture_output=True, text=True, timeout=30,
+    ).stdout.strip() or "unknown version"
+    if "--kube-scheduler-config" in (proc.stdout or ""):
+        return True, f"{version} supports --kube-scheduler-config"
+    return False, (f"{version} does NOT support 'aws eks update-cluster-config "
+                   "--kube-scheduler-config' (needs AWS CLI v2 >= 2.36.21); "
+                   "infra-provision.sh step 10 would fail after the cluster is "
+                   "created -- upgrade the CLI first")
+
+
 def check_provisioning_prerequisites() -> dict:
     """Preflight for provision_infra: CLI tools + a running Docker daemon.
 
     infra-provision.sh needs the always-required binaries (aws/kubectl/git/
-    bash) PLUS eksctl/helm/docker/jq, and Docker's daemon must be up to build
-    the images. Returns a dict with ``tools`` (list of (name, present, detail)
-    covering both sets), ``docker`` ((running, detail)), a ``missing`` list of
-    the tool names that aren't installed, and an ``ok`` flag (True only when
-    every tool is present AND the daemon is reachable). provision_infra calls
-    this and refuses to launch the long job when ``ok`` is False.
+    bash) PLUS eksctl/helm/docker/jq, Docker's daemon must be up to build the
+    images, and the AWS CLI must be new enough for the native kube-scheduler
+    binpacking config (step 10). Returns a dict with ``tools`` (list of
+    (name, present, detail) covering both sets), ``docker`` ((running, detail)),
+    ``aws_cli_scheduler`` ((supported, detail)), a ``missing`` list of the tool
+    names that aren't installed, and an ``ok`` flag (True only when every tool
+    is present, the daemon is reachable, AND the CLI supports the scheduler
+    flag). provision_infra calls this and refuses to launch the long job when
+    ``ok`` is False.
     """
     seen: dict[str, tuple[bool, str]] = {}
     rows: list[tuple[str, bool, str]] = []
@@ -332,11 +363,13 @@ def check_provisioning_prerequisites() -> dict:
 
     missing = [name for name, present, _d in rows if not present]
     docker_running, docker_detail = check_docker_daemon()
+    sched_ok, sched_detail = check_aws_cli_scheduler_support()
     return {
         "tools": rows,
         "docker": (docker_running, docker_detail),
+        "aws_cli_scheduler": (sched_ok, sched_detail),
         "missing": missing,
-        "ok": not missing and docker_running,
+        "ok": not missing and docker_running and sched_ok,
     }
 
 

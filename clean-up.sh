@@ -244,7 +244,9 @@ cleanup_cluster() {
     safe_run "Delete prometheus namespace" kubectl delete namespace prometheus --ignore-not-found --wait=false
     safe_run "Delete metrics server" kubectl delete -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml --ignore-not-found
     safe_run "Uninstall AWS LB Controller" helm uninstall aws-load-balancer-controller -n kube-system
-    safe_run "Uninstall custom-scheduler-eks" helm uninstall custom-scheduler-eks -n kube-system
+    # No binpacking scheduler to uninstall: it is a native EKS control plane
+    # setting on the cluster itself (kube-scheduler MostAllocated scoring), so it
+    # disappears with the cluster in step 11.
     safe_run "Delete karpenter-svcmonitor" kubectl delete -f ./resources/monitor/karpenter-svcmonitor.yaml --ignore-not-found
     safe_run "Delete aws-cni-podmonitor" kubectl delete -f ./resources/monitor/aws-cni-podmonitor.yaml --ignore-not-found
     safe_run "Delete locust-podmonitor" kubectl delete -f ./resources/monitor/locust-podmonitor.yaml --ignore-not-found
@@ -481,7 +483,6 @@ rm -f ./resources/karpenter/cloudformation-${KARPENTER_VERSION}.yaml
 rm -f ./resources/karpenter/karpenter-${KARPENTER_VERSION}.yaml
 rm -f ./resources/karpenter/nodeclass-${KARPENTER_VERSION}.yaml
 rm -f ./locust/env.sh
-rm -rf ./custom-scheduler-eks
 rm -f ./resources/*.yaml=
 rm -f ./resources/karpenter/*=
 rm -f ./locust/locust-operator/*=

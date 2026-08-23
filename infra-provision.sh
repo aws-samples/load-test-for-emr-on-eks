@@ -6,8 +6,9 @@
 
 # Idempotent provisioning: works for a NEW cluster or an EXISTING one. Each
 # component (EKS cluster, gp3 StorageClass, EBS CSI, CoreDNS, ALB controller,
-# BinPacking, Prometheus/Grafana, EMR roles, Karpenter) is only created/installed
-# if it isn't already present, so re-running fills in only what's missing.
+# BinPacking scheduler config, Prometheus/Grafana, EMR roles, Karpenter) is only
+# created/installed if it isn't already present, so re-running fills in only
+# what's missing.
 
 source env.sh
 
@@ -209,18 +210,24 @@ fi
 echo "==============================================="
 echo " 10. Setup BinPacking ......"
 echo "==============================================="
-echo "Setup BinPacking"
-if helm status custom-scheduler-eks -n kube-system >/dev/null 2>&1; then
-    echo "BinPacking custom-scheduler-eks already installed. Skipping."
-else
-    [ -d custom-scheduler-eks ] || git clone https://github.com/aws-samples/custom-scheduler-eks
-    helm upgrade --install custom-scheduler-eks custom-scheduler-eks/deploy/charts/custom-scheduler-eks \
-    -n kube-system \
-    --set eksVersion="$EKS_VERSION" \
-    --set schedulerName="custom-scheduler-eks" \
-    -f ./resources/binpacking-values.yaml
-fi
+# Requires Kubernetes 1.31+ (env.sh pins EKS_VERSION well above that) and an AWS
+# CLI new enough to know --kube-scheduler-config (>= 2.36.21). 
+echo "Setup BinPacking via native EKS kube-scheduler feature"
+echo "Ensure your AWS CLI version >= 2.36.21"
 
+CURRENT_SCORING=$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+    --query 'cluster.kubeSchedulerConfig.nodeResourcesFit.scoringStrategy.type' \
+    --output text 2>/dev/null || true)
+
+if [ "$CURRENT_SCORING" = "MostAllocated" ]; then
+    echo "kube-scheduler scoringStrategy already MostAllocated. Skipping."
+else
+    echo "Current scoringStrategy: ${CURRENT_SCORING:-unset} -> setting MostAllocated"
+    aws eks update-cluster-config \
+        --name "${CLUSTER_NAME}" \
+        --region "${AWS_REGION}" \
+        --kube-scheduler-config "file://resources/kube-scheduler-config.json"
+fi
 
 echo "==============================================="
 echo " 11. Create EMR on EKS Execution Role ......"

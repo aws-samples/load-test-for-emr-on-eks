@@ -22,7 +22,7 @@ curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/d
 sudo mv -v /tmp/eksctl /usr/local/bin
 eksctl version
 ```
-- Update AWS CLI to the latest (requires aws cli version >= 2.17.45) on macOS. Check out the [link](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) for Linux or Windows
+- Update AWS CLI to the latest (requires aws cli version >= 2.36.21) on macOS. Check out the [link](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) for Linux or Windows
 ```bash
 curl "https://awscli.amazonaws.com/AWSCLIV2.pkg" -o "AWSCLIV2.pkg"
 sudo installer -pkg ./AWSCLIV2.pkg -target /
@@ -240,7 +240,7 @@ load-test run, so they are not part of this decision.
 
 | Tool | Description | Parameters |
 | --- | --- | --- |
-| `provision_infra` | Start `infra-provision.sh` (EKS cluster, EBS CSI, Karpenter, binpacking scheduler, Prometheus/Grafana, EMR on EKS, ECR image builds) in the background. Takes 20-40+ min; follow with `get_job_log('provision-infra')`. | none |
+| `provision_infra` | Start `infra-provision.sh` (EKS cluster, EBS CSI, Karpenter, native kube-scheduler binpacking config, Prometheus/Grafana, EMR on EKS, ECR image builds) in the background. Takes 20-40+ min; follow with `get_job_log('provision-infra')`. | none |
 | `provision_locust_operator` | Install the Locust Kubernetes operator via `locust-provision.sh` (creates the IRSA role and installs the Helm chart). Runs in the background; follow with `get_job_log('provision-locust')`. | none |
 
 ### Run & monitor

@@ -99,14 +99,14 @@ Skip this step if you are using an existing EKS cluster. If required, install mi
 - [Auto Scaler](https://aws.github.io/aws-emr-containers-best-practices/troubleshooting/docs/eks-cluster-auto-scaler/)
 - [EBS CSI Driver Addon](https://docs.aws.amazon.com/eks/latest/userguide/ebs-csi.html)
 - [Karpenter](https://aws.github.io/aws-emr-containers-best-practices/troubleshooting/docs/karpenter/)
-- [BinPacking scheduler](https://awslabs.github.io/data-on-eks/docs/resources/binpacking-custom-scheduler-eks) 
+- [BinPacking via native EKS control plane configuration](https://aws.amazon.com/blogs/containers/introducing-advanced-kubernetes-control-plane-configuration-in-amazon-eks/) (kube-scheduler `scoringStrategy: MostAllocated`)
 
 Monitoring uses the open-source [kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack) (Prometheus with its built-in Grafana), installed in-cluster by the provisioning script. No Amazon Managed Prometheus (AMP) or Amazon Managed Grafana (AMG) workspaces are created.
 
 #### 1. If needed, modify the following configurations before provisioning the environment
 - For EKS cluster, update [./resources/eks-cluster-values.yaml](./resources/eks-cluster-values.yaml)
 - For autoscaler, modify [./resources/autoscaler-values.yaml](./resources/autoscaler-values.yaml)
-- For custom k8s scheduler, update [./resources/binpacking-values.yaml](./resources/binpacking-values.yaml)
+- For the binpacking scheduler scoring strategy (resource weights), update [./resources/kube-scheduler-config.json](./resources/kube-scheduler-config.json)
 - For Karpenter, update yaml files under [./resources/karpenter/](./resources/karpenter/)
 - For Prometheus, update [./resources/monitor/prometheus-values.yaml](./resources/monitor/prometheus-values.yaml)
 - For Prometheus PodMonitor and ServiceMonitor settings, update files under [./resources/monitor](./resources/monitor)
@@ -275,16 +275,51 @@ The number of Kubernetes events in EKS emitted by Spark jobs increases significa
 ### 3. Binpacking Application Pods
 
 There are two types of binpacking:
-- **Custom Kubernetes scheduler** - binpack at pod creation time
+- **Native EKS kube-scheduler configuration** - binpack at pod creation time
 - **Karpenter's consolidation feature** - binpack pods or replace underutilized nodes during job runtime
 
-**Binpack at Pod Launch Time** - A custom Kubernetes scheduler can efficiently assign pods to the least allocated nodes before a new node is requested. The goal is to optimize resource utilization by packing pods as tightly as possible onto a single node while still meeting resource requirements and constraints.
+**Binpack at Pod Launch Time** - Kubernetes' default scheduler scores candidate nodes with the `NodeResourcesFit` plugin, whose upstream default strategy is `LeastAllocated` — it *spreads* pods across nodes. [Advanced Kubernetes control plane configuration in Amazon EKS](https://aws.amazon.com/blogs/containers/introducing-advanced-kubernetes-control-plane-configuration-in-amazon-eks/) lets us flip that scoring strategy to `MostAllocated`, so the built-in scheduler packs pods as tightly as possible onto already-utilized nodes before a new node is requested, while still honoring resource requirements and constraints.
 
-This approach aims to maximize cluster efficiency, reduce costs, and improve overall Spark job shuffle I/O performance by minimizing the number of active nodes required to run the workload. With binpacking enabled, workloads can minimize resources used on network traffic between physical nodes, as most pods will be allocated to a single node at launch time. The Spark configuration at job submission looks like this:
+This approach aims to maximize cluster efficiency, reduce costs, and improve overall Spark job shuffle I/O performance by minimizing the number of active nodes required to run the workload. With binpacking enabled, workloads can minimize resources used on network traffic between physical nodes, as most pods will be allocated to a single node at launch time.
+
+This project sets it in `infra-provision.sh` step 10 (idempotent — it skips the call when the strategy is already `MostAllocated`):
 
 ```bash
-"spark.kubernetes.scheduler.name": "custom-scheduler-eks"
+aws eks update-cluster-config \
+  --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+  --kube-scheduler-config file://./resources/kube-scheduler-config.json
+# the update is asynchronous; wait for the control plane to come back
+aws eks wait cluster-active --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
 ```
+
+with [./resources/kube-scheduler-config.json](./resources/kube-scheduler-config.json):
+
+```json
+{
+  "nodeResourcesFit": {
+    "scoringStrategy": {
+      "type": "MostAllocated",
+      "resources": [
+        { "name": "cpu", "weight": 1 },
+        { "name": "memory", "weight": 1 }
+      ]
+    }
+  }
+}
+```
+
+Verify with:
+```bash
+aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+  --query 'cluster.kubeSchedulerConfig'
+```
+
+**Notes:**
+- **No job-level scheduler override.** This changes the *default* scheduler every pod already uses, so **no** `spark.kubernetes.scheduler.name` is set at job submission. Naming a custom scheduler would bypass the packing config.
+- **Requirements.** Kubernetes 1.31+ and AWS CLI v2 >= 2.36.21 (older CLIs reject `--kube-scheduler-config`). `eksctl` support is not available yet, so this runs as a post-create `update-cluster-config` rather than in the cluster manifest.
+- **Cluster-wide.** It affects every workload on the cluster, including the operational pods, not just Spark.
+- **Pod constraints still win.** Node affinity, taints/tolerations and topology spread continue to take precedence over scoring — so the Kyverno same-AZ podAffinity policy in this project still governs placement.
+- **Scheduling ≠ node lifecycle.** It does not change how Karpenter provisions or consolidates nodes; the two layers are configured independently.
 
 **Binpack at Runtime** - Launch-time binpacking doesn't solve resource wastage or cost spikes caused by frequent pod terminations, such as by Spark's Dynamic Resource Allocation (DRA). That's why another binpacking feature needs to coexist in our use case: enable Karpenter's consolidation feature (only for executor NodePools) to maximize pod density during job runtime.
 
@@ -336,7 +371,7 @@ extraArgs:
 - **Monitor CAS logs:** Watch for throttling errors or scaling failures
 - **Set appropriate cooldown:** Balance between rapid scaling and API throttling
 
-**Karpenter** - In this project, we only provision load test jobs with Karpenter; the rest of operational pods (e.g., Prometheus, Karpenter, Binpacking) are scheduled in a fixed-size operational managef NodeGroup, outside of Karpenter's control.
+**Karpenter** - In this project, we only provision load test jobs with Karpenter; the rest of operational pods (e.g., Prometheus, Karpenter, Kyverno) are scheduled in a fixed-size operational managef NodeGroup, outside of Karpenter's control. (Binpacking no longer runs a pod — it is an EKS control plane setting, see [Binpacking Application Pods](#3-binpacking-application-pods).)
 
 **Karpenter NodePool configuration:**
 To apply best practices for cost and performance, we utilize the `topology.kubernetes.io/zone` node selector to ensure all Spark pods in a single job are allocated to the same AZ:

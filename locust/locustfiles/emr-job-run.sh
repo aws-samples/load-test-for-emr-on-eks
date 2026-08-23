@@ -5,8 +5,12 @@
 # EMR_CONTAINERS_ENDPOINT_URL to a gamma (non-prod) endpoint to avoid production
 # impact, e.g. export EMR_CONTAINERS_ENDPOINT_URL=https://emr-containers-gamma.us-west-2.amazonaws.com
 # Leave it unset to use the default production endpoint.
-
-# "spark.kubernetes.scheduler.name": "custom-scheduler-eks",
+#
+# NOTE: no spark.kubernetes.scheduler.name is set on purpose. Binpacking is now
+# a cluster-wide EKS control plane setting (kube-scheduler NodeResourcesFit
+# scoringStrategy = MostAllocated, see infra-provision.sh step 10), so the
+# default scheduler already packs pods -- naming a custom scheduler here would
+# bypass it.
 
 export SHARED_PREFIX_NAME=emr-on-$CLUSTER_NAME
 export ACCOUNTID=$(aws sts get-caller-identity --query Account --output text)

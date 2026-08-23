@@ -759,7 +759,8 @@ def validate_cluster_components(
       - gp3 StorageClass (exists; default preferred)
       - EBS CSI driver (controller Running)
       - CoreDNS with >= 3 replicas
-      - Binpacking custom scheduler (custom-scheduler-eks Running)
+      - Binpacking: the cluster's native kube-scheduler NodeResourcesFit
+        scoringStrategy is MostAllocated (pack), not the LeastAllocated default
       - Prometheus operator + built-in Grafana (Running)
       - Kyverno admission controller (available) + count of policies in force
         (0 policies is the provisioned default and is not a failure)
@@ -874,15 +875,27 @@ def validate_cluster_components(
                  f"readyReplicas={dns_ready}" if dns else "coredns deployment not found")]
 
     def check_binpacking() -> list[tuple[str, bool, str]]:
-        bp = kj(["get", "pods", "-n", "kube-system", "-l", "app=custom-scheduler-eks"])
-        bp_items = (bp or {}).get("items", [])
-        if not bp_items:  # fall back to a name match if the label differs
-            allpods = kj(["get", "pods", "-n", "kube-system"])
-            bp_items = [p for p in (allpods or {}).get("items", [])
-                        if "custom-scheduler" in p["metadata"]["name"]]
-        bp_ok = bool(bp_items) and any(p.get("status", {}).get("phase") == "Running" for p in bp_items)
-        return [("Binpacking scheduler", bp_ok,
-                 "custom-scheduler-eks running" if bp_ok else "custom-scheduler-eks not found/not running")]
+        # Binpacking is a native EKS control plane setting, not a workload: the
+        # built-in kube-scheduler's NodeResourcesFit scoring strategy is set to
+        # MostAllocated (infra-provision.sh step 10). So read it off the cluster
+        # description we already fetched -- there is no scheduler pod to probe.
+        # Anything other than MostAllocated (including unset, i.e. upstream's
+        # LeastAllocated) means pods spread instead of pack.
+        scoring = (cluster.get("kubeSchedulerConfig", {})
+                          .get("nodeResourcesFit", {})
+                          .get("scoringStrategy", {}))
+        stype = scoring.get("type")
+        weights = ", ".join(
+            f"{r.get('name')}={r.get('weight')}" for r in scoring.get("resources", []))
+        detail = (f"kube-scheduler scoringStrategy={stype}"
+                  + (f" (weights: {weights})" if weights else "")
+                  ) if stype else (
+            "kube-scheduler scoringStrategy not set (defaults to LeastAllocated "
+            "= spread); run provision_infra step 10. NOTE: an AWS CLI older than "
+            "2.36.21 omits kubeSchedulerConfig from describe-cluster, so upgrade "
+            "the CLI before trusting this as a real failure")
+        return [("Binpacking (kube-scheduler MostAllocated)",
+                 stype == "MostAllocated", detail)]
 
     def check_monitoring() -> list[tuple[str, bool, str]]:
         # kube-prometheus-stack labels the operator with component=prometheus-operator
@@ -1221,15 +1234,17 @@ def provision_infra(force: bool = False) -> str:
     """Provision the EKS cluster and all components via infra-provision.sh.
 
     Starts the long-running ``infra-provision.sh`` (EKS cluster, EBS CSI,
-    Karpenter, binpacking scheduler, Prometheus/Grafana, EMR on EKS, and builds
-    the Spark + Locust ECR images) in the background. This can take 20-40+
-    minutes. Follow progress with ``get_job_log('provision-infra')``.
+    Karpenter, native kube-scheduler binpacking config, Prometheus/Grafana, EMR
+    on EKS, and builds the Spark + Locust ECR images) in the background. This can
+    take 20-40+ minutes. Follow progress with ``get_job_log('provision-infra')``.
 
     Before launching, this runs a prerequisite preflight: the command-line
     tools infra-provision.sh depends on (aws, kubectl, git, bash, eksctl, helm,
-    docker, jq) must be installed AND the Docker daemon must be running (the
+    docker, jq) must be installed, the Docker daemon must be running (the
     script builds/pushes container images; a stopped Docker Desktop makes the
-    build fail and leaves empty ECR repos). If anything is missing the job is
+    build fail and leaves empty ECR repos), and the AWS CLI must be new enough
+    (>= 2.36.21) for ``update-cluster-config --kube-scheduler-config``, which
+    step 10 uses to enable binpacking. If anything is missing the job is
     NOT started -- instead this returns what to fix and PAUSES so you can ask
     the user whether to install/start the missing pieces. Pass ``force=True``
     to skip the preflight and launch anyway (only after the user opts in).
@@ -1244,6 +1259,8 @@ def provision_infra(force: bool = False) -> str:
             rows = [(present, name, detail) for name, present, detail in pre["tools"]]
             d_running, d_detail = pre["docker"]
             rows.append((d_running, "docker daemon", d_detail))
+            s_ok, s_detail = pre["aws_cli_scheduler"]
+            rows.append((s_ok, "aws CLI kube-scheduler config", s_detail))
             return fmt.section(
                 "Provisioning paused",
                 fmt.note(False, "Prerequisites not met — not launching "
