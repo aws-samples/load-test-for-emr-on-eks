@@ -91,8 +91,7 @@ pip install "git+https://github.com/aws-samples/load-test-for-emr-on-eks@load-te
 > branch**, which does not contain the MCP and carries
 > unrelated configs. Set `LOADTEST_REPO_BRANCH=load-test-mcp` in the server's
 > environment when you register it (shown in the command below) so the
-> artifacts come from the correct branch as needed. Drop it once
-> `loadtest_mcp/` is merged to the default branch.
+> artifacts come from the correct branch as needed.
 
 Then register with **AIM**, **Claude Code**, or **Kiro CLI** using the following command:
 
