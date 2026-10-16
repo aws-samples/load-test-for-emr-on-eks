@@ -46,4 +46,8 @@ spec:
                         # Dots in the label key must be JMESPath-quoted, hence
                         # the escaped inner quotes.
                         emr-containers.amazonaws.com/job.id: "{{ request.object.metadata.labels.\"emr-containers.amazonaws.com/job.id\" }}"
+                    namespaceSelector:
+                      matchExpressions:
+                      - key: kubernetes.io/metadata.name
+                        operator: Exists    
                     topologyKey: topology.kubernetes.io/zone
