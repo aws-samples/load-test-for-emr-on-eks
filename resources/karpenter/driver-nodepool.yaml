@@ -35,7 +35,6 @@ spec:
         - 2xlarge
         - 4xlarge
         - 8xlarge
-        - 12xlarge
       - key: karpenter.k8s.aws/instance-category
         operator: In
         values: ["m", "c"]
