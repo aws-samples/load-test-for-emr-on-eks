@@ -1,39 +1,114 @@
-
+# Design:
+#   The AZ is chosen by the client, not by the scheduler:
+#     - submit-job.sh sets the following nodeSelector on the user-namespace
+#        jobsubmitter.node.selector.topology.kubernetes.io/zone: <zone>
+# Net effect:
+#   - The user-namespace submitter explicitly anchors the job to one AZ.
+#   - All other pods in the same job, including the LF FGAC system-space pods,
+#     inherit that AZ at admission time.
+#   - Jobs without a zone-pinned submitter fall back to pod affinity, where the
+#     first successfully scheduled job pod anchors the AZ.
+#   - Cross-AZ shuffle traffic is eliminated within each job, while AZ selection
+#     remains distributed across jobs by the client-side round-robin.
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
   name: emr-job-pods-same-az
   annotations:
-    policies.kyverno.io/title: EMR on EKS Spark Job AZ Balancing
+    policies.kyverno.io/title: EMR on EKS Spark Job Single-AZ Co-location
     policies.kyverno.io/category: Scheduling
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/subject: Pod
     policies.kyverno.io/description: >-
-      Unified two-rule policy for EMR on EKS Spark workloads:
-      Rule 1 (INTRA-JOB): Co-locate all pods of the same job
-      (driver, executors, FGAC pods) in the same AZ as the submitters
-      via podAffinity on job.id.
-
-      Rule 2 (INTER-JOB): Spread job submitters across AZs via TSC so
-      Karpenter provisions nodes in balanced zones. maxSkew=2 allows
-      a pair of submitters from the same job to co-locate.
-
-      Net effect: Jobs are evenly distributed across AZs, and all pods
-      within a job share the same AZ — eliminating cross-AZ shuffle
-      traffic and balancing capacity/IP usage.
+      Pins all pods belonging to one EMR on EKS job to the same Availability Zone.
+      The user-namespace job submitter carries an explicit zone nodeSelector, which
+      is copied to every other pod in the job. Jobs without a zone-pinned submitter
+      use required pod affinity, allowing the first scheduled pod to anchor the AZ.
+      This avoids cross-AZ Spark shuffle traffic while preserving client-controlled
+      AZ balancing across jobs.
 spec:
+  admission: true
   background: false
+  emitWarning: false
+  validationFailureAction: Audit
   rules:
-    # ══════════════════════════════════════════════════════════════════════
-    # Rule 1: INTRA-JOB — Co-locate driver, executors, FGAC pods
-    #         in the same AZ as the job's submitters
-    # ══════════════════════════════════════════════════════════════════════
-    - name: colocate-job-pods-in-one-zone
+    # ────────────────────────────────────────────────────────────────────────
+    # Rule 1: INHERIT SUBMITTER ZONE
+    # For every newly created EMR job pod, look up the job-runner submitter pod
+    # carrying a zone nodeSelector. Copy that zone into the new pod's nodeSelector.
+    #
+    # This is a hard, admission-time constraint:
+    #   - It does not depend on which pod binds to a node first.
+    #   - It applies to driver, executors, and LF FGAC system-space pods.
+    #   - Pods that already specify a zone are left unchanged.
+    #
+    # If no zone-pinned submitter exists, this rule does nothing and Rule 2
+    # provides the pod-affinity fallback.
+    # ────────────────────────────────────────────────────────────────────────
+    - name: inherit-submitter-zone
+      skipBackgroundRequests: true
       match:
         any:
           - resources:
               kinds:
                 - Pod
+              operations:
+                - CREATE
               namespaces:
-                - emr-*
+                - "emr-*"
+              selector:
+                matchExpressions:
+                  - key: emr-containers.amazonaws.com/job.id
+                    operator: Exists
+      context:
+        # Both job-runner pods, in the user and system namespaces, have
+        # component=job.submitter. Only the user-namespace submitter carries
+        # the zone nodeSelector, so select the first matching submitter pod.
+        - name: submitterZone
+          apiCall:
+            urlPath: >-
+              /api/v1/pods?labelSelector=emr-containers.amazonaws.com/job.id={{ request.object.metadata.labels."emr-containers.amazonaws.com/job.id" }},emr-containers.amazonaws.com/component=job.submitter
+            jmesPath: >-
+              items[?spec.nodeSelector."topology.kubernetes.io/zone"]
+              | [0].spec.nodeSelector."topology.kubernetes.io/zone" || ''
+      preconditions:
+        all:
+          # Do not modify a pod that already selects an AZ,
+          # such as the user-namespace submitter itself.
+          - key: '{{ request.object.spec.nodeSelector."topology.kubernetes.io/zone" || '''' }}'
+            operator: Equals
+            value: ""
+          # If no zone-pinned submitter was found, skip this rule so that
+          # the pod-affinity fallback in Rule 2 can apply.
+          - key: "{{ submitterZone }}"
+            operator: NotEquals
+            value: ""
+      mutate:
+        patchStrategicMerge:
+          spec:
+            nodeSelector:
+              topology.kubernetes.io/zone: "{{ submitterZone }}"
+
+    # ────────────────────────────────────────────────────────────────────────
+    # Rule 2: COLOCATE JOB PODS IN ONE ZONE
+    # Fallback for jobs submitted without a zone-pinned submitter.
+    #
+    # Adds required pod affinity on emr-containers.amazonaws.com/job.id so all
+    # pods of the same job schedule in the same AZ. The first pod that binds
+    # becomes the AZ anchor; subsequent driver, executor, and FGAC pods must
+    # follow it.
+    # ────────────────────────────────────────────────────────────────────────
+    - name: colocate-job-pods-in-one-zone
+      skipBackgroundRequests: true
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              operations:
+                - CREATE
+              namespaces:
+                - "emr-*"
               selector:
                 matchExpressions:
                   - key: emr-containers.amazonaws.com/job.id
@@ -46,40 +121,10 @@ spec:
                 requiredDuringSchedulingIgnoredDuringExecution:
                   - labelSelector:
                       matchLabels:
-                        emr-containers.amazonaws.com/job.id: "{{ request.object.metadata.labels.\"emr-containers.amazonaws.com/job.id\" }}"
+                        emr-containers.amazonaws.com/job.id: >-
+                          {{ request.object.metadata.labels."emr-containers.amazonaws.com/job.id" }}
                     namespaceSelector:
                       matchExpressions:
                         - key: kubernetes.io/metadata.name
                           operator: Exists
                     topologyKey: topology.kubernetes.io/zone
-    # ══════════════════════════════════════════════════════════════════════
-    # Rule 2: INTER-JOB — Spread job submitters across AZs
-    # ══════════════════════════════════════════════════════════════════════
-    - name: spread-submitters-across-zones
-      match:
-        any:
-          - resources:
-              kinds:
-                - Pod
-              namespaces:
-                - "emr*"
-              selector:
-                matchLabels:
-                  emr-containers.amazonaws.com/component: job.submitter
-                matchExpressions:
-                  - key: emr-containers.amazonaws.com/job.id
-                    operator: Exists
-      mutate:
-        patchStrategicMerge:
-          spec:
-            topologySpreadConstraints:
-              - maxSkew: 1
-                topologyKey: topology.kubernetes.io/zone
-                whenUnsatisfiable: ScheduleAnyway
-                labelSelector:
-                  matchLabels:
-                    emr-containers.amazonaws.com/component: job.submitter
-                # Uncomment if your EKS cluster always has 3 AZs.
-                # Forces Karpenter to consider all zones even when
-                # some have 0 submitters. Requires K8s 1.30+ (GA).
-                # minDomains: 3
