@@ -76,6 +76,7 @@ ${EMR_CONTAINERS_ENDPOINT_URL:+--endpoint-url "$EMR_CONTAINERS_ENDPOINT_URL"} \
        {
         "classification": "emr-job-submitter",
         "properties": {
+            '"$SUBMITTER_AZ_SELECTOR"'
             "jobsubmitter.node.selector.karpenter.sh/nodepool": "executor-memorynodepool",
             "jobsubmitter.container.image.pullPolicy": "IfNotPresent",
             "jobsubmitter.logging": "DISABLED"
